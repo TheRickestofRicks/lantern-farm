@@ -8,7 +8,9 @@
     "buy": 0,
     "sell": 0,
     "end_turn": 0,
-    "pluck": 5
+    "pluck": 5,
+    "move": 10,
+    "eat": 0
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -56,5 +58,7 @@
         "snow": 50
       }
     }
-  }
+  },
+  "snacks_per_turn": 2,
+  "pass_out_energy": 50
 }

@@ -167,6 +167,7 @@ def farm_rules() -> str:
                 "seed_price": int(info.get("seed_price", 0)),
                 "sell_price": int(info.get("sell_price", 0)),
                 "seasons": list(info.get("seasons") or []),
+                "eat_energy": info.get("eat_energy", info.get("raw_energy")),
             }
         )
     payload = {
@@ -181,13 +182,21 @@ def farm_rules() -> str:
             "buy": energy_cost("buy", rules),
             "sell": energy_cost("sell", rules),
             "pluck": energy_cost("pluck", rules),
+            "move": energy_cost("move", rules),
+            "eat": energy_cost("eat", rules),
             "end_turn": energy_cost("end_turn", rules),
         },
+        "snacks_per_turn": int(rules.get("snacks_per_turn") or 2),
+        "pass_out_energy": int(rules.get("pass_out_energy") or 50),
         "weeds": rules.get("weeds") or {},
         "crops": catalog,
         "notes": [
             "The same engine and state.json as the CLI and web page.",
             "You can only act on your own turn.",
+            "You can only till, plant, water, harvest, or pluck the tile you are standing on.",
+            "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 10 energy, diagonals included.",
+            "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
+            "Eat a harvested crop with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the crop instead of selling it.",
             "The day advances when every player has ended their turn.",
         ],
     }
@@ -212,8 +221,8 @@ TOOL_SPECS = [
         "name": "farm_look",
         "description": (
             "Describe the farm for a player: day, weather, gold, whose turn, "
-            "energy, inventory, every tile, a 7-day forecast, legal actions, and the recent log. "
-            "Same text as `python3 cli.py look`."
+            "energy, where each player is standing, inventory, every tile, a 7-day forecast, "
+            "legal actions, and the recent log. Same text as `python3 cli.py look`."
         ),
         "inputSchema": {
             "type": "object",
@@ -230,9 +239,10 @@ TOOL_SPECS = [
     {
         "name": "farm_do",
         "description": (
-            "Run one farm command as a player: till, plant, water, harvest, "
-            "pluck, buy, sell, or end turn. Same commands and energy costs as "
-            "the CLI. Refused if it is not that player's turn."
+            "Run one farm command as a player: move, go cabin, till, plant, "
+            "water, harvest, pluck, eat, buy, sell, or end turn. You can only "
+            "work the tile you are standing on. Same commands and energy costs "
+            "as the CLI. Refused if it is not that player's turn."
         ),
         "inputSchema": {
             "type": "object",
@@ -283,7 +293,7 @@ TOOL_SPECS = [
     },
     {
         "name": "farm_rules",
-        "description": "Return energy costs, weed rules, crop prices, and the configured players.",
+        "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy), and the configured players.",
         "inputSchema": {
             "type": "object",
             "properties": {},

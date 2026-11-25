@@ -113,11 +113,124 @@ def energy_cost(action_verb: str, rules: dict | None = None) -> int:
     return 0
 
 
+def step_energy(rules: dict | None = None) -> int:
+    """Energy charged for any one step, including a diagonal."""
+    rules = rules or load_rules()
+    costs = rules.get("action_energy") or {}
+    if "move" in costs:
+        return int(costs["move"])
+    return int(rules.get("move_energy", 10))
+
+
+def snacks_per_turn(rules: dict | None = None) -> int:
+    rules = rules or load_rules()
+    return int(rules.get("snacks_per_turn", 2))
+
+
+def pass_out_energy(rules: dict | None = None) -> int:
+    rules = rules or load_rules()
+    return int(rules.get("pass_out_energy", 50))
+
+
+def eat_energy_for(crops: dict | None, kind: str) -> int | None:
+    """Energy restored by eating a harvested crop raw, or None if it is not edible."""
+    info = crop_info(crops or load_crops(), kind)
+    if not info:
+        return None
+    raw = info.get("eat_energy", info.get("raw_energy"))
+    if raw is None:
+        return None
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def in_bounds(row: int, col: int) -> bool:
+    return 1 <= int(row) <= ROWS and 1 <= int(col) <= COLS
+
+
+def is_cabin_at(row: int, col: int) -> bool:
+    return int(row) == CABIN_ROW and int(col) == CABIN_COL
+
+
+def plot_number(row: int, col: int) -> int:
+    return (int(row) - 1) * COLS + int(col)
+
+
+def describe_where(row: int, col: int) -> str:
+    if is_cabin_at(row, col):
+        return "in the cabin"
+    return f"at plot {plot_number(row, col)}"
+
+
+def player_where(state: dict, player: str) -> tuple[int, int]:
+    slot = player_slot(state, player)
+    try:
+        row = int(slot.get("row") or 0)
+        col = int(slot.get("col") or 0)
+    except (TypeError, ValueError):
+        row, col = 0, 0
+    if not in_bounds(row, col):
+        return CABIN_ROW, CABIN_COL
+    return row, col
+
+
+def set_player_where(state: dict, player: str, row: int, col: int) -> None:
+    slot = player_slot(state, player)
+    slot["row"] = int(row)
+    slot["col"] = int(col)
+
+
+def is_player_in_cabin(state: dict, player: str) -> bool:
+    row, col = player_where(state, player)
+    return is_cabin_at(row, col)
+
+
+def players_at(state: dict, row: int, col: int) -> list[str]:
+    found = []
+    for name in known_players():
+        here = player_where(state, name)
+        if here == (int(row), int(col)):
+            found.append(name)
+    return found
+
+
+def path_steps(src: tuple[int, int], dst: tuple[int, int]) -> list[tuple[int, int]]:
+    """Shortest path on the grid, 8-direction steps (Chebyshev)."""
+    row, col = src
+    goal_r, goal_c = dst
+    steps: list[tuple[int, int]] = []
+    while (row, col) != (goal_r, goal_c):
+        dr = 0 if row == goal_r else (1 if goal_r > row else -1)
+        dc = 0 if col == goal_c else (1 if goal_c > col else -1)
+        row, col = row + dr, col + dc
+        steps.append((row, col))
+    return steps
+
+
+def path_cost(src: tuple[int, int], dst: tuple[int, int], rules: dict | None = None) -> int:
+    return step_energy(rules) * len(path_steps(src, dst))
+
+
+def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
+    """Warning shown before ending a turn, and in the look/UI."""
+    rules = rules or load_rules()
+    cap = max_energy(rules)
+    faint = pass_out_energy(rules)
+    if is_player_in_cabin(state, player):
+        return f"You'll sleep in the cabin — {cap} energy tomorrow"
+    return f"You'll pass out in the field — {faint} energy tomorrow"
+
+
 def player_slot(state: dict, player: str) -> dict:
     players = state.setdefault("players", {})
     slot = players.setdefault(player, {})
     slot.setdefault("energy", 0)
     slot.setdefault("ended_turn", False)
+    slot.setdefault("row", CABIN_ROW)
+    slot.setdefault("col", CABIN_COL)
+    slot.setdefault("snacks_eaten", 0)
     return slot
 
 
@@ -567,20 +680,44 @@ def reset_state(crops: dict | None = None) -> dict:
 
 
 def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
-    """Start (or restart) a day: starting player's turn, both at full energy."""
+    """Start a day from last night's positions: cabin sleep is full energy, passing out is half."""
     from config import starting_player as config_starting_player
     rules = rules or load_rules()
-    energy = max_energy(rules)
+    cap = max_energy(rules)
+    faint = pass_out_energy(rules)
     starter = normalize_player(config_starting_player()) or normalize_player(rules.get("starting_player"))
-    players = list(known_players()) or [p for p in (rules.get("players") or [])]
+    names = list(known_players()) or [p for p in (rules.get("players") or [])]
+    existing = state.get("players") or {}
     slots = {}
-    for name in players:
+    for name in names:
         key = normalize_player(name) or (str(name).strip().lower() if name else None)
         if not key:
             continue
-        slots[key] = {"energy": energy, "ended_turn": False}
+        prev = existing.get(key) or {}
+        try:
+            row = int(prev.get("row") or 0)
+            col = int(prev.get("col") or 0)
+        except (TypeError, ValueError):
+            row, col = 0, 0
+        if not in_bounds(row, col):
+            row, col = CABIN_ROW, CABIN_COL
+        slept = is_cabin_at(row, col)
+        slots[key] = {
+            "energy": cap if slept else faint,
+            "ended_turn": False,
+            "row": CABIN_ROW if slept else row,
+            "col": CABIN_COL if slept else col,
+            "snacks_eaten": 0,
+        }
     for key in known_players():
-        slots.setdefault(key, {"energy": energy, "ended_turn": False})
+        if key not in slots:
+            slots[key] = {
+                "energy": cap,
+                "ended_turn": False,
+                "row": CABIN_ROW,
+                "col": CABIN_COL,
+                "snacks_eaten": 0,
+            }
     state["players"] = slots
     fallback = next(iter(slots), "player1")
     state["current_player"] = starter if starter in slots else fallback
@@ -618,11 +755,25 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
                 state["players"][key] = {
                     "energy": max_energy(rules),
                     "ended_turn": False,
+                    "row": CABIN_ROW,
+                    "col": CABIN_COL,
+                    "snacks_eaten": 0,
                 }
                 changed = True
             else:
-                state["players"][key].setdefault("energy", max_energy(rules))
-                state["players"][key].setdefault("ended_turn", False)
+                slot = state["players"][key]
+                slot.setdefault("energy", max_energy(rules))
+                slot.setdefault("ended_turn", False)
+                # Missing positions go to the cabin. Never change mid-turn energy.
+                if "row" not in slot or "col" not in slot:
+                    slot["row"] = CABIN_ROW
+                    slot["col"] = CABIN_COL
+                    changed = True
+                slot.setdefault("row", CABIN_ROW)
+                slot.setdefault("col", CABIN_COL)
+                if "snacks_eaten" not in slot:
+                    slot["snacks_eaten"] = 0
+                    changed = True
         return changed
     apply_new_day_turns(state, rules)
     return True
@@ -680,30 +831,45 @@ def end_turn(
         for name in (normalize_player(p) for p in (rules.get("players") or KNOWN_PLAYERS))
         if name
     )
+    night_notes = []
+    for name in known_players():
+        where = describe_where(*player_where(state, name))
+        if is_player_in_cabin(state, name):
+            night_notes.append(
+                f"{display_name(name)} slept in the cabin and wakes with {max_energy(rules)} energy."
+            )
+        else:
+            night_notes.append(
+                f"{display_name(name)} passed out {where} and wakes with {pass_out_energy(rules)} energy."
+            )
+    outlook = sleep_outlook(state, player, rules)
+    here = describe_where(*player_where(state, player))
     if everyone_done:
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
         nxt = state["current_player"]
         cap = max_energy(rules)
+        night = " ".join(night_notes)
         header = (
-            f"{display_name(player)} ends the turn. The day turns. {day_msg} "
-            f"It is {display_name(nxt)}'s turn, {cap} energy."
+            f"{display_name(player)} ends the turn {here}. {outlook}. "
+            f"The day turns. {day_msg} {night} "
+            f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
         )
         log_append(
             state,
-            f"{display_name(player)} ends the turn. A new day begins. "
+            f"{display_name(player)} ends the turn {here}. A new day begins. {night} "
             f"It is {display_name(nxt)}'s turn.",
             player,
         )
         return True, header
     nxt = other_player(player, rules)
     state["current_player"] = nxt
-    # The player receiving the turn starts it with a full energy bar.
-    if not player_slot(state, nxt).get("ended_turn"):
-        player_slot(state, nxt)["energy"] = max_energy(rules)
+    # Same-day handoff keeps the other player's energy for this day.
+    # (Passing out or sleeping is resolved when the day actually turns.)
+    cap = max_energy(rules)
     msg = (
-        f"{display_name(player)} ends the turn. "
-        f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{max_energy(rules)} energy."
+        f"{display_name(player)} ends the turn {here}. {outlook}. "
+        f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
     )
     log_append(state, msg, player)
     return True, msg
@@ -1102,7 +1268,150 @@ def sleep(state: dict, crops: dict, rules: dict | None = None) -> tuple[bool, st
     return advance_day(state, crops, rules)
 
 
+
+# --- movement and snacks -----------------------------------------------------
+
+MOVE_DELTA = {
+    "up": (-1, 0),
+    "down": (1, 0),
+    "left": (0, -1),
+    "right": (0, 1),
+}
+
+
+def _must_stand_here(state: dict, player: str, row: int, col: int) -> str | None:
+    here = player_where(state, player)
+    if here != (int(row), int(col)):
+        return (
+            f"{display_name(player)} is {describe_where(*here)}. "
+            f"Walk there before you can work that tile."
+        )
+    return None
+
+
+def move_one(state: dict, player: str, direction: str, rules: dict | None = None) -> tuple[bool, str]:
+    rules = rules or load_rules()
+    delta = MOVE_DELTA.get(direction)
+    if not delta:
+        return False, "Usage: move up, move down, move left, or move right"
+    row, col = player_where(state, player)
+    dest = (row + delta[0], col + delta[1])
+    if not in_bounds(*dest):
+        return False, "There's no farm that way."
+    cost = step_energy(rules)
+    slot = player_slot(state, player)
+    energy = int(slot["energy"])
+    if cost > energy:
+        return (
+            False,
+            f"Not enough energy. A step costs {cost}; "
+            f"{display_name(player)} has {energy} left.",
+        )
+    set_player_where(state, player, dest[0], dest[1])
+    slot["energy"] = energy - cost
+    return (
+        True,
+        f"{display_name(player)} walks {direction} to {describe_where(*dest)} ({cost} energy).",
+    )
+
+
+def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tuple[bool, str]:
+    rules = rules or load_rules()
+    dest_r, dest_c, err = parse_row_col(row, col)
+    if err:
+        return False, err
+    src = player_where(state, player)
+    dest = (dest_r, dest_c)
+    if src == dest:
+        return True, f"{display_name(player)} is already {describe_where(*dest)}."
+    steps = path_steps(src, dest)
+    cost = step_energy(rules) * len(steps)
+    slot = player_slot(state, player)
+    energy = int(slot["energy"])
+    if cost > energy:
+        return (
+            False,
+            f"Not enough energy. Walking {describe_where(*dest)} is {len(steps)} "
+            f"step(s) ({cost} energy); {display_name(player)} has {energy} left.",
+        )
+    set_player_where(state, player, dest_r, dest_c)
+    slot["energy"] = energy - cost
+    return (
+        True,
+        f"{display_name(player)} walks to {describe_where(*dest)} "
+        f"({len(steps)} step(s), {cost} energy).",
+    )
+
+
+def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    return move_to(state, player, CABIN_ROW, CABIN_COL, rules)
+
+
+def do_move_command(
+    state: dict,
+    player: str,
+    verb: str,
+    args: list[str],
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    rules = rules or load_rules()
+    tokens = [verb] + list(args)
+    # Drop a leading go/move/walk; treat "to" as optional.
+    words = [w.lower() for w in tokens]
+    if words and words[0] in {"move", "go", "walk"}:
+        words = words[1:]
+    if words and words[0] == "to":
+        words = words[1:]
+    if not words:
+        return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
+    if len(words) == 1 and words[0] in MOVE_DELTA:
+        return move_one(state, player, words[0], rules)
+    if words and words[0] in {"cabin", "home", "house"}:
+        return go_cabin(state, player, rules)
+    if len(words) == 2:
+        return move_to(state, player, words[0], words[1], rules)
+    return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
+
+
+def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Eat a harvested crop from the pack. Free, capped per turn, restores energy."""
+    rules = rules or load_rules()
+    raw_kind = (kind or "").strip().lower()
+    if raw_kind.endswith("_seed") or raw_kind.endswith(" seed"):
+        return False, "Seeds aren't a snack. Eat a harvested crop, like: eat carrot"
+    kind = normalize_kind(kind)
+    restore = eat_energy_for(crops, kind)
+    if restore is None:
+        if crop_info(crops, kind):
+            return False, f"{kind} isn't edible raw."
+        return False, f"Unknown crop '{kind}'. Try carrot, turnip, or kabocha."
+    have = int(state.setdefault("inventory", {}).get(kind, 0) or 0)
+    if have <= 0:
+        return False, f"No {kind} in the pack."
+    slot = player_slot(state, player)
+    eaten = int(slot.get("snacks_eaten") or 0)
+    cap_snacks = snacks_per_turn(rules)
+    if eaten >= cap_snacks:
+        return False, f"{display_name(player)} already had {cap_snacks} snacks this turn."
+    cap_e = max_energy(rules)
+    energy = int(slot["energy"])
+    if energy >= cap_e:
+        return False, f"{display_name(player)} is already at full energy. Sell it or save it."
+    gained = min(restore, cap_e - energy)
+    state["inventory"][kind] = have - 1
+    slot["energy"] = energy + gained
+    slot["snacks_eaten"] = eaten + 1
+    left = cap_snacks - (eaten + 1)
+    snack_bit = "No snacks left this turn." if left <= 0 else f"{left} snack(s) left this turn."
+    return (
+        True,
+        f"{display_name(player)} eats a {kind} and recovers {gained} energy "
+        f"({slot['energy']}/{cap_e}). {snack_bit}",
+    )
+
+
 # --- dispatcher --------------------------------------------------------------
+
 
 def is_end_turn_command(command: str) -> bool:
     is_end, _note = parse_end_turn_command(command)
@@ -1123,11 +1432,26 @@ def legal_actions(
         return []
     energy = int(player_slot(state, actor)["energy"]) if actor else max_energy(rules)
     actions: list[str] = []
+    here = player_where(state, actor) if actor else (CABIN_ROW, CABIN_COL)
+    step = step_energy(rules)
+    for direction, delta in MOVE_DELTA.items():
+        dest = (here[0] + delta[0], here[1] + delta[1])
+        if in_bounds(*dest) and energy >= step:
+            actions.append(f"move {direction}")
+    if not is_cabin_at(*here):
+        walk = path_cost(here, (CABIN_ROW, CABIN_COL), rules)
+        if energy >= walk:
+            actions.append("go cabin")
     for r, c, tile in iter_tiles(state):
-        if tile["type"] == "cabin":
+        if (r, c) == here:
             continue
+        walk = path_cost(here, (r, c), rules)
+        if energy >= walk:
+            actions.append(f"move to {r} {c}")
+    r, c = here
+    tile = get_tile(state, r, c)
+    if tile["type"] != "cabin":
         crop = tile.get("crop")
-        living = crop and crop.get("stage") not in (None, "withered")
         withered = bool(crop and crop.get("stage") == "withered")
         if (not crop or withered) and (not tile.get("tilled") or withered):
             if energy >= energy_cost("till", rules):
@@ -1148,13 +1472,18 @@ def legal_actions(
             actions.append(f"harvest {r} {c}")
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
-        _ = living  # kept for readability of the living/withered split
     for kind, info in crops.get("crops", {}).items():
         price = int(info["seed_price"])
         if int(state["gold"]) >= price:
             actions.append(f"buy {kind} 1")
         if int(state["inventory"].get(kind, 0)) > 0:
             actions.append(f"sell {kind} 1")
+            if (
+                eat_energy_for(crops, kind) is not None
+                and int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
+                and energy < max_energy(rules)
+            ):
+                actions.append(f"eat {kind}")
     actions.append("end turn")
     return actions
 
@@ -1197,6 +1526,46 @@ def do_action(
     if is_end:
         return end_turn(state, crops, actor, rules, note=note)
 
+    if verb in {"move", "go", "walk"}:
+        return do_move_command(state, actor, verb, args, rules)
+
+    if verb == "eat":
+        if len(args) != 1:
+            return False, "Usage: eat <crop>   example: eat carrot"
+        return eat(state, crops, args[0], actor, rules)
+
+    # Plot work is on the tile you're standing on. Coords are optional,
+    # but if given they must be the current tile.
+    here = player_where(state, actor)
+    plot_verbs = {"till", "plant", "water", "harvest", "pluck"}
+    if verb in plot_verbs:
+        if verb == "plant":
+            if len(args) == 1:
+                r, c = here
+                kind = args[0]
+            elif len(args) == 3:
+                r, c, err = parse_row_col(args[0], args[1])
+                if err:
+                    return False, err
+                kind = args[2]
+            else:
+                return False, "Usage: plant <kind>   or: plant <row> <col> <kind>"
+            stood = _must_stand_here(state, actor, r, c)
+            if stood:
+                return False, stood
+        else:
+            if len(args) == 0:
+                r, c = here
+            elif len(args) == 2:
+                r, c, err = parse_row_col(args[0], args[1])
+                if err:
+                    return False, err
+            else:
+                return False, f"Usage: {verb}   or: {verb} <row> <col>"
+            stood = _must_stand_here(state, actor, r, c)
+            if stood:
+                return False, stood
+
     cost = energy_cost(verb, rules)
     energy = int(player_slot(state, actor)["energy"])
     if cost > energy:
@@ -1207,21 +1576,13 @@ def do_action(
         )
 
     if verb == "till":
-        if len(args) != 2:
-            return False, "Usage: till <row> <col>   example: till 1 1"
-        ok, msg = till(state, crops, args[0], args[1], actor)
+        ok, msg = till(state, crops, r, c, actor)
     elif verb == "plant":
-        if len(args) != 3:
-            return False, "Usage: plant <row> <col> <kind>   example: plant 1 1 kabocha"
-        ok, msg = plant(state, crops, args[0], args[1], args[2], actor)
+        ok, msg = plant(state, crops, r, c, kind, actor)
     elif verb == "water":
-        if len(args) != 2:
-            return False, "Usage: water <row> <col>   example: water 1 1"
-        ok, msg = water(state, crops, args[0], args[1], actor)
+        ok, msg = water(state, crops, r, c, actor)
     elif verb == "harvest":
-        if len(args) != 2:
-            return False, "Usage: harvest <row> <col>   example: harvest 1 1"
-        ok, msg = harvest(state, crops, args[0], args[1], actor)
+        ok, msg = harvest(state, crops, r, c, actor)
     elif verb == "buy":
         if len(args) != 2:
             return False, "Usage: buy <kind> <count>   example: buy kabocha 2"
@@ -1231,13 +1592,12 @@ def do_action(
             return False, "Usage: sell <kind> <count>   example: sell kabocha 1"
         ok, msg = sell(state, crops, args[0], args[1], actor)
     elif verb == "pluck":
-        if len(args) != 2:
-            return False, "Usage: pluck <row> <col>   example: pluck 1 1"
-        ok, msg = pluck(state, crops, args[0], args[1], actor)
+        ok, msg = pluck(state, crops, r, c, actor)
     else:
         return (
             False,
-            "Unknown action. Try look, till, plant, water, harvest, pluck, buy, sell, or end turn.",
+            "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
+            "pluck, eat, buy, sell, or end turn.",
         )
 
     if ok and cost:

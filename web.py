@@ -20,7 +20,12 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from describe import describe_state
 from engine import (
+    CABIN_COL,
+    CABIN_ROW,
+    COLS,
+    ROWS,
     do_action,
+    is_player_in_cabin,
     legal_actions,
     load_crops,
     load_rules,
@@ -29,6 +34,7 @@ from engine import (
     migrate_state,
     normalize_player,
     session,
+    sleep_outlook,
     weather_forecast,
 )
 from hey_notify import maybe_notify_after_end_turn
@@ -348,9 +354,38 @@ PAGE = r"""<!DOCTYPE html>
       box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.45), 0 4px 0 #120c08;
     }
     button.tile:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+    button.tile.here {
+      box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.35), 0 4px 0 #120c08;
+    }
+    button.tile .avatars {
+      position: absolute;
+      top: 0.28rem;
+      right: 0.28rem;
+      display: flex;
+      gap: 3px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    button.tile .avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #fff4e0;
+      box-shadow: 0 1px 3px #120c08;
+      box-sizing: border-box;
+    }
+    button.tile .avatar.you {
+      box-shadow: 0 0 0 2px var(--gold2), 0 1px 3px #120c08;
+    }
     #status.auth-needed, #status.load-error {
       color: var(--bad);
       font-weight: 600;
+    }
+    .sleep-outlook {
+      margin: 0.45rem 0 0;
+      color: var(--gold);
+      font-size: 0.92rem;
+      line-height: 1.4;
     }
     .panel {
       background: var(--panel);
@@ -546,29 +581,31 @@ PAGE = r"""<!DOCTYPE html>
       <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
       <div class="forecast" id="forecast" hidden></div>
       <p class="keys" id="keys">
-        <kbd>1</kbd>–<kbd>9</kbd> select plot
-        · <kbd>T</kbd> till
-        · <kbd>W</kbd> water
-        · <kbd>P</kbd> plant
-        · <kbd>H</kbd> harvest
-        · <kbd>Q</kbd> pluck a weed
-        · <kbd>Shift</kbd>+<kbd>E</kbd> write a note
-        · <kbd>Enter</kbd> in the note box ends the turn
-        · <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
-        · <kbd>Esc</kbd> deselect
+        <kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> walk
+        &middot; <kbd>1</kbd>&ndash;<kbd>9</kbd> walk to that plot
+        &middot; <kbd>T</kbd> till
+        &middot; <kbd>W</kbd> water
+        &middot; <kbd>P</kbd> plant
+        &middot; <kbd>H</kbd> harvest
+        &middot; <kbd>Q</kbd> pluck a weed
+        &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
+        &middot; <kbd>Enter</kbd> in the note box ends the turn
+        &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
+        &middot; <kbd>Esc</kbd> deselect
       </p>
     </section>
     <aside class="panel">
       <div class="toast" id="toast"></div>
       <div class="inv" id="inv"></div>
       <h2>This tile</h2>
-      <p id="tile-desc">Click a plot to till, plant, water, harvest, or pluck a weed.</p>
+      <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div class="actions" id="tile-actions"></div>
       <div class="last-note" id="last-note" hidden></div>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
       </div>
+      <div class="sleep-outlook" id="sleep-outlook"></div>
       <div class="confirm-end" id="end-confirm" hidden>End your turn? Press <kbd>E</kbd> or <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel. A note in the box will be sent too.</div>
       <h2 style="margin-top:1.1rem">Shop</h2>
       <div id="shop"></div>
@@ -587,14 +624,17 @@ PAGE = r"""<!DOCTYPE html>
     const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
     const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
     const PLAYERS = __PLAYERS_JSON__;
+    const ROWS = __ROWS__;
+    const COLS = __COLS__;
+    const CABIN = __CABIN__;
     const CABIN_SHORT = __CABIN_SHORT__;
+    const AUTH_NEEDED = "This page needs your private farm link (see the URL file in local/).";
+    let pollTimer = null;
+    let authStopped = false;
     const CABIN_BY_WEATHER = __CABIN_BY_WEATHER__;
     const DEFAULT_PLAYER = __DEFAULT_PLAYER__;
     const PLAYER_NAMES = Object.fromEntries(PLAYERS.map(function (p) { return [p.id, p.name]; }));
     let PLAYER = (new URLSearchParams(location.search).get("player") || DEFAULT_PLAYER).toLowerCase();
-    const AUTH_NEEDED = "This page needs your private farm link (see the URL file in local/).";
-    let pollTimer = null;
-    let authStopped = false;
     function displayName(id) { return PLAYER_NAMES[id] || cap(id); }
     let selected = null;
     let lastSig = "";
@@ -603,6 +643,46 @@ PAGE = r"""<!DOCTYPE html>
     let endConfirm = false;
 
     function $(id) { return document.getElementById(id); }
+
+    const FALLBACK_COLORS = ["#6b8f3a", "#c47a3a", "#5a7ea6", "#a67a4a"];
+    function playerColor(id) {
+      for (let i = 0; i < PLAYERS.length; i++) {
+        if (PLAYERS[i].id === id) {
+          if (PLAYERS[i].color) return PLAYERS[i].color;
+          return FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+        }
+      }
+      return FALLBACK_COLORS[0];
+    }
+    function cabinPos(data) {
+      const c = (data && data.cabin) || CABIN || [1, 3];
+      return {r: c[0], c: c[1]};
+    }
+    function describeWhere(r, c, data) {
+      const cabin = cabinPos(data);
+      if (r === cabin.r && c === cabin.c) return "in the cabin";
+      const cols = COLS || 3;
+      return "at plot " + ((r - 1) * cols + c);
+    }
+    function standingFrom(data) {
+      data = data || lastData;
+      const players = (data && (data.players || (data.state && data.state.players))) || {};
+      const slot = players[PLAYER] || {};
+      const r = parseInt(slot.row, 10);
+      const c = parseInt(slot.col, 10);
+      if (r && c) return {r: r, c: c};
+      return cabinPos(data);
+    }
+    function whoAt(data, r, c) {
+      const players = (data && (data.players || (data.state && data.state.players))) || {};
+      const here = [];
+      for (let i = 0; i < PLAYERS.length; i++) {
+        const id = PLAYERS[i].id;
+        const slot = players[id] || {};
+        if (Number(slot.row) === r && Number(slot.col) === c) here.push(id);
+      }
+      return here;
+    }
 
     function invPhrase(inv) {
       const order = ["kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
@@ -706,6 +786,13 @@ PAGE = r"""<!DOCTYPE html>
         return displayName(name) + " <b>" + en + "/" + capE + "</b>" + ended;
       }
       const energyBits = PLAYERS.map(function (p) { return "<span>" + energyBit(p.id) + "</span>"; }).join("");
+      const placeBits = PLAYERS.map(function (p) {
+        const slot = players[p.id] || {};
+        const r = parseInt(slot.row, 10);
+        const c = parseInt(slot.col, 10);
+        const where = (r && c) ? describeWhere(r, c, data) : describeWhere(cabinPos(data).r, cabinPos(data).c, data);
+        return displayName(p.id) + " is " + where;
+      }).join(", ");
       $("status").innerHTML =
         "<span>Day <b>" + s.day + "</b></span>" +
         "<span><b>" + cap(s.season) + "</b></span>" +
@@ -713,6 +800,7 @@ PAGE = r"""<!DOCTYPE html>
         "<span class='gold'><b>" + s.gold + "G</b></span>" +
         "<span class='turn'>Turn: <b>" + displayName(current) + "</b></span>" +
         energyBits +
+        "<span>" + escapeHtml(placeBits) + "</span>" +
         "<span class='playing-as'>Playing as " + displayName(PLAYER) +
           (data.your_turn ? "" : " — waiting, it's " + displayName(current) + "'s turn") +
         "</span>";
@@ -720,7 +808,17 @@ PAGE = r"""<!DOCTYPE html>
       const endBtn = $("end-turn");
       if (endBtn) {
         endBtn.disabled = !data.your_turn;
-        endBtn.textContent = data.your_turn ? "End turn" : "Waiting for " + displayName(current);
+        if (!data.your_turn) {
+          endBtn.textContent = "Waiting for " + displayName(current);
+        } else if (data.in_cabin) {
+          endBtn.textContent = "Sleep in the cabin";
+        } else {
+          endBtn.textContent = "End turn (you'll pass out)";
+        }
+      }
+      const outlookEl = $("sleep-outlook");
+      if (outlookEl) {
+        outlookEl.textContent = data.your_turn ? (data.sleep_outlook || "") : "";
       }
       const noteBox = $("end-note");
       if (noteBox) {
@@ -748,27 +846,46 @@ PAGE = r"""<!DOCTYPE html>
 
       const grid = $("grid");
       grid.innerHTML = "";
-      for (let r = 1; r <= 3; r++) {
-        for (let c = 1; c <= 3; c++) {
+      const rows = ROWS || 3;
+      const cols = COLS || 3;
+      const stand = standingFrom(data);
+      for (let r = 1; r <= rows; r++) {
+        for (let c = 1; c <= cols; c++) {
           const tile = s.tiles[r-1][c-1];
           const key = data.sprites[r-1][c-1];
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "tile" + (tile.type === "cabin" ? " cabin" : "");
           if (selected && selected.r === r && selected.c === c) btn.classList.add("selected");
+          if (stand && stand.r === r && stand.c === c) btn.classList.add("here");
           btn.setAttribute("aria-label", tileName(r, c));
           const img = document.createElement("img");
           img.src = "/sprite/" + key + ".svg";
           img.alt = key.replace(/_/g, " ");
           const num = document.createElement("div");
           num.className = "keynum";
-          num.textContent = String((r - 1) * 3 + c);
+          num.textContent = String((r - 1) * cols + c);
           const lab = document.createElement("div");
           lab.className = "label";
           lab.textContent = tile.type === "cabin" ? "cabin" : ("r" + r + " c" + c);
           btn.appendChild(img);
           btn.appendChild(num);
           btn.appendChild(lab);
+          const here = whoAt(data, r, c);
+          if (here.length) {
+            const wrap = document.createElement("div");
+            wrap.className = "avatars";
+            for (let i = 0; i < here.length; i++) {
+              const id = here[i];
+              const mark = document.createElement("span");
+              mark.className = "avatar" + (id === PLAYER ? " you" : "");
+              mark.style.background = playerColor(id);
+              mark.title = displayName(id);
+              mark.setAttribute("aria-label", displayName(id));
+              wrap.appendChild(mark);
+            }
+            btn.appendChild(wrap);
+          }
           btn.addEventListener("click", function () {
             selected = {r: r, c: c};
             plantPick = null;
@@ -786,25 +903,41 @@ PAGE = r"""<!DOCTYPE html>
     function renderSelection(data) {
       const box = $("tile-actions");
       box.innerHTML = "";
-      if (!selected) {
-        $("tile-desc").textContent = "Click a plot, or press 1–9, then T till, W water, P plant, H harvest, Q pluck.";
+      const stand = standingFrom(data);
+      const focus = selected || stand;
+      if (!focus) {
+        $("tile-desc").textContent = "Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.";
         return;
       }
-      const r = selected.r, c = selected.c;
+      const r = focus.r, c = focus.c;
       const tile = data.state.tiles[r-1][c-1];
-      $("tile-desc").textContent = describeTile(tile, r, c);
+      let desc = describeTile(tile, r, c);
+      const occupants = whoAt(data, r, c).map(displayName);
+      if (occupants.length) desc += " " + occupants.join(" and ") + " standing here.";
+      if (stand && stand.r === r && stand.c === c) desc += " You are here.";
+      else desc += " You are " + describeWhere(stand.r, stand.c, data) + ".";
+      $("tile-desc").textContent = desc;
       if (!data.your_turn) {
         const who = cap(data.current_player || "the other player");
-        $("tile-desc").textContent = describeTile(tile, r, c) + " It's " + who + "'s turn.";
+        $("tile-desc").textContent = desc + " It's " + who + "'s turn.";
         return;
       }
+      if (stand && (stand.r !== r || stand.c !== c)) {
+        const walk = document.createElement("button");
+        walk.type = "button";
+        walk.className = "btn";
+        walk.textContent = "Walk here";
+        walk.addEventListener("click", function () { actCmd("move to " + r + " " + c); });
+        box.appendChild(walk);
+      }
+      const workR = stand.r, workC = stand.c;
       const prefix = [
-        "till " + r + " " + c,
-        "water " + r + " " + c,
-        "harvest " + r + " " + c,
-        "pluck " + r + " " + c
+        "till " + workR + " " + workC,
+        "water " + workR + " " + workC,
+        "harvest " + workR + " " + workC,
+        "pluck " + workR + " " + workC
       ];
-      const plantPrefix = "plant " + r + " " + c + " ";
+      const plantPrefix = "plant " + workR + " " + workC + " ";
       const legal = data.actions || [];
       for (const act of legal) {
         let show = false;
@@ -824,11 +957,8 @@ PAGE = r"""<!DOCTYPE html>
         b.addEventListener("click", function () { actCmd(act); });
         box.appendChild(b);
       }
-      if (!box.childNodes.length && tile && tile.type === "cabin") {
-        box.textContent = "";
-      }
       if (plantPick && plantPick.kinds && plantPick.kinds.length) {
-        renderPlantPicker(box, r, c, plantPick);
+        renderPlantPicker(box, workR, workC, plantPick);
       }
     }
 
@@ -882,6 +1012,10 @@ PAGE = r"""<!DOCTYPE html>
       if (!el) return;
       const show = !!(endConfirm && data && data.your_turn);
       el.hidden = !show;
+      if (show) {
+        const outlook = data.sleep_outlook || "End your turn?";
+        el.textContent = outlook + ". Press E or Enter to confirm, Esc to cancel. A note in the box will be sent too.";
+      }
     }
 
     function renderShop(data) {
@@ -895,10 +1029,12 @@ PAGE = r"""<!DOCTYPE html>
         row.className = "shop-item";
         const seeds = inv[kind + "_seed"] || 0;
         const fruit = inv[kind] || 0;
+        const eat = info.eat_energy;
         row.innerHTML = "<div><b>" + cap(kind) + "</b><br>" +
           info.grow_days + " days · seeds " + seeds + " · crop " + fruit +
-          "<br>buy " + info.seed_price + "G · sell " + info.sell_price + "G · " +
-          (info.seasons || []).join(", ") + "</div>";
+          "<br>buy " + info.seed_price + "G · sell " + info.sell_price + "G" +
+          (eat ? " · eat +" + eat + " energy" : "") +
+          " · " + (info.seasons || []).join(", ") + "</div>";
         const btns = document.createElement("div");
         btns.className = "shop-row";
         const buy = document.createElement("button");
@@ -915,6 +1051,15 @@ PAGE = r"""<!DOCTYPE html>
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
         btns.appendChild(buy);
         btns.appendChild(sell);
+        if (eat) {
+          const eatBtn = document.createElement("button");
+          eatBtn.type = "button";
+          eatBtn.className = "btn";
+          eatBtn.textContent = "Eat (+" + eat + ")";
+          eatBtn.disabled = fruit < 1 || !data.your_turn;
+          eatBtn.addEventListener("click", function () { actCmd("eat " + kind); });
+          btns.appendChild(eatBtn);
+        }
         row.appendChild(btns);
         shop.appendChild(row);
       }
@@ -958,6 +1103,11 @@ PAGE = r"""<!DOCTYPE html>
         showToast(data.message, data.ok);
         try {
           render(data);
+          const cmd = String(command || "").toLowerCase();
+          if (cmd.indexOf("move") === 0 || cmd.indexOf("go ") === 0 || cmd === "go") {
+            selected = standingFrom(data);
+            render(data);
+          }
         } catch (err) {
           console.error("Could not draw the farm:", err);
           showLoadError("Could not draw the farm. Check the browser console for details.");
@@ -1069,13 +1219,15 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function plotFromDigit(n) {
-      if (n < 1 || n > 9) return null;
-      return {r: Math.floor((n - 1) / 3) + 1, c: ((n - 1) % 3) + 1};
+      const cols = COLS || 3;
+      const rows = ROWS || 3;
+      if (n < 1 || n > rows * cols) return null;
+      return {r: Math.floor((n - 1) / cols) + 1, c: ((n - 1) % cols) + 1};
     }
 
-    function needPlot() {
-      if (selected) return true;
-      showToast("Select a plot first (1–9).", false);
+    function needHere() {
+      if (lastData) return true;
+      showToast("The farm is still loading.", false);
       return false;
     }
 
@@ -1087,27 +1239,27 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function keyTill() {
-      if (!needTurn() || !needPlot()) return;
-      actCmd("till " + selected.r + " " + selected.c);
+      if (!needTurn() || !needHere()) return;
+      actCmd("till");
     }
 
     function keyWater() {
-      if (!needTurn() || !needPlot()) return;
-      actCmd("water " + selected.r + " " + selected.c);
+      if (!needTurn() || !needHere()) return;
+      actCmd("water");
     }
 
     function keyHarvest() {
-      if (!needTurn() || !needPlot()) return;
-      actCmd("harvest " + selected.r + " " + selected.c);
+      if (!needTurn() || !needHere()) return;
+      actCmd("harvest");
     }
 
     function keyPluck() {
-      if (!needTurn() || !needPlot()) return;
-      actCmd("pluck " + selected.r + " " + selected.c);
+      if (!needTurn() || !needHere()) return;
+      actCmd("pluck");
     }
 
     function keyPlant() {
-      if (!needTurn() || !needPlot()) return;
+      if (!needTurn() || !needHere()) return;
       const kinds = seedKinds((lastData && lastData.state && lastData.state.inventory) || {});
       if (!kinds.length) {
         plantPick = null;
@@ -1117,7 +1269,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       if (kinds.length === 1) {
         plantPick = null;
-        actCmd("plant " + selected.r + " " + selected.c + " " + kinds[0]);
+        actCmd("plant " + kinds[0]);
         return;
       }
       if (!plantPick || plantPick.kinds.join() !== kinds.join()) {
@@ -1130,11 +1282,11 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function confirmPlant() {
-      if (!plantPick || !selected) return false;
+      if (!plantPick) return false;
       if (!needTurn()) return true;
       const kind = plantPick.kinds[plantPick.index];
       plantPick = null;
-      actCmd("plant " + selected.r + " " + selected.c + " " + kind);
+      actCmd("plant " + kind);
       return true;
     }
 
@@ -1158,7 +1310,8 @@ PAGE = r"""<!DOCTYPE html>
       }
       endConfirm = true;
       render(lastData);
-      showToast("End your turn? Press E or Enter to confirm, Esc to cancel.", true);
+      const outlook = (lastData && lastData.sleep_outlook) ? lastData.sleep_outlook + ". " : "";
+      showToast(outlook + "Press E or Enter to confirm, Esc to cancel.", true);
     }
 
     function onKey(ev) {
@@ -1195,6 +1348,16 @@ PAGE = r"""<!DOCTYPE html>
         return;
       }
 
+      const arrows = {ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right"};
+      if (arrows[key]) {
+        ev.preventDefault();
+        endConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        actCmd("move " + arrows[key]);
+        return;
+      }
+
       let digit = null;
       if (key >= "1" && key <= "9" && !ev.shiftKey) digit = parseInt(key, 10);
       else if (/^Digit[1-9]$/.test(code) && !ev.shiftKey) digit = parseInt(code.slice(5), 10);
@@ -1204,7 +1367,11 @@ PAGE = r"""<!DOCTYPE html>
         selected = plot;
         plantPick = null;
         endConfirm = false;
-        if (lastData) render(lastData);
+        if (!needTurn()) {
+          if (lastData) render(lastData);
+          return;
+        }
+        actCmd("move to " + plot.r + " " + plot.c);
         return;
       }
 
@@ -1315,6 +1482,9 @@ def render_page(viewer: str | None = None) -> str:
         "__TEXT_VIEW_SUMMARY__": flavor("text_view_summary") or "Text view (the same one the other player reads)",
         "__WEB_FOOTER__": footer,
         "__PLAYERS_JSON__": _json.dumps(players_public()),
+        "__ROWS__": _json.dumps(ROWS),
+        "__COLS__": _json.dumps(COLS),
+        "__CABIN__": _json.dumps([CABIN_ROW, CABIN_COL]),
         "__DEFAULT_PLAYER__": _json.dumps(web_p),
         "__CABIN_SHORT__": _json.dumps(flavor("cabin_short") or "the cabin, lantern lit in the window."),
         "__CABIN_BY_WEATHER__": _json.dumps({
@@ -1338,6 +1508,7 @@ def _crop_catalog(crops: dict) -> dict:
             "sell_price": int(info["sell_price"]),
             "grow_days": int(info["grow_days"]),
             "seasons": list(info["seasons"]),
+            "eat_energy": info.get("eat_energy", info.get("raw_energy")),
         }
     return out
 
@@ -1375,6 +1546,9 @@ def api_payload(
         "max_energy": max_energy(rules),
         "your_turn": viewer == current,
         "forecast": weather_forecast(state, crops, rules),
+        "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",
+        "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
+        "cabin": [CABIN_ROW, CABIN_COL],
     }
 
 

@@ -111,11 +111,17 @@
   "players": {
     "player1": {
       "energy": 100,
-      "ended_turn": false
+      "ended_turn": false,
+      "row": 1,
+      "col": 3,
+      "snacks_eaten": 0
     },
     "player2": {
       "energy": 100,
-      "ended_turn": false
+      "ended_turn": false,
+      "row": 1,
+      "col": 3,
+      "snacks_eaten": 0
     }
   },
   "current_player": "player1"

@@ -43,6 +43,18 @@ from engine import (
     pluck,
     plot_eligible_for_weed,
     sanitize_note,
+    set_player_where,
+    player_where,
+    is_player_in_cabin,
+    sleep_outlook,
+    path_cost,
+    step_energy,
+    eat_energy_for,
+    snacks_per_turn,
+    pass_out_energy,
+    migrate_state,
+    CABIN_ROW,
+    CABIN_COL,
     season_for_day,
     sell,
     sleep,
@@ -67,6 +79,12 @@ def no_weed_rules():
     rules = copy.deepcopy(load_rules())
     rules["weeds"] = {"min_new_per_day": 0, "max_new_per_day": 0, "eligible": "tilled_or_planted"}
     return rules
+
+
+def stand(state, player, row=1, col=1):
+    """Place a player on a tile without charging movement (for isolated action tests)."""
+    set_player_where(state, player, row, col)
+    return player_where(state, player)
 
 
 class WeatherDeterminism(unittest.TestCase):
@@ -223,10 +241,13 @@ class GrowthRules(unittest.TestCase):
         def play():
             state = fresh_state(self.crops)
             cmds = [
+                "move to 1 1",
                 "till 1 1",
                 "plant 1 1 kabocha",
                 "water 1 1",
+                "move to 2 2",
                 "till 2 2",
+                "go cabin",
                 "end turn",
             ]
             for cmd in cmds:
@@ -234,7 +255,11 @@ class GrowthRules(unittest.TestCase):
                 self.assertTrue(ok, msg)
             ok, msg = do_action(state, self.crops, "end turn", player=P2)
             self.assertTrue(ok, msg)
+            ok, msg = do_action(state, self.crops, "move to 1 1", player=P1)
+            self.assertTrue(ok, msg)
             ok, msg = do_action(state, self.crops, "water 1 1", player=P1)
+            self.assertTrue(ok, msg)
+            ok, msg = do_action(state, self.crops, "go cabin", player=P1)
             self.assertTrue(ok, msg)
             ok, msg = do_action(state, self.crops, "end turn", player=P1)
             self.assertTrue(ok, msg)
@@ -382,13 +407,20 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(energy_cost("sell", self.rules), 0)
         self.assertEqual(energy_cost("end_turn", self.rules), 0)
         self.assertEqual(energy_cost("pluck", self.rules), 5)
+        self.assertEqual(energy_cost("move", self.rules), 10)
+        self.assertEqual(energy_cost("eat", self.rules), 0)
+        self.assertEqual(step_energy(self.rules), 10)
+        self.assertEqual(snacks_per_turn(self.rules), 2)
+        self.assertEqual(pass_out_energy(self.rules), 50)
         custom = copy.deepcopy(self.rules)
         custom["action_energy"]["till"] = 25
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "till 1 1", player=P1, rules=custom)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 75)
 
     def test_till_plant_water_spend_ten_each(self):
+        stand(self.state, P1, 1, 1)
         for cmd in ("till 1 1", "plant 1 1 kabocha", "water 1 1"):
             ok, msg = do_action(self.state, self.crops, cmd, player=P1)
             self.assertTrue(ok, msg)
@@ -396,6 +428,7 @@ class TurnsAndEnergy(unittest.TestCase):
 
     def test_blocks_when_energy_is_too_low(self):
         self.state["players"][P1]["energy"] = 5
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "till 1 1", player=P1)
         self.assertFalse(ok)
         self.assertIn("energy", msg.lower())
@@ -404,6 +437,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 5)
 
     def test_failed_action_does_not_spend_energy(self):
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "plant 1 1 kabocha", player=P1)
         self.assertFalse(ok)
         self.assertEqual(self.state["players"][P1]["energy"], 100)
@@ -422,6 +456,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.state["players"][P1]["energy"] = 7
         self.state["current_player"] = P1
         self.state["players"][P1]["ended_turn"] = False
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "harvest 1 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
@@ -441,6 +476,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertFalse(self.state["tiles"][0][0]["tilled"])
 
     def test_end_turn_hands_off_with_fresh_energy(self):
+        stand(self.state, P1, 1, 1)
         ok, _ = do_action(self.state, self.crops, "till 1 1", player=P1)
         self.assertTrue(ok)
         self.assertEqual(self.state["players"][P1]["energy"], 90)
@@ -451,17 +487,21 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(self.state["players"][P2]["energy"], 100)
         self.assertEqual(self.state["day"], 1)
         # The other player spends some, then...
+        stand(self.state, P2, 2, 2)
         ok, _ = do_action(self.state, self.crops, "till 2 2", player=P2)
         self.assertTrue(ok)
         self.assertEqual(self.state["players"][P2]["energy"], 90)
 
     def test_both_end_turns_advance_the_day_back_to_the_starting_player(self):
+        stand(self.state, P1, 1, 1)
         ok, _ = do_action(self.state, self.crops, "till 1 1", player=P1)
         self.assertTrue(ok)
         ok, _ = do_action(self.state, self.crops, "plant 1 1 kabocha", player=P1)
         self.assertTrue(ok)
         ok, _ = do_action(self.state, self.crops, "water 1 1", player=P1)
         self.assertTrue(ok)
+        # Sleep in the cabin so the new day starts at full energy.
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
         ok, _ = do_action(self.state, self.crops, "end turn", player=P1)
         self.assertTrue(ok)
         ok, msg = do_action(self.state, self.crops, "end turn", player=P2)
@@ -477,6 +517,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertIn("Day 2 dawns", msg)
 
     def test_log_names_the_player(self):
+        stand(self.state, P1, 1, 1)
         ok, _ = do_action(self.state, self.crops, "till 1 1", player=P1)
         self.assertTrue(ok)
         last = self.state["log"][-1]
@@ -651,6 +692,7 @@ class GentleWeeds(unittest.TestCase):
         tile["weed"] = {"appeared_day": 1}
         tile["weedy"] = True
         tile["weedy_ticks"] = 3
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "pluck 1 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertIn("plucks the weed", msg)
@@ -667,6 +709,7 @@ class GentleWeeds(unittest.TestCase):
 
     def test_pluck_fails_without_a_weed_and_spends_nothing(self):
         till(self.state, self.crops, 1, 1)
+        stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "pluck 1 1", player=P1)
         self.assertFalse(ok)
         self.assertIn("no weed", msg.lower())
@@ -892,10 +935,15 @@ class ConfigAndMCP(unittest.TestCase):
         rules = json.loads(mcp_server.farm_rules())
         self.assertEqual(rules["action_energy"]["pluck"], 5)
         self.assertEqual(rules["action_energy"]["till"], 10)
+        self.assertEqual(rules["action_energy"]["move"], 10)
+        self.assertEqual(rules["snacks_per_turn"], 2)
+        self.assertEqual(rules["pass_out_energy"], 50)
         self.assertEqual(rules["max_energy"], 100)
         ok, msg = mcp_server.farm_do(p2, "till 1 1")
         self.assertFalse(ok)
         self.assertIn(display_name(p1), msg)
+        ok, msg = mcp_server.farm_do(p1, "move to 1 1")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "till 1 1")
         self.assertTrue(ok, msg)
         # Second look as p1 should show the tilled plot.
@@ -910,6 +958,8 @@ class ConfigAndMCP(unittest.TestCase):
         # It is now the other player's turn on the temp save, not the live one.
         ok, msg = mcp_server.farm_do(p1, "water 1 1")
         self.assertFalse(ok)
+        ok, msg = mcp_server.farm_do(p2, "move to 1 1")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p2, "water 1 1")
         self.assertTrue(ok, msg)
 
@@ -1178,6 +1228,14 @@ class WebCsrfAndTokens(unittest.TestCase):
         status, _, body = self._request(
             "POST",
             "/api/do?key=test-token-one",
+            body=json.dumps({"command": "move to 1 1", "player": P2}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body).get("ok"), json.loads(body).get("message"))
+        status, _, body = self._request(
+            "POST",
+            "/api/do?key=test-token-one",
             body=json.dumps({"command": "till 1 1", "player": P2}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
@@ -1188,6 +1246,129 @@ class WebCsrfAndTokens(unittest.TestCase):
         tile = payload["state"]["tiles"][0][0]
         self.assertTrue(tile.get("tilled"))
 
+
+class AvatarsSleepAndSnacks(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops)
+
+    def test_fresh_and_migrated_players_start_in_the_cabin(self):
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertTrue(is_player_in_cabin(self.state, P2))
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+        orphan = fresh_state(self.crops)
+        for slot in orphan["players"].values():
+            slot.pop("row", None)
+            slot.pop("col", None)
+            slot.pop("snacks_eaten", None)
+        energy = orphan["players"][P1]["energy"]
+        self.assertTrue(migrate_state(orphan, self.rules))
+        self.assertEqual(player_where(orphan, P1), (CABIN_ROW, CABIN_COL))
+        self.assertEqual(orphan["players"][P1]["energy"], energy)
+        self.assertEqual(orphan["players"][P1]["snacks_eaten"], 0)
+
+    def test_must_stand_on_a_tile_to_work_it(self):
+        ok, msg = do_action(self.state, self.crops, "till 1 1", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("Walk there", msg)
+        self.assertFalse(self.state["tiles"][0][0]["tilled"])
+        ok, msg = do_action(self.state, self.crops, "move to 1 1", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_where(self.state, P1), (1, 1))
+        # cabin (1,3) to (1,1) is two steps.
+        self.assertEqual(self.state["players"][P1]["energy"], 80)
+        ok, msg = do_action(self.state, self.crops, "till", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertTrue(self.state["tiles"][0][0]["tilled"])
+
+    def test_diagonal_step_costs_the_same_as_cardinal(self):
+        # Cabin 1,3 to center 2,2 is one diagonal step.
+        self.assertEqual(path_cost((1, 3), (2, 2), self.rules), 10)
+        self.assertEqual(path_cost((1, 3), (1, 1), self.rules), 20)
+        ok, msg = do_action(self.state, self.crops, "move to 2 2", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_where(self.state, P1), (2, 2))
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        before = self.state["players"][P1]["energy"]
+        ok, msg = do_action(self.state, self.crops, "move down", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], before - 10)
+        # Not enough energy: no partial move.
+        self.state["players"][P1]["energy"] = 5
+        here = player_where(self.state, P1)
+        ok, msg = do_action(self.state, self.crops, "move to 1 1", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("energy", msg.lower())
+        self.assertEqual(player_where(self.state, P1), here)
+
+    def test_go_cabin_and_already_there(self):
+        ok, msg = do_action(self.state, self.crops, "go cabin", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertIn("already", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "move to 3 3", player=P1)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "go cabin", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+
+    def test_sleep_in_cabin_and_pass_out_in_the_field(self):
+        self.assertIn("sleep", sleep_outlook(self.state, P1).lower())
+        self.assertIn("100", sleep_outlook(self.state, P1))
+        stand(self.state, P1, 3, 1)
+        self.assertIn("pass out", sleep_outlook(self.state, P1).lower())
+        self.assertIn("50", sleep_outlook(self.state, P1))
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertIn("pass out", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["day"], 2)
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(player_where(self.state, P1), (3, 1))
+        self.assertEqual(self.state["players"][P2]["energy"], 100)
+        self.assertTrue(is_player_in_cabin(self.state, P2))
+        header = "\n".join(__import__("describe").turn_header_lines(self.state, self.crops, viewer=P1))
+        self.assertIn(f"{N1} is at plot 7", header)
+        self.assertIn(f"{N2} is in the cabin", header)
+        self.assertIn("You'll pass out in the field", header)
+
+    def test_eat_restores_energy_and_is_capped_at_two_snacks(self):
+        self.assertEqual(eat_energy_for(self.crops, "carrot"), 10)
+        self.assertEqual(eat_energy_for(self.crops, "turnip"), 15)
+        self.assertEqual(eat_energy_for(self.crops, "kabocha"), 25)
+        self.state["inventory"]["carrot"] = 3
+        self.state["players"][P1]["energy"] = 20
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 30)
+        self.assertEqual(self.state["inventory"]["carrot"], 2)
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["inventory"]["carrot"], 1)
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1)
+        self.assertFalse(ok)
+        self.assertEqual(self.state["inventory"]["carrot"], 1)
+        # Seeds are not snacks; leftover crop can still be sold.
+        ok, msg = do_action(self.state, self.crops, "eat carrot_seed", player=P1)
+        self.assertFalse(ok)
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "sell carrot 1", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold + 30)
+        self.assertEqual(self.state["inventory"]["carrot"], 0)
+
+    def test_eat_will_not_exceed_max_energy(self):
+        self.state["inventory"]["kabocha"] = 1
+        self.state["players"][P1]["energy"] = 90
+        ok, msg = do_action(self.state, self.crops, "eat kabocha", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["inventory"]["kabocha"], 0)
+        self.state["inventory"]["kabocha"] = 1
+        ok, msg = do_action(self.state, self.crops, "eat kabocha", player=P1)
+        self.assertFalse(ok)
+        self.assertEqual(self.state["inventory"]["kabocha"], 1)
 
 
 if __name__ == "__main__":

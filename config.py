@@ -149,5 +149,12 @@ def notify_config() -> dict | None:
 
 
 def players_public() -> list[dict]:
-    """Id and display name only — nothing from notify."""
-    return [{"id": p["id"], "name": p["name"]} for p in players()]
+    """Id, display name, and avatar color only — nothing from notify or tokens."""
+    out = []
+    for p in players():
+        rec = {"id": p["id"], "name": p["name"]}
+        color = str(p.get("color") or p.get("avatar_color") or "").strip()
+        if color:
+            rec["color"] = color
+        out.append(rec)
+    return out

@@ -32,20 +32,31 @@ The CLI plays as {display_name(cli_p)} ({cli_p}) by default. The web page plays 
 Use --player {id_list} to override (before or after the subcommand).
 
 Actions:
-  till <row> <col>
-  plant <row> <col> <kind>
-  water <row> <col>
-  harvest <row> <col>
-  pluck <row> <col>
+  move up|down|left|right
+  move to <row> <col>
+  go cabin
+  till                    (or till <row> <col> — you must be on that tile)
+  plant <kind>            (or plant <row> <col> <kind>)
+  water                   (or water <row> <col>)
+  harvest                 (or harvest <row> <col>)
+  pluck                   (or pluck <row> <col>)
+  eat <crop>
   buy <kind> <count>
   sell <kind> <count>
   end turn
   end turn <note>
   end turn: <note>
 
-Till, plant, and water cost 10 energy each (100 per turn). Harvest, buy,
-and sell are free. Ending your turn hands the farm to the other player.
-When both have ended their turn, the day advances and it becomes {display_name(start)}'s turn.
+You can only till, plant, water, harvest, or pluck the tile you are standing on.
+Each step costs 10 energy, including diagonals. Harvest, buy, sell, and eat
+are free. Eat a harvested crop from the pack (up to 2 snacks a turn) to
+restore energy: carrot 10, turnip 15, kabocha 25. Eating spends the crop
+instead of selling it.
+
+Ending your turn in the cabin is sleep — next day you wake there with 100
+energy. Ending it anywhere else is passing out — you wake where you fell
+with 50 energy. When both have ended their turn, the day advances and it
+becomes {display_name(start)}'s turn.
 You can leave a short note:  python3 cli.py do "end turn water the kabocha"
 or  python3 cli.py do "end turn: water the kabocha"
 

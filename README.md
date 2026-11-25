@@ -14,7 +14,8 @@ file uses generic **Player 1** and **Player 2** and has no notify hook.
 ## The plot
 
 A 3×3 grid. The **top-right** tile (row 1, column 3) is the cabin, lantern
-already lit. The other eight tiles are farmland.
+already lit. The other eight tiles are farmland. Each player stands on one tile
+(farmland or the cabin) and can only work the tile they are on.
 
 Rows and columns are **1-indexed**. Row 1 is the top, column 1 is the left.
 
@@ -27,19 +28,28 @@ row 3 farmland  farmland  farmland
 
 ## Turns and energy
 
-Two players, configured in `config.local.json`. Each turn starts with **100 energy**.
-Till, plant, and water cost **10** each. Harvest, buy, and sell are free.
+Two players, configured in `config.local.json`. After a night in the cabin you
+wake with **100 energy**. Till, plant, and water cost **10** each; each step
+(including a diagonal) also costs **10**. Harvest, buy, sell, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 
-- The web page plays as the configured web player by default (`?player=` to override).
+- Each player has an avatar on the map. You can only till, plant, water,
+  harvest, or pluck the tile you are standing on.
+- Move with `move up/down/left/right`, `move to <row> <col>` (the shortest
+  path is charged in 10-energy steps), or `go cabin`.
+- The web page plays as the player named by the private farm link (or cookie).
 - The CLI plays as the configured CLI player by default (`--player` to override).
 - You can only act on your turn. If it isn't, the game says whose turn it is.
-- **End turn** (`python3 cli.py do "end turn"`, or the button on the page)
-  hands the farm to the other player with a fresh 100 energy.
+- **End turn** in the cabin is sleep: next day you wake in the cabin with 100
+  energy. End it anywhere else and you pass out, waking where you fell with
+  **50** energy.
 - When **both** have ended their turn for the day, the day advances
   (growth, wither, weather — the same rules as before) and it becomes
-  the starting player's turn again, both at 100 energy.
+  the starting player's turn again.
+- Eat a harvested crop from the pack with `eat <crop>` (up to two snacks a
+  turn). Carrot restores 10, turnip 15, kabocha 25. Eating spends the crop
+  instead of selling it.
 - If `notify` is set in `config.local.json`, a short ping is sent on the
   configured handoff (for example when player 1 ends and it becomes player
   2's turn). Credentials come from a separate env file named in that
@@ -54,12 +64,15 @@ From this folder:
 
 ```bash
 python3 cli.py look
-python3 cli.py do "till 1 1"
-python3 cli.py do "plant 1 1 kabocha"
-python3 cli.py do "water 1 1"
+python3 cli.py do "move to 1 1"
+python3 cli.py do "till"
+python3 cli.py do "plant kabocha"
+python3 cli.py do "water"
+python3 cli.py do "go cabin"
 python3 cli.py do "end turn"
-python3 cli.py do "harvest 1 1"
-python3 cli.py do "pluck 1 1"
+python3 cli.py do "harvest"
+python3 cli.py do "pluck"
+python3 cli.py do "eat carrot"
 python3 cli.py do "buy carrot 1"
 python3 cli.py do "sell kabocha 1"
 python3 cli.py --player player1 do "end turn"
@@ -92,9 +105,10 @@ text.
 
 Keyboard (the page ignores keys while you are typing in an input):
 
-- `1`–`9` select a plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9)
-- `T` till, `W` water, `H` harvest, `Q` pluck a weed on the selected plot
-- `P` plant: if the pack has one seed type, plant it; otherwise a small
+- Arrow keys walk one step (10 energy)
+- `1`–`9` walk to that plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9; 3 is the cabin)
+- `T` till, `W` water, `H` harvest, `Q` pluck a weed on the tile you are standing on
+- `P` plant on the current tile: if the pack has one seed type, plant it; otherwise a small
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
 - `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
@@ -128,9 +142,9 @@ Stop it with `kill "$(cat web.pid)"`.
 `mcp_server.py` exposes the same farm over the [Model Context Protocol](https://modelcontextprotocol.io/):
 
 - `farm_look(player)` — the full text view for that player
-- `farm_do(player, command)` — one command (`till 1 1`, `plant 2 2 kabocha`, …)
+- `farm_do(player, command)` — one command (`move to 1 1`, `till`, `plant kabocha`, `eat carrot`, `go cabin`, …)
 - `farm_end_turn(player, note?)` — end that player's turn, optional note
-- `farm_rules()` — energy costs, weed rules, crops, and configured players
+- `farm_rules()` — energy costs, movement and sleep rules, snacks, crops, and configured players
 - `farm_forecast()` — the 7-day forecast (also included in `farm_look`)
 
 It uses the same engine, the same `state.json`, and the same turn and energy
@@ -217,14 +231,16 @@ configured.
 
 ## Crops
 
-| Crop    | Days | Seed | Sell | Seasons                    |
-|---------|------|------|------|----------------------------|
-| kabocha | 7    | 20G  | 50G  | spring, summer, autumn     |
-| turnip  | 4    | 8G   | 20G  | spring, autumn             |
-| carrot  | 5    | 12G  | 30G  | spring, autumn, winter     |
+| Crop    | Days | Seed | Sell | Eat | Seasons                    |
+|---------|------|------|------|-----|----------------------------|
+| kabocha | 7    | 20G  | 50G  | 25  | spring, summer, autumn     |
+| turnip  | 4    | 8G   | 20G  | 15  | spring, autumn             |
+| carrot  | 5    | 12G  | 30G  | 10  | spring, autumn, winter     |
 
 A new farm starts on day 1 of spring with 80G, two kabocha seeds, and one
-turnip seed, on the starting player's turn at 100 energy.
+turnip seed, both players in the cabin, on the starting player's turn at 100 energy.
+`eat <crop>` restores the Eat energy from a harvested crop in the pack (up to
+two snacks a turn) and spends that crop instead of selling it.
 
 Stages: seed → sprouting → growing → mature. A just-planted kabocha is
 "day 0 of 7, seed". After three watered days it is "day 3 of 7, sprouting".
@@ -242,11 +258,11 @@ Stages: seed → sprouting → growing → mature. A just-planted kabocha is
   creates a fresh day-1 farm. `state.example.json` is a generic starter save
   (Player 1 / Player 2) you can copy to `state.json`.
 - `crops.json` — crop data and starting conditions
-- `rules.json` — energy costs, max energy, and weed rules
+- `rules.json` — energy costs, movement, sleep, snacks, max energy, and weed rules
 - `config.example.json` — generic names, theme, and flavor (Player 1 / Player 2, no notify)
 - `config.local.json` — your overlay (gitignored): names, theme, flavor, optional notify
 - `config.py` — loads the example and overlays the local file
-- `engine.py` — actions: till, plant, water, harvest, pluck, buy, sell, end turn
+- `engine.py` — actions: move, till, plant, water, harvest, pluck, eat, buy, sell, end turn
 - `describe.py` — the full text view, including an ASCII mini map
 - `sprites.py` — shared `sprite_key(tile)` mapping, plus SVG tiles
 - `hey_notify.py` — optional handoff ping if `notify` is configured
@@ -254,7 +270,7 @@ Stages: seed → sprouting → growing → mature. A just-planted kabocha is
 - `web.py` — local http.server on port 8790 (default player from config)
 - `mcp_server.py` — MCP tools for the same engine and save
 - `mcp.env.example` — template for the optional HTTP bearer token (`mcp.env` is gitignored)
-- `test_engine.py` — growth, energy, turn, weed, config, and MCP tests
+- `test_engine.py` — growth, energy, movement, sleep, snacks, turn, weed, config, and MCP tests
 
 Python 3, standard library only. No remote git.
 

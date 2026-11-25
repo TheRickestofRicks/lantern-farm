@@ -10,6 +10,7 @@ from engine import (
     crop_info,
     day_in_season,
     days_per_season,
+    describe_where,
     display_name,
     get_tile,
     grow_days,
@@ -22,7 +23,10 @@ from engine import (
     migrate_state,
     normalize_player,
     player_slot,
+    player_where,
+    players_at,
     position_name,
+    sleep_outlook,
     stage_label,
     weather_forecast,
     wither_after,
@@ -107,6 +111,18 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
     return "soil", wet + mark
 
 
+def _avatar_mark(state: dict, row: int, col: int) -> str:
+    marks = []
+    seen = set()
+    for name in players_at(state, row, col):
+        initial = (display_name(name) or name or "?").strip()[:1].upper() or "?"
+        if initial in seen:
+            initial = (name or "?").strip()[:1].upper() or "?"
+        seen.add(initial)
+        marks.append(initial)
+    return "".join(marks)
+
+
 def ascii_map(state: dict) -> str:
     widths = [10, 10, 10]
     # compute from content
@@ -115,6 +131,9 @@ def ascii_map(state: dict) -> str:
         row_cells = []
         for c in range(1, COLS + 1):
             a, b = _ascii_cell(get_tile(state, r, c))
+            mark = _avatar_mark(state, r, c)
+            if mark:
+                b = f"{b} {mark}".strip()
             row_cells.append((a, b))
             widths[c - 1] = max(widths[c - 1], len(a), len(b), 8)
         cells.append(row_cells)
@@ -140,11 +159,16 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     here = position_name(row, col)
     weather = str(state.get("weather") or "sun")
     key = sprite_key(tile, weather)
+    who_here = players_at(state, row, col)
+    who_bit = ""
+    if who_here:
+        names = ", ".join(display_name(n) for n in who_here)
+        who_bit = f" {names} standing here."
     if tile.get("type") == "cabin":
         from config import flavor
         cabin = flavor(f"cabin_{weather}") or flavor("cabin") or "the cabin. A warm lantern glows in the window."
         return (
-            f"  {here} — {cabin} "
+            f"  {here} — {cabin}{who_bit} "
             f"(sprite: {key})"
         )
     moist = "watered today" if tile.get("watered") else "dry today"
@@ -159,7 +183,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         weed_bit = " A small weed has crept in."
     crop = tile.get("crop")
     if not crop:
-        return f"  {here} — {tilled} soil, {moist}. Empty.{weed_bit} (sprite: {key})"
+        return f"  {here} — {tilled} soil, {moist}. Empty.{who_bit}{weed_bit} (sprite: {key})"
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
     stage = crop.get("stage", "seed")
@@ -168,7 +192,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"  {here} — {tilled} soil, {moist}. "
             f"A withered {kind} (planted on day {crop.get('planted_day', '?')}, "
             f"grew {crop.get('days_grown', 0)} day(s) before it died, "
-            f"{crop.get('dry_days', 0)} dry day(s)).{weed_bit} (sprite: {key})"
+            f"{crop.get('dry_days', 0)} dry day(s)).{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = grow_days(info) if info else "?"
     grown = crop.get("days_grown", 0)
@@ -183,7 +207,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{kind}, day {grown} of {needed}, {label}, {moist}"
-        f"{dry_bit}. Planted on day {planted}.{ready}{weed_bit} (sprite: {key})"
+        f"{dry_bit}. Planted on day {planted}.{ready}{who_bit}{weed_bit} (sprite: {key})"
     )
 
 
@@ -227,10 +251,21 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
         f"{sky}  ·  {gold}G",
         f"It's {display_name(current)}'s turn.  " + "  ·  ".join(bits),
     ]
+    places = []
+    for name in known_players():
+        places.append(f"{display_name(name)} is {describe_where(*player_where(state, name))}")
+    if places:
+        lines.append(", ".join(places) + ".")
+    if current:
+        lines.append(sleep_outlook(state, current) + ".")
     if viewer:
         view = normalize_player(viewer)
         if view:
             lines.append(f"Playing as {display_name(view)}.")
+            snacks = int(player_slot(state, view).get("snacks_eaten") or 0)
+            if snacks:
+                from engine import snacks_per_turn
+                lines.append(f"Snacks eaten this turn: {snacks}/{snacks_per_turn()}.")
     labeled = format_player_note(state.get("last_note") or None)
     if labeled:
         lines.append(labeled)
@@ -311,7 +346,13 @@ def describe_state(
         "day, or the plot grows weedy and the crop skips every other watered day. "
         "Weeds never kill crops. "
         "The sprite key on each tile is the same one the image view uses. "
-        "Till, plant, and water cost energy (see rules.json); harvest, buy, and sell are free. "
+        "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
+        "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "
+        "each step costs 10 energy, diagonals included. "
+        "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
+        "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
+        "Eat a harvested crop from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
+        "Till, plant, and water cost energy (see rules.json); harvest, buy, sell, and eat are free. "
         "The day advances when both players have ended their turn."
     )
     return "\n".join(lines) + "\n"

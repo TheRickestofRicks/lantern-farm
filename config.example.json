@@ -4,11 +4,13 @@
   "players": [
     {
       "id": "player1",
-      "name": "Player 1"
+      "name": "Player 1",
+      "color": "#6b8f3a"
     },
     {
       "id": "player2",
-      "name": "Player 2"
+      "name": "Player 2",
+      "color": "#c47a3a"
     }
   ],
   "starting_player": "player1",
