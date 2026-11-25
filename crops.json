@@ -5,6 +5,8 @@
   "starting_inventory": {
     "strawberry_seed": 2,
     "strawberry": 0,
+    "everbearing_seedling": 0,
+    "everbearing": 0,
     "kabocha_seed": 0,
     "turnip_seed": 0,
     "carrot_seed": 0,
@@ -57,7 +59,60 @@
         "spring",
         "summer"
       ],
-      "fruiting_early_summer_days": 5
+      "fruiting_early_summer_days": 5,
+      "name_plural": "strawberries",
+      "shop_name": "June-bearing strawberry seed"
+    },
+    "everbearing": {
+      "name": "everbearing strawberry",
+      "name_plural": "everbearing strawberries",
+      "shop_name": "everbearing strawberry seedling",
+      "short_name": "eberry",
+      "stock": "seedling",
+      "grow_days": 4,
+      "regrow_days": 7,
+      "seed_price": 40,
+      "sell_price": 18,
+      "eat_energy": 20,
+      "available": true,
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "shop_seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seedling",
+          "at": 0,
+          "label": "seedling"
+        },
+        {
+          "id": "growing",
+          "at": 2,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 4,
+          "label": "ripe"
+        }
+      ],
+      "description": "A started everbearing plant, already past its first establishment. It settles in 4 days and then fruits every 7 days from spring through summer into early autumn. It rests only in winter, lives about two years, and may send runners like the June-bearing kind. The berries are a little smaller, so each handful is a modest snack \u2014 steadier harvests, not a bigger one.",
+      "perennial": true,
+      "lifespan_seasons": 8,
+      "runner_chance": 0.1,
+      "runners_per_season": 1,
+      "fruiting_after_dormancy": false,
+      "fruiting_seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "fruiting_early_autumn_days": 5
     },
     "kabocha": {
       "name": "kabocha",

@@ -8,6 +8,8 @@ from engine import (
     COLS,
     ROWS,
     crop_info,
+    crop_name,
+    crop_name_plural,
     day_in_season,
     days_per_season,
     describe_where,
@@ -18,6 +20,8 @@ from engine import (
     is_perennial,
     grow_days,
     regrow_days,
+    stock_noun,
+    stock_word,
     known_players,
     legal_actions,
     load_crops,
@@ -56,6 +60,8 @@ FORECAST_WORDS = {
 INVENTORY_ORDER = [
     "strawberry_seed",
     "strawberry",
+    "everbearing_seedling",
+    "everbearing",
     "kabocha_seed",
     "turnip_seed",
     "carrot_seed",
@@ -65,7 +71,7 @@ INVENTORY_ORDER = [
 ]
 
 
-def _inventory_line(state: dict) -> str:
+def _inventory_line(state: dict, crops: dict | None = None) -> str:
     inv = state.get("inventory", {})
     parts = []
     seen = set()
@@ -74,23 +80,36 @@ def _inventory_line(state: dict) -> str:
         count = int(inv.get(key, 0))
         if count <= 0:
             continue
-        parts.append(_item_phrase(key, count))
+        parts.append(_item_phrase(key, count, crops))
     for key, count in inv.items():
         if key in seen or int(count) <= 0:
             continue
-        parts.append(_item_phrase(key, int(count)))
+        parts.append(_item_phrase(key, int(count), crops))
     if not parts:
         return "  (empty)"
     return "  " + ", ".join(parts)
 
 
-def _item_phrase(key: str, count: int) -> str:
-    if key.endswith("_seed"):
+def _item_phrase(key: str, count: int, crops: dict | None = None) -> str:
+    stock = None
+    kind = key
+    if key.endswith("_seedling"):
+        kind = key[: -len("_seedling")]
+        stock = "seedling"
+    elif key.endswith("_seed"):
         kind = key[: -len("_seed")]
-        noun = "seed" if count == 1 else "seeds"
-        return f"{count} {kind} {noun}"
-    noun = key if count == 1 else f"{key}s"
-    return f"{count} {noun}"
+        stock = "seed"
+    info = crop_info(crops or {}, kind) if crops is not None else {}
+    if not info and crops is None:
+        try:
+            info = crop_info(load_crops(), kind) or {}
+        except Exception:
+            info = {}
+    if stock:
+        noun = stock_noun(info, count) if info else (stock if count == 1 else stock + "s")
+        name = crop_name(kind, info)
+        return f"{count} {name} {noun}"
+    return f"{count} {crop_name_plural(kind, info, count)}"
 
 
 def _ascii_cell(tile: dict) -> tuple[str, str]:
@@ -102,6 +121,7 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
     if crop:
         kind = crop.get("kind", "?")
         stage = crop.get("stage", "?")
+        label = {"everbearing": "eberry"}.get(kind, kind)
         short = {
             "seed": "seed",
             "sprouting": "sprout",
@@ -112,7 +132,7 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
             "withered": "wilt",
         }.get(stage, stage[:5])
         mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
-        return f"{kind[:7]:<7}", f"{short} {wet}{mark}"
+        return f"{str(label)[:7]:<7}", f"{short} {wet}{mark}"
     mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
     if tile.get("tilled"):
         return "tilled", wet + mark
@@ -208,11 +228,17 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"A dormant {kind}, resting until spring. It needs no water."
             f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
         )
-    if info and is_perennial(info) and not crop.get("overwintered") and not crop.get("fruiting_started"):
+    if (
+        info
+        and is_perennial(info)
+        and info.get("fruiting_after_dormancy", True)
+        and not crop.get("overwintered")
+        and not crop.get("fruiting_started")
+    ):
         label_est = stage_label(info, stage) if info else stage
         return (
             f"  {here} — {tilled} soil, {moist}. "
-            f"{kind}, establishing ({label_est}); it will fruit after its first winter, {moist}."
+            f"{crop_name(kind, info)}, establishing ({label_est}); it will fruit after its first winter, {moist}."
             f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = crop_cycle_days(info, crop) if info else "?"
@@ -329,7 +355,7 @@ def describe_state(
     lines += [
         "",
         "Inventory:",
-        _inventory_line(state),
+        _inventory_line(state, crops),
         "",
         "Mini map:",
         ascii_map(state),
@@ -379,11 +405,13 @@ def describe_state(
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
         "Eat a harvested crop from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
-        "The shop sells strawberries in spring and summer. Strawberries are a perennial: "
-        "they establish in their first year, fruit every 7 days through spring into early summer "
-        "after their first winter, go dormant (no water, they do not wither) in autumn and winter, "
-        "and live two years. Runners may take root in a neighbouring tilled empty plot. "
-        "In seasons with nothing to sell, the shop is empty for now. "
+        "The shop sells June-bearing strawberry seeds and everbearing strawberry seedlings "
+        "in spring and summer. June-bearing plants establish in their first year and fruit "
+        "every 7 days through spring into early summer after their first winter, then rest "
+        "through autumn and winter. Everbearing seedlings are already started: they settle "
+        "in 4 days and fruit every 7 days from spring through summer into early autumn, "
+        "resting only in winter. Both live two years and may send runners into a neighbouring "
+        "tilled empty plot. In autumn and winter the shop has nothing to sell for now. "
         "Later crops stay in the pack if you already grew them. "
         "Till, plant, and water cost energy (see rules.json); harvest, buy, sell, and eat are free. "
         "The day advances when both players have ended their turn."

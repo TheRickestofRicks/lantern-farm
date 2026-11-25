@@ -485,10 +485,74 @@ def crop_info(crops: dict, kind: str) -> dict | None:
 
 
 def normalize_kind(kind: str) -> str:
-    k = (kind or "").strip().lower()
-    if k.endswith("_seed"):
-        k = k[: -len("_seed")]
-    return k
+    k = (kind or "").strip().lower().replace(" ", "_")
+    for suffix in ("_seedling", "_seed"):
+        if k.endswith(suffix):
+            k = k[: -len(suffix)]
+            break
+    aliases = {
+        "everbearing_strawberry": "everbearing",
+        "everbearingstrawberry": "everbearing",
+    }
+    return aliases.get(k, k)
+
+
+def crop_name(kind: str, info: dict | None = None) -> str:
+    if info and info.get("name"):
+        return str(info["name"])
+    return kind
+
+
+def crop_name_plural(kind: str, info: dict | None = None, count: int = 1) -> str:
+    if count == 1:
+        return crop_name(kind, info)
+    if info and info.get("name_plural"):
+        return str(info["name_plural"])
+    name = crop_name(kind, info)
+    if name.endswith("s"):
+        return name
+    return name + "s"
+
+
+def stock_word(info: dict | None = None) -> str:
+    word = str((info or {}).get("stock") or "seed").strip().lower()
+    return word or "seed"
+
+
+def stock_key(kind: str, info: dict | None = None) -> str:
+    return f"{kind}_{stock_word(info)}"
+
+
+def stock_noun(info: dict | None = None, count: int = 1) -> str:
+    word = stock_word(info)
+    if count == 1:
+        return word
+    if word.endswith("s"):
+        return word
+    return word + "s"
+
+
+def shop_name(kind: str, info: dict | None = None) -> str:
+    if info and info.get("shop_name"):
+        return str(info["shop_name"])
+    return f"{crop_name(kind, info)} {stock_word(info)}"
+
+
+def initial_stage(info: dict | None = None) -> str:
+    if not info:
+        return "seed"
+    stages = info.get("stages") or []
+    if stages:
+        first = sorted(stages, key=lambda s: int(s.get("at") or 0))[0]
+        return str(first.get("id") or "seed")
+    return "seed"
+
+
+def a_or_an(word: str) -> str:
+    text = (word or "").strip()
+    if not text:
+        return "a"
+    return "an" if text[0].lower() in "aeiou" else "a"
 
 
 def stage_for(days_grown: int, info: dict, crop: dict | None = None) -> str:
@@ -532,12 +596,19 @@ def crop_in_shop(info: dict) -> bool:
     return info.get("available", True) is not False
 
 
+def crop_shop_seasons(info: dict | None) -> list:
+    if not info:
+        return []
+    return list(info.get("shop_seasons") or info.get("seasons") or [])
+
+
 def crop_in_season(info: dict, season: str | None) -> bool:
+    """Whether the shop sells this crop in the given season."""
     if not info:
         return False
     if not season:
         return True
-    return season in (info.get("seasons") or [])
+    return season in crop_shop_seasons(info)
 
 
 def crop_for_sale(info: dict, season: str | None = None) -> bool:
@@ -587,9 +658,12 @@ def in_fruiting_window(state: dict, info: dict, crops: dict | None = None) -> bo
     fruiting = info.get("fruiting_seasons") or info.get("seasons") or []
     if season not in fruiting:
         return False
-    if season == "summer":
-        early = int(info.get("fruiting_early_summer_days") or 5)
-        return day_in_season(int(state["day"]), crops) <= early
+    day_no = day_in_season(int(state["day"]), crops)
+    # Only apply an early-season cutoff when the crop defines one.
+    if season == "summer" and info.get("fruiting_early_summer_days"):
+        return day_no <= int(info.get("fruiting_early_summer_days"))
+    if season == "autumn" and info.get("fruiting_early_autumn_days"):
+        return day_no <= int(info.get("fruiting_early_autumn_days"))
     return True
 
 
@@ -627,8 +701,8 @@ def ensure_inventory_keys(state: dict, crops: dict | None = None) -> bool:
     crops = crops or load_crops()
     inv = state.setdefault("inventory", {})
     changed = False
-    for kind in crops.get("crops", {}):
-        for key in (f"{kind}_seed", kind):
+    for kind, info in (crops.get("crops") or {}).items():
+        for key in (stock_key(kind, info), kind):
             if key not in inv:
                 inv[key] = 0
                 changed = True
@@ -674,8 +748,8 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
     crops = crops or load_crops()
     rules = rules or load_rules()
     inventory = {key: int(val) for key, val in crops.get("starting_inventory", {}).items()}
-    for kind in crops.get("crops", {}):
-        inventory.setdefault(f"{kind}_seed", 0)
+    for kind, info in (crops.get("crops") or {}).items():
+        inventory.setdefault(stock_key(kind, info), 0)
         inventory.setdefault(kind, 0)
     tiles = []
     for r in range(1, ROWS + 1):
@@ -1127,19 +1201,23 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
         return False, f"Something is already growing at {here}."
     if state["season"] not in info["seasons"]:
         when = ", ".join(info["seasons"])
-        return False, f"{kind.capitalize()} only grows in {when}. It is {state['season']}."
-    seed_key = f"{kind}_seed"
+        name = crop_name(kind, info)
+        return False, f"{name[0].upper() + name[1:]} only grows in {when}. It is {state['season']}."
+    seed_key = stock_key(kind, info)
+    name = crop_name(kind, info)
+    noun = stock_noun(info, 1)
+    nouns = stock_noun(info, 2)
     if int(state["inventory"].get(seed_key, 0)) < 1:
-        return False, f"You have no {kind} seeds. Buy some at the shop."
+        return False, f"You have no {name} {nouns}. Buy some at the shop."
     state["inventory"][seed_key] = int(state["inventory"].get(seed_key, 0)) - 1
     tile["crop"] = {
         "kind": kind,
         "planted_day": int(state["day"]),
         "days_grown": 0,
-        "stage": "seed",
+        "stage": initial_stage(info),
         "dry_days": 0,
     }
-    msg = f"{who(player, 'plant', 'plants')} a {kind} seed at {here}."
+    msg = f"{who(player, 'plant', 'plants')} {a_or_an(name)} {name} {noun} at {here}."
     log_append(state, msg, player)
     return True, msg
 
@@ -1244,27 +1322,28 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         return False, f"Unknown seed {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
         known = ", ".join(shop_kinds(crops, state.get("season"))) or "nothing right now"
-        return False, f"The shop isn't selling {kind} seeds yet. It sells: {known}."
+        return False, f"The shop isn't selling {shop_name(kind, info)}s yet. It sells: {known}."
     if not crop_in_season(info, state.get("season")):
         season = state.get("season") or "this season"
         known = ", ".join(shop_kinds(crops, season)) or "nothing right now"
-        return False, f"The shop isn't selling {kind} seeds this {season}. It sells: {known}."
+        return False, f"The shop isn't selling {shop_name(kind, info)}s this {season}. It sells: {known}."
     count, err = _parse_count(n)
     if err:
         return False, err
     price = int(info["seed_price"]) * count
     gold = int(state["gold"])
+    noun = stock_noun(info, count)
+    label = f"{crop_name(kind, info)} {noun}"
     if gold < price:
         return (
             False,
-            f"Not enough gold. {count} {kind} seed(s) cost {price}G; you have {gold}G.",
+            f"Not enough gold. {count} {label} cost {price}G; you have {gold}G.",
         )
     state["gold"] = gold - price
-    seed_key = f"{kind}_seed"
+    seed_key = stock_key(kind, info)
     state["inventory"][seed_key] = int(state["inventory"].get(seed_key, 0)) + count
-    noun = "seed" if count == 1 else "seeds"
     msg = (
-        f"{who(player, 'buy', 'buys')} {count} {kind} {noun} for {price}G. "
+        f"{who(player, 'buy', 'buys')} {count} {label} for {price}G. "
         f"{display_name(player) if player else 'You'} "
         f"{'has' if player else 'have'} {state['gold']}G left."
     )
@@ -1283,11 +1362,11 @@ def sell(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[
         return False, err
     have = int(state["inventory"].get(kind, 0))
     if have < count:
-        return False, f"You only have {have} {kind}(s) to sell."
+        return False, f"You only have {have} {crop_name_plural(kind, info, have)} to sell."
     gold = int(info["sell_price"]) * count
     state["inventory"][kind] = have - count
     state["gold"] = int(state["gold"]) + gold
-    noun = kind if count == 1 else f"{kind}s"
+    noun = crop_name_plural(kind, info, count)
     msg = (
         f"{who(player, 'sell', 'sells')} {count} {noun} for {gold}G. "
         f"{display_name(player) if player else 'You'} now "
@@ -1483,7 +1562,7 @@ def _apply_runners(state: dict, crops: dict) -> list[str]:
             "kind": crop["kind"],
             "planted_day": day,
             "days_grown": 0,
-            "stage": "seed",
+            "stage": initial_stage(info),
             "dry_days": 0,
         }
         crop["runner_season"] = season_i
@@ -1828,7 +1907,7 @@ def legal_actions(
             if energy >= energy_cost("plant", rules):
                 for kind, info in crops.get("crops", {}).items():
                     if state["season"] in info["seasons"] and int(
-                        state["inventory"].get(f"{kind}_seed", 0)
+                        state["inventory"].get(stock_key(kind, info), 0)
                     ) > 0:
                         actions.append(f"plant {r} {c} {kind}")
         if not tile.get("watered"):

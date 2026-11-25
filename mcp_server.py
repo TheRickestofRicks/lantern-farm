@@ -163,12 +163,16 @@ def farm_rules() -> str:
         catalog.append(
             {
                 "kind": kind,
+                "name": info.get("name") or kind,
+                "shop_name": info.get("shop_name") or "",
+                "stock": info.get("stock") or "seed",
                 "grow_days": int(info.get("grow_days", 0)),
                 "regrow_days": int(info.get("regrow_days") or 0),
                 "seed_price": int(info.get("seed_price", 0)),
                 "sell_price": int(info.get("sell_price", 0)),
                 "available": info.get("available", True) is not False,
                 "seasons": list(info.get("seasons") or []),
+                "shop_seasons": list(info.get("shop_seasons") or info.get("seasons") or []),
                 "description": info.get("description") or "",
                 "perennial": bool(info.get("perennial")),
                 "lifespan_seasons": int(info.get("lifespan_seasons") or 0),
@@ -202,7 +206,7 @@ def farm_rules() -> str:
             "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 5 energy, diagonals included.",
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
             "Eat a harvested crop with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the crop instead of selling it.",
-            "The shop sells strawberries in spring and summer. Strawberries are perennial: they establish the first year, fruit every 7 days through spring into early summer after their first winter, go dormant in autumn and winter, and live two years. In seasons with nothing to sell, the shop is empty for now. Later crops stay in the pack if you already grew them.",
+            "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Later crops stay in the pack if you already grew them.",
             "The day advances when every player has ended their turn.",
         ],
     }

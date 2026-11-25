@@ -839,7 +839,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function invPhrase(inv) {
-      const order = ["strawberry_seed","strawberry","kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
+      const order = ["strawberry_seed","strawberry","everbearing_seedling","everbearing","kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
       const bits = [];
       const used = new Set();
       for (const key of order) {
@@ -857,12 +857,22 @@ PAGE = r"""<!DOCTYPE html>
       return bits.length ? bits.join(", ") : "empty pack";
     }
 
+    function cropInfo(kind) {
+      return (lastData && lastData.crops && lastData.crops[kind]) || {};
+    }
     function itemName(key, n) {
-      if (key.endsWith("_seed")) {
-        const kind = key.slice(0, -5);
-        return n + " " + kind + (n === 1 ? " seed" : " seeds");
+      let kind = key;
+      let stock = null;
+      if (key.endsWith("_seedling")) { kind = key.slice(0, -9); stock = "seedling"; }
+      else if (key.endsWith("_seed")) { kind = key.slice(0, -5); stock = "seed"; }
+      const info = cropInfo(kind);
+      const name = info.name || kind;
+      if (stock) {
+        const noun = stock + (n === 1 ? "" : "s");
+        return n + " " + name + " " + noun;
       }
-      return n + " " + key + (n === 1 ? "" : "s");
+      const fruit = n === 1 ? name : (info.name_plural || (name + "s"));
+      return n + " " + fruit;
     }
 
     function tileName(r, c) {
@@ -1129,21 +1139,31 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
 
+    function stockOf(kind) {
+      const info = cropInfo(kind);
+      return info.stock || "seed";
+    }
+    function stockKey(kind) {
+      return kind + "_" + stockOf(kind);
+    }
     function seedKinds(inv) {
-      const order = ["strawberry", "kabocha", "turnip", "carrot"];
+      const order = ["strawberry", "everbearing", "kabocha", "turnip", "carrot"];
       const found = [];
       const seen = {};
       inv = inv || {};
       for (const kind of order) {
-        if ((inv[kind + "_seed"] || 0) > 0) {
+        if ((inv[stockKey(kind)] || 0) > 0) {
           found.push(kind);
           seen[kind] = true;
         }
       }
       Object.keys(inv).forEach(function (key) {
-        if (key.slice(-5) === "_seed" && inv[key] > 0) {
-          const kind = key.slice(0, -5);
-          if (!seen[kind]) found.push(kind);
+        let kind = null;
+        if (key.endsWith("_seedling")) kind = key.slice(0, -9);
+        else if (key.endsWith("_seed")) kind = key.slice(0, -5);
+        if (kind && inv[key] > 0 && !seen[kind]) {
+          found.push(kind);
+          seen[kind] = true;
         }
       });
       return found;
@@ -1209,35 +1229,46 @@ PAGE = r"""<!DOCTYPE html>
     function appendShopCard(shop, data, kind, info, opts) {
       const inv = data.state.inventory || {};
       const gold = data.state.gold;
-      const seeds = inv[kind + "_seed"] || 0;
+      const stock = info.stock || "seed";
+      const seeds = inv[kind + "_" + stock] || 0;
       const fruit = inv[kind] || 0;
       const eat = info.eat_energy;
+      const title = info.shop_name || info.name || kind;
+      const fruitName = fruit === 1 ? (info.name || kind) : (info.name_plural || ((info.name || kind) + "s"));
       const card = document.createElement("div");
       card.className = "shop-card";
       const img = document.createElement("img");
       img.src = "/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg";
-      img.alt = cap(kind);
+      img.alt = title;
       card.appendChild(img);
       const body = document.createElement("div");
       let cycle = info.regrow_days
         ? (info.grow_days + " days, then every " + info.regrow_days + " days")
         : (info.grow_days + " days");
       if (info.perennial) {
-        cycle += " · perennial, fruits after first winter, dormant in autumn and winter, lives "
-          + (info.lifespan_seasons || 8) + " seasons";
-        if (info.fruiting_early_summer_days) {
-          cycle += ", through spring into early summer";
+        if (info.fruiting_after_dormancy === false) {
+          cycle += " · perennial, fruits in the planting year, dormant in winter, lives "
+            + (info.lifespan_seasons || 8) + " seasons";
+          if (info.fruiting_early_autumn_days) {
+            cycle += ", through spring and summer into early autumn";
+          }
+        } else {
+          cycle += " · perennial, fruits after first winter, dormant in autumn and winter, lives "
+            + (info.lifespan_seasons || 8) + " seasons";
+          if (info.fruiting_early_summer_days) {
+            cycle += ", through spring into early summer";
+          }
         }
       }
       const desc = info.description || "";
-      body.innerHTML = "<b>" + cap(kind) + "</b>" +
+      body.innerHTML = "<b>" + escapeHtml(title) + "</b>" +
         (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
-        '<div class="meta shop-meta">' + seasonLabel(info.seasons) +
+        '<div class="meta shop-meta">' + seasonLabel(info.shop_seasons && info.shop_seasons.length ? info.shop_seasons : info.seasons) +
         " · " + cycle +
-        " · seeds " + info.seed_price + "G · sell " + info.sell_price + "G" +
+        " · " + stock + "s " + info.seed_price + "G · sell " + info.sell_price + "G" +
         (eat ? " · eat +" + eat + " energy" : "") +
-        " · pack: " + seeds + " seed" + (seeds === 1 ? "" : "s") +
-        ", " + fruit + " " + kind + (fruit === 1 ? "" : "s") +
+        " · pack: " + seeds + " " + stock + (seeds === 1 ? "" : "s") +
+        ", " + fruit + " " + fruitName +
         "</div>";
       const row = document.createElement("div");
       row.className = "shop-qty";
@@ -1252,7 +1283,7 @@ PAGE = r"""<!DOCTYPE html>
         qty.min = "1";
         qty.max = "99";
         qty.value = String(shopQty[kind]);
-        qty.setAttribute("aria-label", "Quantity of " + kind + " seeds");
+        qty.setAttribute("aria-label", "Quantity of " + (info.shop_name || info.name || (kind + " seeds")));
         const plus = document.createElement("button");
         plus.type = "button";
         plus.className = "btn";
@@ -1315,7 +1346,8 @@ PAGE = r"""<!DOCTYPE html>
       const sellables = [];
       for (const [kind, info] of Object.entries(crops)) {
         const fruit = inv[kind] || 0;
-        const inSeason = info.available !== false && (info.seasons || []).indexOf(season) !== -1;
+        const shopSeasons = (info.shop_seasons && info.shop_seasons.length) ? info.shop_seasons : (info.seasons || []);
+        const inSeason = info.available !== false && shopSeasons.indexOf(season) !== -1;
         if (inSeason) forSale.push([kind, info]);
         if (fruit > 0) sellables.push([kind, info]);
       }
@@ -1799,17 +1831,24 @@ def _crop_catalog(crops: dict) -> dict:
     out = {}
     for kind, info in crops.get("crops", {}).items():
         out[kind] = {
+            "name": info.get("name") or kind,
+            "name_plural": info.get("name_plural") or "",
+            "shop_name": info.get("shop_name") or "",
+            "stock": info.get("stock") or "seed",
             "seed_price": int(info["seed_price"]),
             "sell_price": int(info["sell_price"]),
             "grow_days": int(info["grow_days"]),
             "regrow_days": int(info.get("regrow_days") or 0),
             "available": info.get("available", True) is not False,
             "seasons": list(info["seasons"]),
+            "shop_seasons": list(info.get("shop_seasons") or info.get("seasons") or []),
             "description": info.get("description") or "",
             "sprite": f"{kind}_mature_dry",
             "perennial": bool(info.get("perennial")),
             "lifespan_seasons": int(info.get("lifespan_seasons") or 0),
+            "fruiting_after_dormancy": info.get("fruiting_after_dormancy", True) is not False,
             "fruiting_early_summer_days": int(info.get("fruiting_early_summer_days") or 0),
+            "fruiting_early_autumn_days": int(info.get("fruiting_early_autumn_days") or 0),
             "eat_energy": info.get("eat_energy", info.get("raw_energy")),
         }
     return out

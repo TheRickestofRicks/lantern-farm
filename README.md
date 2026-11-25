@@ -48,9 +48,9 @@ editing the engine.
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.
 - Eat a harvested crop from the pack with `eat <crop>` (up to two snacks a
-  turn). A strawberry restores 30. Later crops still snack if you have them
-  (carrot 10, turnip 12, kabocha 25). Eating spends the crop instead of
-  selling it.
+  turn). A strawberry restores 30, an everbearing strawberry 20. Later crops
+  still snack if you have them (carrot 10, turnip 12, kabocha 25). Eating
+  spends the crop instead of selling it.
 - If `notify` is set in `config.local.json`, a short ping is sent on the
   configured handoff (for example when player 1 ends and it becomes player
   2's turn). Credentials come from a separate env file named in that
@@ -75,6 +75,7 @@ python3 cli.py do "harvest"
 python3 cli.py do "pluck"
 python3 cli.py do "eat strawberry"
 python3 cli.py do "buy strawberry 1"
+python3 cli.py do "buy everbearing 1"
 python3 cli.py do "sell strawberry 1"
 python3 cli.py --player player1 do "end turn"
 python3 cli.py new          # start over at day 1, starting player's turn
@@ -232,9 +233,9 @@ configured.
 
 ## Crops
 
-Content is added season by season. The shop currently sells strawberries in
-spring and summer. In autumn and winter the shop has nothing to sell yet —
-later seeds for those seasons arrive in a later update. Turnip, carrot, and
+Content is added season by season. The shop currently sells June-bearing strawberry seeds and everbearing
+strawberry seedlings in spring and summer. In autumn and winter the shop has
+nothing to sell yet — later seeds for those seasons arrive in a later update. Turnip, carrot, and
 kabocha stay in `crops.json` as later content (`"available": false`). Existing
 plants already in the ground keep growing and can be harvested; harvested later
 crops stay in the pack and can still be sold or eaten. Seeds you already own
@@ -249,7 +250,8 @@ real season (~90 days, or ~6 real days per game day).
 
 | Crop       | Days                                      | Seed | Sell | Eat | Seasons                          | Shop   |
 |------------|-------------------------------------------|------|------|-----|----------------------------------|--------|
-| strawberry | 7, then every 7 in its fruiting window    | 15G  | 25G  | 30  | spring, summer (dormant fall/winter) | yes |
+| strawberry (June-bearing seed) | 7, then every 7 in its fruiting window | 15G | 25G | 30 | spring, summer (dormant fall/winter) | yes |
+| everbearing strawberry (seedling) | 4 to settle, then every 7 in its fruiting window | 40G | 18G | 20 | spring through early autumn (dormant winter) | yes |
 | kabocha    | 17                                        | 20G  | 50G  | 25  | spring, summer (frost in autumn) | later  |
 | turnip     | 9                                         | 8G   | 22G  | 12  | spring, autumn                   | later  |
 | carrot     | 12                                        | 12G  | 32G  | 10  | spring, summer, autumn, winter   | later  |
@@ -267,6 +269,16 @@ without filling the farm in a week. A berry sells for 25G and snacks for +30
 energy (more than a kabocha). Two pickings in the fruiting year are not a
 fortune; the joy is the patch, the snack, and the runners.
 
+The shop also sells everbearing strawberry seedlings for 40G — a started
+plant, priced above a seed packet because the nursery has already raised it
+past establishment (a little more than two June-bearing packets, less than
+three). They settle in 4 watered days and fruit in the planting year, every
+7 days from spring through summer into early autumn (the first 5 days of
+fall), then go dormant only in winter. They live two years and send runners
+the same way. Each berry sells for 18G and snacks for +20, a bit less than
+the June-bearing handful, so the trade-off is earlier and steadier harvests
+rather than a bigger berry.
+
 Kabocha takes 17 game days (~100 real days): plant in spring, harvest in late
 summer. Autumn frost kills it. Carrots take 12 days and can finish a spring
 planting in summer; they don't mind the cold. Turnips take 9 days and prefer
@@ -278,7 +290,8 @@ players in the cabin, on the starting player's turn at 100 energy.
 two snacks a turn) and spends that crop instead of selling it.
 
 Stages: seed → sprouting → growing → mature (strawberries also have
-regrowing, and a dormant rest in the off-season).
+regrowing, and a dormant rest in the off-season). Everbearing seedlings
+start as a small plant rather than a seed.
 
 
 ## Roadmap

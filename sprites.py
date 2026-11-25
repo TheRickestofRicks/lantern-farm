@@ -326,7 +326,7 @@ def _dormant_plant(x: int, y: int, kind: str) -> str:
     leaf = P.get("wither") or "#8a7a54"
     leaf_d = P.get("wither_d") or "#5a4a30"
     stem = P.get("stem") or "#3a5a28"
-    if kind == "strawberry":
+    if kind in {"strawberry", "everbearing"}:
         return (
             f'<path d="M{x},{y+14} C{x-1},{y+2} {x-1},{y-8} {x},{y-14}" '
             f'stroke="{stem}" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
@@ -348,12 +348,13 @@ def _crop_layer(kind: str, stage: str) -> str:
         return _dormant_plant(x, y, kind)
     if stage == "seed":
         return _draw_seed(x, y)
-    if stage in {"sprouting", "regrowing"}:
+    if stage in {"sprouting", "regrowing", "seedling"}:
         leaf = {
             "kabocha": P["leaf"],
             "turnip": P["leaf3"],
             "carrot": P["leaf"],
             "strawberry": P["leaf3"],
+            "everbearing": P["leaf3"],
         }.get(kind, P["leaf"])
         return _sprout(x, y, leaf)
     if stage == "growing":
@@ -367,11 +368,12 @@ def _crop_layer(kind: str, stage: str) -> str:
                 f'<path d="M{x},{y+4} L{x+4},{y+8} L{x},{y+16} L{x-4},{y+8} Z" '
                 f'fill="{P["carrot"]}"/>'
             )
-        elif kind == "strawberry":
+        elif kind in {"strawberry", "everbearing"}:
+            scale = 0.75 if kind == "everbearing" else 0.9
             extra = (
                 f'<ellipse cx="{x}" cy="{y-6}" rx="4" ry="4" fill="{P["berry_flower"]}"/>'
                 f'<ellipse cx="{x+12}" cy="{y-2}" rx="3.2" ry="3.2" fill="{P["berry_flower"]}"/>'
-                + _strawberry_cluster(x, y, ripe=False, scale=0.9)
+                + _strawberry_cluster(x, y, ripe=False, scale=scale)
             )
         return _growing_leaves(x, y, extra)
     # mature
@@ -383,6 +385,13 @@ def _crop_layer(kind: str, stage: str) -> str:
         return _carrot_fruit(x, y, 1.05)
     if kind == "strawberry":
         return _growing_leaves(x, y - 4) + _strawberry_cluster(x, y + 4, ripe=True)
+    if kind == "everbearing":
+        # Same plant, slightly smaller berries and an extra blossom so the two are distinct.
+        return (
+            _growing_leaves(x, y - 4)
+            + f'<ellipse cx="{x+16}" cy="{y-10}" rx="3.4" ry="3.4" fill="{P["berry_flower"]}"/>'
+            + _strawberry_cluster(x, y + 6, ripe=True, scale=0.8)
+        )
     return _growing_leaves(x, y)
 
 

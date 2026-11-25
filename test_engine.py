@@ -88,8 +88,10 @@ def stand(state, player, row=1, col=1):
 
 
 def give_seeds(state, kind, n=2):
-    """Grant seeds so tests can still plant later-content crops."""
-    key = f"{kind}_seed"
+    """Grant planting stock so tests can still plant later-content crops."""
+    from engine import crop_info, load_crops, stock_key
+    info = crop_info(load_crops(), kind) or {}
+    key = stock_key(kind, info)
     state["inventory"][key] = int(state["inventory"].get(key, 0)) + n
     return state["inventory"][key]
 
@@ -1355,6 +1357,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertEqual(eat_energy_for(self.crops, "carrot"), 10)
         self.assertEqual(eat_energy_for(self.crops, "turnip"), 12)
         self.assertEqual(eat_energy_for(self.crops, "strawberry"), 30)
+        self.assertEqual(eat_energy_for(self.crops, "everbearing"), 20)
         self.assertEqual(eat_energy_for(self.crops, "kabocha"), 25)
         self.state["inventory"]["carrot"] = 3
         self.state["players"][P1]["energy"] = 20
@@ -1400,19 +1403,23 @@ class SpringCropsAndShop(unittest.TestCase):
         inv = self.state["inventory"]
         self.assertEqual(inv["strawberry_seed"], 2)
         self.assertEqual(inv["strawberry"], 0)
+        self.assertEqual(inv.get("everbearing_seedling", 0), 0)
+        self.assertEqual(inv.get("everbearing", 0), 0)
         self.assertEqual(inv.get("kabocha_seed", 0), 0)
         self.assertEqual(inv.get("turnip_seed", 0), 0)
         self.assertEqual(inv.get("carrot_seed", 0), 0)
 
     def test_shop_sells_strawberry_not_later_crops(self):
         from engine import shop_kinds, crop_in_shop, legal_actions
-        self.assertEqual(shop_kinds(self.crops), ["strawberry"])
+        self.assertEqual(shop_kinds(self.crops), ["strawberry", "everbearing"])
         self.assertTrue(crop_in_shop(self.crops["crops"]["strawberry"]))
+        self.assertTrue(crop_in_shop(self.crops["crops"]["everbearing"]))
         self.assertFalse(crop_in_shop(self.crops["crops"]["kabocha"]))
         self.assertFalse(crop_in_shop(self.crops["crops"]["turnip"]))
         self.assertFalse(crop_in_shop(self.crops["crops"]["carrot"]))
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
+        self.assertIn("buy everbearing 1", actions)
         self.assertNotIn("buy kabocha 1", actions)
         self.assertNotIn("buy turnip 1", actions)
         self.assertNotIn("buy carrot 1", actions)
@@ -1555,9 +1562,10 @@ class SpringCropsAndShop(unittest.TestCase):
         from engine import shop_kinds, legal_actions, buy
         self.state["day"] = 17
         self.state["season"] = "summer"
-        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry"])
+        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry", "everbearing"])
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
+        self.assertIn("buy everbearing 1", actions)
         ok, msg = buy(self.state, self.crops, "strawberry", 1)
         self.assertTrue(ok, msg)
         self.state["day"] = 31
@@ -1565,7 +1573,11 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(shop_kinds(self.crops, "autumn"), [])
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertNotIn("buy strawberry 1", actions)
+        self.assertNotIn("buy everbearing 1", actions)
         ok, msg = buy(self.state, self.crops, "strawberry", 1)
+        self.assertFalse(ok, msg)
+        self.assertIn("autumn", msg.lower())
+        ok, msg = buy(self.state, self.crops, "everbearing", 1)
         self.assertFalse(ok, msg)
         self.assertIn("autumn", msg.lower())
 
@@ -1604,6 +1616,115 @@ class SpringCropsAndShop(unittest.TestCase):
         # Idempotent.
         self.assertFalse(migrate_calendar(state, self.crops))
 
+    def test_shop_sells_everbearing_seedlings_and_they_fruit_this_year(self):
+        from engine import shop_kinds, buy, sell
+        self.assertIn("everbearing", shop_kinds(self.crops, "summer"))
+        gold = self.state["gold"]
+        ok, msg = buy(self.state, self.crops, "everbearing", 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("seedling", msg.lower())
+        self.assertEqual(self.state["gold"], gold - 40)
+        self.assertEqual(self.state["inventory"]["everbearing_seedling"], 1)
+        r, c = 1, 1
+        till(self.state, self.crops, r, c)
+        ok, msg = plant(self.state, self.crops, r, c, "everbearing")
+        self.assertTrue(ok, msg)
+        self.assertIn("seedling", msg.lower())
+        self.assertEqual(self.state["inventory"]["everbearing_seedling"], 0)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "seedling")
+        self.assertFalse(crop.get("overwintered"))
+        self._grow_days(r, c, 4)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "mature")
+        ok, msg = harvest(self.state, self.crops, r, c)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["inventory"]["everbearing"], 1)
+        self.assertEqual(self.state["inventory"].get("strawberry", 0), 0)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "regrowing")
+        self._grow_days(r, c, 7)
+        self.assertEqual(self.state["tiles"][r - 1][c - 1]["crop"]["stage"], "mature")
+        gold = self.state["gold"]
+        ok, msg = sell(self.state, self.crops, "everbearing", 1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold + 18)
+
+    def test_everbearing_fruits_late_summer_and_early_autumn_then_rests_in_winter(self):
+        from engine import in_fruiting_window
+        info = self.crops["crops"]["everbearing"]
+        r, c = 1, 1
+        give_seeds(self.state, "everbearing", 1)
+        till(self.state, self.crops, r, c)
+        # Mid-summer, past the June-bearing cutoff, an everbearing seedling can still fruit.
+        self.state["day"] = 25  # summer day 10
+        self.state["season"] = "summer"
+        ok, msg = plant(self.state, self.crops, r, c, "everbearing")
+        self.assertTrue(ok, msg)
+        self.assertTrue(in_fruiting_window(self.state, info, self.crops))
+        june = self.crops["crops"]["strawberry"]
+        self.assertFalse(in_fruiting_window(self.state, june, self.crops))
+        self._grow_days(r, c, 4)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "mature")
+        ok, msg = harvest(self.state, self.crops, r, c)
+        self.assertTrue(ok, msg)
+        # First 5 days of autumn are still in the fruiting window; day 6 is not.
+        self.state["day"] = 35  # autumn day 5
+        self.state["season"] = "autumn"
+        self.assertTrue(in_fruiting_window(self.state, info, self.crops))
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        crop["days_grown"] = 6
+        crop["stage"] = "regrowing"
+        crop["harvests"] = 1
+        self._grow_days(r, c, 1)
+        self.assertEqual(self.state["day"], 36)
+        self.assertEqual(self.state["tiles"][r - 1][c - 1]["crop"]["stage"], "mature")
+        harvest(self.state, self.crops, r, c)
+        self.state["day"] = 36  # autumn day 6
+        self.state["season"] = "autumn"
+        self.assertFalse(in_fruiting_window(self.state, info, self.crops))
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        crop["days_grown"] = 6
+        crop["stage"] = "regrowing"
+        crop["harvests"] = 2
+        self._grow_days(r, c, 1)
+        self.assertEqual(self.state["day"], 37)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertNotEqual(crop["stage"], "mature")
+        self.assertNotEqual(crop["stage"], "withered")
+        self.assertNotEqual(crop["stage"], "dormant")
+        # Winter dormancy.
+        self.state["day"] = 45
+        self.state["season"] = "autumn"
+        ok, msg = sleep(self.state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["season"], "winter")
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "dormant")
+        self.assertTrue(crop.get("overwintered"))
+        ok, msg = water(self.state, self.crops, r, c)
+        self.assertFalse(ok)
+        self.assertIn("dormant", msg.lower())
+
+    def test_everbearing_snack_and_migrate_keys(self):
+        from engine import migrate_state
+        self.state["inventory"]["everbearing"] = 1
+        self.state["players"][P1]["energy"] = 50
+        ok, msg = do_action(self.state, self.crops, "eat everbearing", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 70)
+        self.assertEqual(self.state["inventory"]["everbearing"], 0)
+        state = fresh_state(self.crops)
+        state["inventory"].pop("everbearing_seedling", None)
+        state["inventory"].pop("everbearing", None)
+        gold = state["gold"]
+        changed = migrate_state(state, self.rules)
+        self.assertTrue(changed)
+        self.assertEqual(state["inventory"]["everbearing_seedling"], 0)
+        self.assertEqual(state["inventory"]["everbearing"], 0)
+        self.assertEqual(state["gold"], gold)
+
     def test_strawberry_sprites_cover_each_stage(self):
         from sprites import svg_for_key
         for stage in ("seed", "sprouting", "growing", "mature", "regrowing", "dormant", "withered"):
@@ -1612,6 +1733,12 @@ class SpringCropsAndShop(unittest.TestCase):
             self.assertNotIn("unknown", svg.lower())
         ripe = svg_for_key("strawberry_mature_dry")
         self.assertIn("#c43c3c", ripe)
+        for stage in ("seedling", "growing", "mature", "regrowing", "dormant", "withered"):
+            svg = svg_for_key(f"everbearing_{stage}_dry")
+            self.assertIn("<svg", svg)
+            self.assertNotIn("unknown", svg.lower())
+        ev = svg_for_key("everbearing_mature_dry")
+        self.assertIn("#c43c3c", ev)
 
     def test_migrate_adds_strawberry_keys_without_touching_tiles_or_counts(self):
         from engine import migrate_state, ensure_inventory_keys

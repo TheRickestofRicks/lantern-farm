@@ -50,7 +50,7 @@ Actions:
 You can only till, plant, water, harvest, or pluck the tile you are standing on.
 Each step costs 5 energy, including diagonals. Harvest, buy, sell, and eat
 are free. Eat a harvested crop from the pack (up to 2 snacks a turn) to
-restore energy: strawberry 30, and later crops if you have them (carrot 10, turnip 12, kabocha 25). Eating spends the crop
+restore energy: strawberry 30, everbearing strawberry 20, and later crops if you have them (carrot 10, turnip 12, kabocha 25). Eating spends the crop
 instead of selling it.
 
 Ending your turn in the cabin is sleep — next day you wake there with 100
@@ -63,7 +63,7 @@ or  python3 cli.py do "end turn: water the kabocha"
 Rows and columns are 1-indexed. Row 1 is the top, col 1 is the left.
 The cabin is top-right (row 1 col 3) and cannot be farmed.
 
-Crops: the shop sells strawberry in spring and summer. Strawberries are perennial: they establish the first year, fruit every 7 days through spring into early summer after their first winter, go dormant in autumn and winter, and live two years. In seasons with nothing to sell, the shop is empty for now. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
+Crops: the shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
 """
 
 
