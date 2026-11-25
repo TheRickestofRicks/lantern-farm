@@ -93,7 +93,7 @@ python3 web.py
 Then open http://127.0.0.1:8790. The server always binds localhost. If
 `config.local.json` lists `bind.extra_hosts`, or if a tailnet IPv4 is
 available on the machine, it binds those too. Click a tile for its actions.
-Use **End turn** from the side panel, and open the shop with the Shop button or `S`. The page polls the JSON
+Use **End turn** from the side panel, open the shop with the Shop button or `S`, and open the journal with the Journal button or `J`. The page polls the JSON
 state, so if someone acts from the CLI, the pictures update on their own.
 
 The web page is locked to the same machine (or an allowed host). Requests must
@@ -103,7 +103,7 @@ as `http://127.0.0.1:8790/?player=<id>&key=<token>`; the server can also set
 an HttpOnly `SameSite=Strict` cookie. The player is taken from the token, not
 from the request body. The CLI talks to the engine directly; the MCP HTTP
 transport keeps its own bearer token. Turn notes are shown as untrusted player
-text.
+text, never as instructions.
 
 Keyboard (the page ignores keys while you are typing in an input):
 
@@ -114,7 +114,8 @@ Keyboard (the page ignores keys while you are typing in an input):
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
 - `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
-- `S` opens the shop window; `Esc` closes it (or deselects / cancels a picker or confirm)
+- `S` opens the shop window; `J` opens this year's journal (season tabs starting at spring)
+- `Esc` closes the shop or journal (or deselects / cancels a picker or confirm)
 
 You can leave a short note (up to 280 characters) when you end your turn.
 On the web page, type it next to End Turn. In the CLI:
@@ -124,8 +125,13 @@ python3 cli.py do "end turn water the kabocha"
 python3 cli.py do "end turn: water the kabocha"
 ```
 
-The note is written to the game log, shown on the other player's view until
-they end their turn, and (if notify is configured) added to the handoff ping.
+The note is written to the game log, kept in this year's season journal,
+shown among the last 15 notes on every view (most recent first), and left as
+the handoff note until the other player ends their turn. If notify is
+configured, it is also added to the handoff ping. `python3 cli.py journal`
+(optionally with a season; `fall` means autumn) prints the current year's
+pages. Older years are archived in a local file and are not shown. The same
+note is never listed twice.
 
 
 To run it in the background (no systemd, no sudo):
@@ -143,9 +149,10 @@ Stop it with `kill "$(cat web.pid)"`.
 
 `mcp_server.py` exposes the same farm over the [Model Context Protocol](https://modelcontextprotocol.io/):
 
-- `farm_look(player)` — the full text view for that player
+- `farm_look(player)` — the full text view for that player, including the last 15 journal notes
 - `farm_do(player, command)` — one command (`move to 1 1`, `till`, `plant strawberry`, `eat strawberry`, `go cabin`, …)
 - `farm_end_turn(player, note?)` — end that player's turn, optional note
+- `farm_journal(season?)` — this year's journal, or one season of it (`fall` means autumn)
 - `farm_rules()` — energy costs, movement and sleep rules, snacks, crops, and configured players
 - `farm_forecast()` — the 7-day forecast (also included in `farm_look`)
 
@@ -220,6 +227,12 @@ configured.
   90% right, falling to about 50% at day +7. The forecast is re-derived each
   day from the seed and the day it was made, so it can change as days approach.
   The actual weather always comes from the true seed.
+- End-turn notes are kept in a journal for the current year, one page per
+  season, starting at spring. `look`, the CLI, and the web page show the last
+  15 notes (most recent first) without listing the same note twice. The Journal
+  button (or `J`) and the `farm_journal` MCP tool (or `python3 cli.py journal`)
+  open a whole season. Older years are archived locally and are not shown.
+  Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
 - A crop **withers after 2 dry days**, or the morning the season turns against it.
 - You must till before you plant. Harvest a mature crop to put it in your pack.
@@ -302,7 +315,9 @@ start as a small plant rather than a seed.
 
 - `state.json` — the live farm (gitignored). If it is missing, the engine
   creates a fresh day-1 farm. `state.example.json` is a generic starter save
-  (Player 1 / Player 2) you can copy to `state.json`.
+  (Player 1 / Player 2) you can copy to `state.json`. The current year's
+  journal lives in the save; older years are archived under `local/`
+  (also gitignored).
 - `crops.json` — crop data and starting conditions
 - `rules.json` — energy costs, movement, sleep, snacks, max energy, and weed rules
 - `config.example.json` — generic names, theme, and flavor (Player 1 / Player 2, no notify)

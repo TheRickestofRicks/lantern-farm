@@ -20,6 +20,7 @@ _LIVE_STATE = engine.STATE_PATH.resolve()
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="lantern-farm-tests-"))
 engine.STATE_PATH = _TEST_DIR / "state.json"
 engine.LOCK_PATH = _TEST_DIR / ".state.lock"
+engine.JOURNAL_ARCHIVE_PATH = _TEST_DIR / "journal-archive.json"
 
 from config import display_name, player_ids, starting_player as config_starting_player
 
@@ -28,6 +29,16 @@ N1, N2 = display_name(P1), display_name(P2)
 
 from engine import (
     NOTE_MAX,
+    RECENT_NOTE_COUNT,
+    all_journal_entries,
+    archive_journal_if_needed,
+    empty_journal,
+    migrate_journal,
+    normalize_season,
+    recent_notes,
+    record_journal_note,
+    season_journal_entries,
+    year_for_day,
     buy,
     crop_info,
     do_action,
@@ -572,6 +583,13 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(note["text"], "see you in the morning")
         texts = [e["text"] for e in self.state["log"]]
         self.assertTrue(any(f"{N1} leaves a note: see you in the morning" in t for t in texts))
+        spring = self.state["journal"]["seasons"]["spring"]
+        self.assertEqual(len(spring), 1)
+        self.assertEqual(spring[0]["from"], P1)
+        self.assertEqual(spring[0]["text"], "see you in the morning")
+        self.assertEqual(spring[0]["day"], 1)
+        self.assertEqual(spring[0]["season"], "spring")
+        self.assertEqual(spring[0]["year"], 1)
 
     def test_note_clears_when_the_recipient_ends_their_turn(self):
         ok, _ = do_action(self.state, self.crops, "end turn: water tomorrow", player=P1)
@@ -590,6 +608,12 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(note["from"], P2)
         self.assertEqual(note["text"], "look at the kabocha")
         self.assertEqual(self.state["current_player"], P1)
+        # The handoff note cleared earlier, but every end-turn note stays in the journal.
+        texts = [e["text"] for e in all_journal_entries(self.state)]
+        self.assertEqual(
+            texts,
+            ["water tomorrow", "I watered already", "look at the kabocha"],
+        )
 
     def test_hey_ping_message_includes_the_note(self):
         self.assertEqual(
@@ -994,7 +1018,10 @@ class ConfigAndMCP(unittest.TestCase):
         self.assertIn("tools", init["result"]["capabilities"])
         listed = mcp_server.handle_rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = [t["name"] for t in listed["result"]["tools"]]
-        self.assertEqual(names, ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_rules"])
+        self.assertEqual(
+            names,
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_rules"],
+        )
         p1 = starting_player()
         called = mcp_server.handle_rpc({
             "jsonrpc": "2.0",
@@ -1105,7 +1132,10 @@ class ConfigAndMCP(unittest.TestCase):
         by_id = {m["id"]: m for m in messages}
         self.assertEqual(by_id[1]["result"]["serverInfo"]["name"], "lantern-farm")
         names = [tool["name"] for tool in by_id[2]["result"]["tools"]]
-        self.assertEqual(names, ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_rules"])
+        self.assertEqual(
+            names,
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_rules"],
+        )
         self.assertEqual(proc.returncode, 0)
 
 
@@ -1758,6 +1788,166 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(state["inventory"]["kabocha"], 3)
         self.assertEqual(state["gold"], 182)
         self.assertEqual(state["tiles"][1][1]["crop"], crop_before)
+
+class FarmJournal(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, weather_seed=0, rules=self.rules)
+        archive = engine.JOURNAL_ARCHIVE_PATH
+        if archive.exists():
+            archive.unlink()
+
+    def test_year_and_season_helpers(self):
+        self.assertEqual(year_for_day(1, self.crops), 1)
+        self.assertEqual(year_for_day(15, self.crops), 1)
+        self.assertEqual(year_for_day(16, self.crops), 1)
+        self.assertEqual(year_for_day(60, self.crops), 1)
+        self.assertEqual(year_for_day(61, self.crops), 2)
+        self.assertEqual(normalize_season("Fall"), "autumn")
+        self.assertEqual(normalize_season("autumn"), "autumn")
+        self.assertIsNone(normalize_season("monsoon"))
+        self.assertEqual(RECENT_NOTE_COUNT, 15)
+
+    def test_duplicate_notes_are_stored_once(self):
+        self.assertTrue(record_journal_note(self.state, P1, "same text", day=3, crops=self.crops))
+        self.assertFalse(record_journal_note(self.state, P1, "same text", day=3, crops=self.crops))
+        self.assertTrue(record_journal_note(self.state, P1, "same text", day=4, crops=self.crops))
+        self.assertEqual(len(all_journal_entries(self.state)), 2)
+
+    def test_migrate_imports_log_and_last_note_without_doubling(self):
+        state = fresh_state(self.crops, weather_seed=0, rules=self.rules)
+        state.pop("journal", None)
+        state.pop("year", None)
+        state["log"] = [
+            {"day": 2, "player": P1, "text": f"{N1} leaves a note: watered the berries"},
+            {"day": 2, "player": P2, "text": f"{N2} leaves a note: I'll take morning water"},
+            {"day": 2, "player": P1, "text": f"{N1} ends the turn in the cabin."},
+        ]
+        state["last_note"] = {"from": P2, "text": "I'll take morning water", "day": 2}
+        self.assertTrue(migrate_state(state, self.rules))
+        entries = all_journal_entries(state)
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["from"], P1)
+        self.assertEqual(entries[0]["text"], "watered the berries")
+        self.assertEqual(entries[1]["from"], P2)
+        self.assertEqual(entries[1]["text"], "I'll take morning water")
+        self.assertEqual(state["year"], 1)
+        self.assertEqual(state["journal"]["year"], 1)
+        # Running migrate again must not duplicate them.
+        self.assertFalse(migrate_journal(state, self.crops))
+        self.assertEqual(len(all_journal_entries(state)), 2)
+
+    def test_look_shows_last_fifteen_notes_most_recent_first_without_duplicates(self):
+        from describe import describe_state, format_player_note, format_journal_line
+        for i in range(1, 21):
+            who = P1 if i % 2 else P2
+            record_journal_note(self.state, who, f"note {i}", day=i, crops=self.crops)
+        entries = recent_notes(self.state)
+        self.assertEqual(len(entries), 15)
+        self.assertEqual(entries[0]["text"], "note 20")
+        self.assertEqual(entries[-1]["text"], "note 6")
+        self.assertEqual(len({(e["day"], e["from"], e["text"]) for e in entries}), 15)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("Recent notes (last 15, most recent first):", look)
+        self.assertIn(format_journal_line(entries[0]), look)
+        self.assertIn(format_player_note(entries[0]), look)
+        self.assertNotIn(format_journal_line({"day": 5, "from": P1, "text": "note 5"}), look)
+        self.assertNotIn(format_journal_line({"day": 1, "from": P1, "text": "note 1"}), look)
+        # The same labelled line must appear only once.
+        labeled = format_journal_line(entries[0])
+        self.assertEqual(look.count(labeled), 1)
+
+    def test_year_rollover_archives_old_notes(self):
+        from describe import describe_state, format_season_journal
+        record_journal_note(self.state, P1, "last winter thought", day=60, crops=self.crops)
+        self.state["day"] = 60
+        self.state["season"] = "winter"
+        self.state["year"] = 1
+        self.state["journal"]["year"] = 1
+        ok, _ = engine.advance_day(self.state, self.crops, self.rules)
+        self.assertTrue(ok)
+        self.assertEqual(self.state["day"], 61)
+        self.assertEqual(self.state["season"], "spring")
+        self.assertEqual(self.state["year"], 2)
+        self.assertEqual(self.state["journal"]["year"], 2)
+        self.assertEqual(all_journal_entries(self.state), [])
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertNotIn("last winter thought", look)
+        journal_text = format_season_journal(self.state)
+        self.assertIn("Year 2", journal_text)
+        self.assertNotIn("last winter thought", journal_text)
+        archived = json.loads(engine.JOURNAL_ARCHIVE_PATH.read_text(encoding="utf-8"))
+        winter = archived["years"]["1"]["winter"]
+        self.assertEqual(len(winter), 1)
+        self.assertEqual(winter[0]["text"], "last winter thought")
+        self.assertEqual(winter[0]["from"], P1)
+
+    def test_calendar_remap_moves_journal_days(self):
+        # A 28-day summer note (day 36 is summer day 8) remaps onto a 15-day calendar.
+        self.state["days_per_season"] = 28
+        self.state["day"] = 36
+        self.state["season"] = "summer"
+        self.state["journal"]["seasons"]["summer"] = [{
+            "day": 36,
+            "year": 1,
+            "season": "summer",
+            "from": P1,
+            "text": "long summer",
+        }]
+        self.assertTrue(engine.migrate_calendar(self.state, self.crops))
+        entries = all_journal_entries(self.state)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["text"], "long summer")
+        self.assertEqual(entries[0]["day"], 23)  # summer day 8 on a 15-day season
+        self.assertEqual(entries[0]["season"], "summer")
+        self.assertEqual(entries[0]["year"], 1)
+
+    def test_mcp_and_format_read_a_season_including_fall_alias(self):
+        from describe import format_season_journal
+        import mcp_server
+        record_journal_note(self.state, P1, "spring rain", day=3, crops=self.crops)
+        self.state["day"] = 16
+        self.state["season"] = "summer"
+        record_journal_note(self.state, P2, "summer sun", day=16, crops=self.crops)
+        spring = format_season_journal(self.state, "spring")
+        self.assertIn("Year 1, Spring", spring)
+        self.assertIn("spring rain", spring)
+        self.assertIn(f"Note from {N1} (player text):", spring)
+        self.assertNotIn("summer sun", spring)
+        autumn = format_season_journal(self.state, "fall")
+        self.assertIn("Year 1, Autumn", autumn)
+        self.assertIn("No notes in this season yet", autumn)
+        bad = format_season_journal(self.state, "monsoon")
+        self.assertIn("spring, summer, autumn (or fall), and winter", bad)
+        path = engine.STATE_PATH
+        engine.save_state(self.state, path)
+        mcp_server._STATE_PATH = path
+        self.addCleanup(lambda: setattr(mcp_server, "_STATE_PATH", None))
+        text = mcp_server.farm_journal("summer", path=path)
+        self.assertIn("summer sun", text)
+        self.assertIn(f"Note from {N2} (player text):", text)
+        self.assertNotIn("spring rain", text)
+        whole = mcp_server.farm_journal(path=path)
+        self.assertIn("spring rain", whole)
+        self.assertIn("summer sun", whole)
+        called = mcp_server.handle_rpc({
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "farm_journal", "arguments": {"season": "fall"}},
+        })
+        self.assertFalse(called["result"]["isError"])
+        self.assertIn("Autumn", called["result"]["content"][0]["text"])
+
+    def test_web_page_has_a_journal_modal(self):
+        import web
+        html = web.PAGE
+        self.assertIn('id="open-journal"', html)
+        self.assertIn('id="journal-modal"', html)
+        self.assertIn('id="recent-notes"', html)
+        self.assertIn("Journal <kbd>J</kbd>", html)
+
 
 
 

@@ -607,7 +607,7 @@ PAGE = r"""<!DOCTYPE html>
     .end-row input[type="text"]:disabled {
       opacity: 0.45;
     }
-    .last-note {
+    .last-note, .recent-notes {
       margin: 0.7rem 0 0;
       padding: 0.55rem 0.7rem;
       border: 1px solid var(--line);
@@ -616,11 +616,53 @@ PAGE = r"""<!DOCTYPE html>
       color: var(--ink);
       line-height: 1.4;
     }
-    .last-note .who {
+    .last-note .who, .recent-notes .who {
       color: var(--gold);
       font-weight: 600;
     }
-    .shop-launch { margin: 0 0 0.8rem; }
+    .recent-notes-head {
+      color: var(--gold);
+      font-weight: 600;
+      font-size: 0.92rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin: 0 0 0.35rem;
+    }
+    .recent-notes ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .recent-notes li {
+      margin: 0.35rem 0 0;
+    }
+    .recent-notes .day {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .shop-launch {
+      margin: 0 0 0.8rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .journal-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin: 0.2rem 0 0.7rem;
+    }
+    .journal-tabs button[aria-selected="true"] {
+      border-color: var(--gold);
+      color: var(--gold);
+    }
+    .journal-entry {
+      margin: 0 0 0.7rem;
+      color: var(--ink);
+      line-height: 1.4;
+    }
+    .journal-entry .day { color: var(--muted); font-size: 0.88rem; }
+    .journal-empty { color: var(--muted); line-height: 1.5; }
     .shop-modal {
       position: fixed;
       inset: 0;
@@ -729,10 +771,11 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
         &middot; <kbd>S</kbd> shop
+        &middot; <kbd>J</kbd> journal
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
         &middot; <kbd>Enter</kbd> in the note box ends the turn
         &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
-        &middot; <kbd>Esc</kbd> closes the shop or deselects
+        &middot; <kbd>Esc</kbd> closes the shop or journal or deselects
       </p>
     </section>
     <aside class="panel">
@@ -740,11 +783,15 @@ PAGE = r"""<!DOCTYPE html>
       <div class="inv" id="inv"></div>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button">Shop <kbd>S</kbd></button>
+        <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
       </div>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div class="actions" id="tile-actions"></div>
-      <div class="last-note" id="last-note" hidden></div>
+      <div class="recent-notes" id="recent-notes" hidden>
+        <div class="recent-notes-head">Recent notes</div>
+        <ul id="recent-notes-list"></ul>
+      </div>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
@@ -772,6 +819,17 @@ PAGE = r"""<!DOCTYPE html>
       <div id="shop" class="shop-body"></div>
     </div>
   </div>
+  <div id="journal-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="journal-backdrop"></div>
+    <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="journal-title">
+      <div class="shop-head">
+        <h2 id="journal-title">Journal</h2>
+        <button type="button" class="btn" id="journal-close">Close</button>
+      </div>
+      <div class="journal-tabs" id="journal-tabs" role="tablist"></div>
+      <div id="journal-body" class="shop-body"></div>
+    </div>
+  </div>
   <script>
     const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
     const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
@@ -794,6 +852,9 @@ PAGE = r"""<!DOCTYPE html>
     let plantPick = null; /* {kinds, index} while choosing a seed */
     let endConfirm = false;
     let shopOpen = false;
+    let journalOpen = false;
+    let journalSeason = "spring";
+    const JOURNAL_SEASONS = ["spring", "summer", "autumn", "winter"];
     const shopQty = {};
 
     function $(id) { return document.getElementById(id); }
@@ -1003,18 +1064,8 @@ PAGE = r"""<!DOCTYPE html>
         const otherId = PLAYERS.map(function (p) { return p.id; }).filter(function (id) { return id !== PLAYER; })[0];
         noteBox.placeholder = "Note for " + displayName(otherId || "the other player") + " (optional)";
       }
-      const noteEl = $("last-note");
-      if (noteEl) {
-        const last = (s.last_note) || data.last_note;
-        if (last && last.text && last.from) {
-          noteEl.hidden = false;
-          noteEl.innerHTML = "<span class='who'>Note from " + escapeHtml(displayName(last.from)) + " (player text):</span> " +
-            escapeHtml(last.text);
-        } else {
-          noteEl.hidden = true;
-          noteEl.textContent = "";
-        }
-      }
+      renderRecentNotes(data);
+      if (journalOpen) renderJournal(data);
       $("look").textContent = data.look || "";
       const log = (s.log || []).slice(-8).reverse();
       $("log").innerHTML = log.map(function (e) {
@@ -1205,7 +1256,126 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
 
+    function noteIdentity(entry) {
+      if (!entry) return "";
+      return [entry.year || "", entry.season || "", entry.day || "", entry.from || "", entry.text || ""].join("\x1f");
+    }
+    function journalFrom(data) {
+      const s = (data && data.state) || data || {};
+      const journal = s.journal || data.journal || {};
+      const seasons = journal.seasons || {};
+      const year = journal.year || s.year || data.year || 1;
+      return {year: year, seasons: seasons};
+    }
+    function recentNotesFrom(data) {
+      const seen = {};
+      const out = [];
+      function add(entry) {
+        if (!entry || !entry.text || !entry.from) return;
+        const key = noteIdentity(entry);
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push(entry);
+      }
+      const listed = (data && data.recent_notes) || [];
+      for (let i = 0; i < listed.length; i++) add(listed[i]);
+      if (!out.length) {
+        const journal = journalFrom(data);
+        const pooled = [];
+        JOURNAL_SEASONS.forEach(function (season) {
+          (journal.seasons[season] || []).forEach(function (entry) { pooled.push(entry); });
+        });
+        pooled.sort(function (a, b) { return (a.day || 0) - (b.day || 0); });
+        for (let i = pooled.length - 1; i >= 0 && out.length < 15; i--) add(pooled[i]);
+        const last = ((data && data.state) || {}).last_note || (data && data.last_note);
+        if (last && last.text && last.from) add(last);
+      }
+      return out;
+    }
+    function formatNoteHtml(entry) {
+      const day = entry.day ? "<span class='day'>[day " + escapeHtml(String(entry.day)) + "]</span> " : "";
+      return day + "<span class='who'>Note from " + escapeHtml(displayName(entry.from)) + " (player text):</span> " +
+        escapeHtml(entry.text);
+    }
+    function renderRecentNotes(data) {
+      const box = $("recent-notes");
+      const list = $("recent-notes-list");
+      if (!box || !list) return;
+      const notes = recentNotesFrom(data);
+      if (!notes.length) {
+        box.hidden = true;
+        list.innerHTML = "";
+        return;
+      }
+      box.hidden = false;
+      const seen = {};
+      list.innerHTML = notes.map(function (entry) {
+        const key = noteIdentity(entry);
+        if (seen[key]) return "";
+        seen[key] = true;
+        return "<li>" + formatNoteHtml(entry) + "</li>";
+      }).join("");
+    }
+    function openJournal() {
+      closeShop();
+      journalOpen = true;
+      const modal = $("journal-modal");
+      if (modal) modal.hidden = false;
+      if (lastData) {
+        const current = ((lastData.state || {}).season) || "spring";
+        if (JOURNAL_SEASONS.indexOf(current) !== -1) journalSeason = current;
+        renderJournal(lastData);
+      } else {
+        renderJournal({state: {journal: {year: 1, seasons: {}}, season: "spring"}});
+      }
+    }
+    function closeJournal() {
+      journalOpen = false;
+      const modal = $("journal-modal");
+      if (modal) modal.hidden = true;
+    }
+    function renderJournal(data) {
+      const tabs = $("journal-tabs");
+      const body = $("journal-body");
+      const title = $("journal-title");
+      if (!tabs || !body) return;
+      const journal = journalFrom(data);
+      if (title) title.textContent = "Journal — Year " + journal.year;
+      tabs.innerHTML = "";
+      JOURNAL_SEASONS.forEach(function (season) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn";
+        btn.textContent = season.charAt(0).toUpperCase() + season.slice(1);
+        btn.setAttribute("role", "tab");
+        btn.setAttribute("aria-selected", season === journalSeason ? "true" : "false");
+        btn.addEventListener("click", function () {
+          journalSeason = season;
+          renderJournal(lastData || data);
+        });
+        tabs.appendChild(btn);
+      });
+      const entries = journal.seasons[journalSeason] || [];
+      const seen = {};
+      const unique = [];
+      entries.forEach(function (entry) {
+        const key = noteIdentity(entry);
+        if (!entry || !entry.text || !entry.from || seen[key]) return;
+        seen[key] = true;
+        unique.push(entry);
+      });
+      unique.sort(function (a, b) { return (a.day || 0) - (b.day || 0); });
+      if (!unique.length) {
+        body.innerHTML = "<p class='journal-empty'>No notes in " + journalSeason + " of year " +
+          journal.year + " yet.</p>";
+        return;
+      }
+      body.innerHTML = unique.map(function (entry) {
+        return "<div class='journal-entry'>" + formatNoteHtml(entry) + "</div>";
+      }).join("");
+    }
     function openShop() {
+      closeJournal();
       shopOpen = true;
       const modal = $("shop-modal");
       if (modal) modal.hidden = false;
@@ -1637,6 +1807,10 @@ PAGE = r"""<!DOCTYPE html>
           closeShop();
           return;
         }
+        if (journalOpen) {
+          closeJournal();
+          return;
+        }
         if (endConfirm || plantPick) {
           endConfirm = false;
           plantPick = null;
@@ -1696,7 +1870,12 @@ PAGE = r"""<!DOCTYPE html>
         openShop();
         return;
       }
-      if (shopOpen) return;
+      if (letter === "j") {
+        ev.preventDefault();
+        openJournal();
+        return;
+      }
+      if (shopOpen || journalOpen) return;
       if (letter === "t") {
         ev.preventDefault();
         endConfirm = false;
@@ -1750,6 +1929,12 @@ PAGE = r"""<!DOCTYPE html>
     if (closeBtn) closeBtn.addEventListener("click", function () { closeShop(); });
     const backdrop = $("shop-backdrop");
     if (backdrop) backdrop.addEventListener("click", function () { closeShop(); });
+    const openJournalBtn = $("open-journal");
+    if (openJournalBtn) openJournalBtn.addEventListener("click", function () { openJournal(); });
+    const closeJournalBtn = $("journal-close");
+    if (closeJournalBtn) closeJournalBtn.addEventListener("click", function () { closeJournal(); });
+    const journalBackdrop = $("journal-backdrop");
+    if (journalBackdrop) journalBackdrop.addEventListener("click", function () { closeJournal(); });
     poll();
     pollTimer = setInterval(poll, 1500);
   </script>
@@ -1870,6 +2055,7 @@ def api_payload(
     migrate_state(state, rules)
     viewer = _web_player(player)
     from config import starting_player
+    from engine import recent_notes, year_for_day
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
     sprites = [[sprite_key(tile, sky) for tile in row] for row in state["tiles"]]
@@ -1890,6 +2076,8 @@ def api_payload(
         "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
         "cabin": [CABIN_ROW, CABIN_COL],
+        "year": year_for_day(int(state.get("day") or 1), crops),
+        "recent_notes": recent_notes(state),
     }
 
 

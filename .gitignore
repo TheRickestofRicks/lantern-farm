@@ -11,3 +11,4 @@ mcp.env
 .env
 state.json
 local/
+journal-archive.json

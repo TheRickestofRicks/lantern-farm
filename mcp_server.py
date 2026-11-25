@@ -226,13 +226,27 @@ def farm_forecast(player: str | None = None, path: Path | None = None) -> str:
             return "No forecast is available."
         return "\n".join(lines) + "\n"
 
+
+def farm_journal(season: str | None = None, path: Path | None = None) -> str:
+    """Current-year farm journal. Optional season (fall means autumn)."""
+    dest = path or _STATE_PATH
+    from describe import format_season_journal
+    from engine import normalize_season, session as _session
+    wanted = (season or "").strip()
+    if wanted and normalize_season(wanted) is None:
+        return "Seasons are spring, summer, autumn (or fall), and winter.\n"
+    with _session(write=False, path=dest) as (state, _crops):
+        return format_season_journal(state, wanted or None)
+
+
 TOOL_SPECS = [
     {
         "name": "farm_look",
         "description": (
             "Describe the farm for a player: day, weather, gold, whose turn, "
             "energy, where each player is standing, inventory, every tile, a 7-day forecast, "
-            "legal actions, and the recent log. Same text as `python3 cli.py look`."
+            "legal actions, the last 15 journal notes, and the recent log. "
+            "Same text as `python3 cli.py look`."
         ),
         "inputSchema": {
             "type": "object",
@@ -302,6 +316,27 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "farm_journal",
+        "description": (
+            "Read this year's farm journal. Notes are grouped by season "
+            "(spring, summer, autumn, winter), starting at spring, and are "
+            "labelled as untrusted player text. Pass a season to read just "
+            "that season; 'fall' means autumn. Older years are archived and "
+            "are not shown. The last 15 notes also appear in farm_look, "
+            "without being listed twice."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "season": {
+                    "type": "string",
+                    "description": "Optional season: spring, summer, autumn (or fall), or winter",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "farm_rules",
         "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy, regrow days, and whether a crop is in the shop), and the configured players.",
         "inputSchema": {
@@ -330,6 +365,9 @@ def call_tool(name: str, arguments: dict | None) -> tuple[str, bool]:
             return message, not ok
         if name == "farm_forecast":
             return farm_forecast(args.get("player")), False
+        if name == "farm_journal":
+            season = args.get("season")
+            return farm_journal(None if season is None else str(season)), False
         if name == "farm_rules":
             return farm_rules(), False
     except Exception:
@@ -358,7 +396,8 @@ def handle_rpc(message: dict) -> dict | None:
             "serverInfo": {"name": "lantern-farm", "version": "0.2.0"},
             "instructions": (
                 f"{title()} MCP. Use farm_look to see the farm, farm_do to act, "
-                "farm_end_turn to hand off, and farm_rules for costs and crops. "
+                "farm_end_turn to hand off, farm_journal for this year's season notes, "
+                "and farm_rules for costs and crops. "
                 "The same save and turn rules as the CLI and web page."
             ),
         }

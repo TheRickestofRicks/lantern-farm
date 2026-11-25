@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -24,6 +25,16 @@ CABIN_ROW = 1  # 1-indexed, top-right
 CABIN_COL = 3
 MAX_LOG = 50
 NOTE_MAX = 280
+RECENT_NOTE_COUNT = 15
+JOURNAL_ARCHIVE_PATH = ROOT / "local" / "journal-archive.json"
+_LEAVES_A_NOTE = re.compile(r"^(.*) leaves a note:\s*(.*)$", re.DOTALL)
+SEASON_ALIASES = {
+    "spring": "spring",
+    "summer": "summer",
+    "autumn": "autumn",
+    "fall": "autumn",
+    "winter": "winter",
+}
 
 POSITION_NAMES = {
     (1, 1): "top-left",
@@ -273,6 +284,409 @@ def days_per_season(crops: dict | None) -> int:
     if not crops:
         return 15
     return int(crops.get("days_per_season", 15))
+
+
+def days_per_year(crops: dict | None = None) -> int:
+    return days_per_season(crops) * len(SEASONS)
+
+
+def year_for_day(day: int, crops: dict | None = None) -> int:
+    """1-indexed year. Day 1 is year 1, spring."""
+    span = days_per_year(crops)
+    return ((int(day) - 1) // span) + 1
+
+
+def normalize_season(name: str | None) -> str | None:
+    """Canonical season id, or None if the name is not a season. 'fall' means autumn."""
+    if name is None:
+        return None
+    key = str(name).strip().lower()
+    if not key:
+        return None
+    return SEASON_ALIASES.get(key)
+
+
+def empty_journal(year: int = 1) -> dict:
+    return {
+        "year": int(year),
+        "seasons": {season: [] for season in SEASONS},
+    }
+
+
+def _note_key(entry: dict | None) -> tuple:
+    if not isinstance(entry, dict):
+        return (0, "", 0, "", "")
+    return (
+        int(entry.get("year") or 0),
+        str(entry.get("season") or ""),
+        int(entry.get("day") or 0),
+        str(entry.get("from") or ""),
+        str(entry.get("text") or ""),
+    )
+
+
+def _journal_entry(day: int, player: str, text: str, crops: dict | None = None) -> dict | None:
+    text = sanitize_note(text)
+    player = normalize_player(player) or (str(player).strip().lower() if player else "")
+    if not text or not player:
+        return None
+    day = int(day)
+    return {
+        "day": day,
+        "year": year_for_day(day, crops),
+        "season": season_for_day(day, crops),
+        "from": player,
+        "text": text,
+    }
+
+
+def _player_name_map() -> dict[str, str]:
+    """Map display names and ids (lowercased) to player ids. Built at call time."""
+    mapping: dict[str, str] = {}
+    for pid in known_players():
+        mapping[pid.lower()] = pid
+        mapping[display_name(pid).strip().lower()] = pid
+    return mapping
+
+
+def journal_archive_path() -> Path:
+    return Path(JOURNAL_ARCHIVE_PATH)
+
+
+def _load_archive(path: Path | None = None) -> dict:
+    dest = path or journal_archive_path()
+    if not dest.is_file():
+        return {"years": {}}
+    try:
+        data = json.loads(dest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"years": {}}
+    if not isinstance(data, dict):
+        return {"years": {}}
+    years = data.get("years")
+    if not isinstance(years, dict):
+        data["years"] = {}
+    return data
+
+
+def _save_archive(data: dict, path: Path | None = None) -> bool:
+    dest = path or journal_archive_path()
+    try:
+        dest.parent.mkdir(mode=0o700, exist_ok=True)
+    except OSError:
+        pass
+    tmp = dest.with_name(dest.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(dest)
+        try:
+            dest.chmod(0o600)
+        except OSError:
+            pass
+        return True
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def _merge_season_lists(existing: list, incoming: list) -> list:
+    out = []
+    seen = set()
+    for entry in list(existing or []) + list(incoming or []):
+        if not isinstance(entry, dict):
+            continue
+        key = _note_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+    out.sort(key=lambda e: (int(e.get("day") or 0),))
+    return out
+
+
+def _append_entries_to_archive(entries: list[dict], path: Path | None = None) -> bool:
+    """Merge entries into the archive file, grouped by year and season. Deduped."""
+    by_year: dict[int, dict[str, list]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("text") or not entry.get("from"):
+            continue
+        year = int(entry.get("year") or 0)
+        season = normalize_season(entry.get("season")) or season_for_day(int(entry.get("day") or 1))
+        if year < 1:
+            continue
+        by_year.setdefault(year, {s: [] for s in SEASONS})
+        if season in by_year[year]:
+            by_year[year][season].append(entry)
+    if not by_year:
+        return True
+    data = _load_archive(path)
+    years = data.setdefault("years", {})
+    for year, seasons in by_year.items():
+        slot = years.get(str(year))
+        if not isinstance(slot, dict):
+            slot = {s: [] for s in SEASONS}
+        for season in SEASONS:
+            slot[season] = _merge_season_lists(slot.get(season) or [], seasons.get(season) or [])
+        years[str(year)] = slot
+    return _save_archive(data, path)
+
+
+def archive_journal_if_needed(state: dict, crops: dict | None = None, path: Path | None = None) -> bool:
+    """If the farm has moved into a new year, file last year's journal and start a fresh one."""
+    crops = crops or load_crops()
+    journal = state.get("journal")
+    current = year_for_day(int(state.get("day") or 1), crops)
+    state["year"] = current
+    if not isinstance(journal, dict):
+        state["journal"] = empty_journal(current)
+        return True
+    old_year = int(journal.get("year") or 0)
+    if old_year >= current:
+        if old_year != current and not any(
+            (journal.get("seasons") or {}).get(s) for s in SEASONS
+        ):
+            state["journal"] = empty_journal(current)
+            return True
+        return False
+    seasons = journal.get("seasons") or {}
+    outgoing = []
+    for season in SEASONS:
+        for entry in seasons.get(season) or []:
+            if isinstance(entry, dict):
+                outgoing.append(entry)
+    if outgoing:
+        if not _append_entries_to_archive(outgoing, path):
+            return False
+    state["journal"] = empty_journal(current)
+    return True
+
+
+def ensure_journal(state: dict, crops: dict | None = None) -> dict:
+    """Return the current-year journal, creating an empty one if needed."""
+    crops = crops or load_crops()
+    current = year_for_day(int(state.get("day") or 1), crops)
+    journal = state.get("journal")
+    if not isinstance(journal, dict):
+        journal = empty_journal(current)
+        state["journal"] = journal
+    journal.setdefault("year", current)
+    seasons = journal.setdefault("seasons", {})
+    if not isinstance(seasons, dict):
+        journal["seasons"] = {s: [] for s in SEASONS}
+        seasons = journal["seasons"]
+    for season in SEASONS:
+        if not isinstance(seasons.get(season), list):
+            seasons[season] = []
+    # Drop unknown season keys from the live journal (fall is stored as autumn).
+    return journal
+
+
+def record_journal_note(
+    state: dict,
+    player: str,
+    text: str,
+    day: int | None = None,
+    crops: dict | None = None,
+) -> bool:
+    """Append a sanitized end-turn note to the current year's journal. Deduped. Returns True if added."""
+    crops = crops or load_crops()
+    entry = _journal_entry(int(day or state.get("day") or 1), player, text, crops)
+    if not entry:
+        return False
+    current = year_for_day(int(state.get("day") or 1), crops)
+    if entry["year"] < current:
+        return _append_entries_to_archive([entry])
+    if entry["year"] > current:
+        # A note from a future year should not land in this year's book.
+        return False
+    ensure_journal(state, crops)
+    if int(state["journal"].get("year") or 0) != current:
+        if not archive_journal_if_needed(state, crops):
+            return False
+    bucket = state["journal"]["seasons"].setdefault(entry["season"], [])
+    if any(_note_key(existing) == _note_key(entry) for existing in bucket):
+        return False
+    bucket.append(entry)
+    return True
+
+
+def _notes_from_legacy(state: dict, crops: dict | None = None) -> list[dict]:
+    """Recover end-turn notes already stored in last_note or the game log."""
+    crops = crops or load_crops()
+    found: list[dict] = []
+    seen: set[tuple] = set()
+    names = _player_name_map()
+
+    def _add(player, text, day) -> None:
+        entry = _journal_entry(day, player, text, crops)
+        if not entry:
+            return
+        key = _note_key(entry)
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(entry)
+
+    for item in state.get("log") or []:
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get("text") or "")
+        match = _LEAVES_A_NOTE.match(raw)
+        if not match:
+            continue
+        body = match.group(2)
+        player = item.get("player") or names.get(match.group(1).strip().lower())
+        if not player:
+            continue
+        day = item.get("day") or state.get("day") or 1
+        _add(player, body, day)
+
+    note = state.get("last_note")
+    if isinstance(note, dict):
+        _add(note.get("from"), note.get("text"), note.get("day") or state.get("day") or 1)
+    return found
+
+
+def rebucket_journal(state: dict, crops: dict | None = None) -> None:
+    """Recompute each entry's year/season from its day and group it under the right tab."""
+    crops = crops or load_crops()
+    journal = state.get("journal")
+    if not isinstance(journal, dict):
+        return
+    current = int(journal.get("year") or year_for_day(int(state.get("day") or 1), crops))
+    pooled: list[dict] = []
+    leftover: list[dict] = []
+    for _season, entries in list((journal.get("seasons") or {}).items()):
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                day = int(entry.get("day") or 0)
+            except (TypeError, ValueError):
+                continue
+            if day < 1:
+                continue
+            entry["day"] = day
+            entry["year"] = year_for_day(day, crops)
+            entry["season"] = season_for_day(day, crops)
+            if entry["year"] == current:
+                pooled.append(entry)
+            else:
+                leftover.append(entry)
+    seasons = {s: [] for s in SEASONS}
+    seen = set()
+    for entry in pooled:
+        key = _note_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        seasons[entry["season"]].append(entry)
+    for season in SEASONS:
+        seasons[season].sort(key=lambda e: (int(e.get("day") or 0),))
+    journal["seasons"] = seasons
+    journal["year"] = current
+    if leftover:
+        _append_entries_to_archive(leftover)
+
+
+def migrate_journal(state: dict, crops: dict | None = None) -> bool:
+    """Ensure a current-year journal exists and import any notes already in the save."""
+    crops = crops or load_crops()
+    before = json.dumps(
+        {"year": state.get("year"), "journal": state.get("journal")},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    current = year_for_day(int(state.get("day") or 1), crops)
+    if state.get("year") != current:
+        state["year"] = current
+    ensure_journal(state, crops)
+    archive_journal_if_needed(state, crops)
+    imported = _notes_from_legacy(state, crops)
+    for entry in imported:
+        record_journal_note(
+            state,
+            entry["from"],
+            entry["text"],
+            day=entry["day"],
+            crops=crops,
+        )
+    rebucket_journal(state, crops)
+    after = json.dumps(
+        {"year": state.get("year"), "journal": state.get("journal")},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return before != after
+
+
+def all_journal_entries(state: dict, year: int | None = None) -> list[dict]:
+    """Current-year notes, chronological (spring through winter, then by day). Deduped."""
+    crops = load_crops()
+    ensure_journal(state, crops)
+    journal = state["journal"]
+    want = int(year or journal.get("year") or year_for_day(int(state.get("day") or 1), crops))
+    entries: list[dict] = []
+    seen: set[tuple] = set()
+    for season in SEASONS:
+        for entry in journal.get("seasons", {}).get(season) or []:
+            if not isinstance(entry, dict):
+                continue
+            if int(entry.get("year") or want) != want:
+                continue
+            key = _note_key(entry)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(entry)
+    entries.sort(key=lambda e: (int(e.get("day") or 0),))
+    return entries
+
+
+def recent_notes(state: dict, limit: int = RECENT_NOTE_COUNT) -> list[dict]:
+    """The last `limit` notes in the current year, most recent first. Deduped."""
+    entries = all_journal_entries(state)
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for entry in reversed(entries):
+        key = _note_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+        if len(out) >= int(limit):
+            break
+    return out
+
+
+def season_journal_entries(state: dict, season: str | None = None) -> tuple[int, dict[str, list[dict]]]:
+    """Current-year notes grouped by season. Optional season filters to one canonical season."""
+    crops = load_crops()
+    ensure_journal(state, crops)
+    journal = state["journal"]
+    year = int(journal.get("year") or year_for_day(int(state.get("day") or 1), crops))
+    wanted = normalize_season(season) if season else None
+    grouped = {s: [] for s in SEASONS}
+    seen: set[tuple] = set()
+    for name in SEASONS:
+        if wanted and name != wanted:
+            continue
+        for entry in journal.get("seasons", {}).get(name) or []:
+            if not isinstance(entry, dict):
+                continue
+            key = _note_key(entry)
+            if key in seen:
+                continue
+            seen.add(key)
+            grouped[name].append(entry)
+        grouped[name].sort(key=lambda e: (int(e.get("day") or 0),))
+    if wanted:
+        return year, {wanted: grouped[wanted]}
+    return year, grouped
 
 
 def wither_after(crops: dict) -> int:
@@ -801,6 +1215,8 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
             }
         ],
         "last_note": None,
+        "year": 1,
+        "journal": empty_journal(1),
     }
     apply_new_day_turns(state, load_rules())
     if is_wet_weather(weather):
@@ -979,6 +1395,13 @@ def migrate_calendar(state: dict, crops: dict | None = None) -> bool:
     for entry in state.get("log") or []:
         if isinstance(entry, dict) and "day" in entry:
             entry["day"] = remap_calendar_day(entry["day"], old_n, new_n)
+    journal = state.get("journal")
+    if isinstance(journal, dict):
+        for _season, entries in list((journal.get("seasons") or {}).items()):
+            for entry in entries or []:
+                if isinstance(entry, dict) and "day" in entry:
+                    entry["day"] = remap_calendar_day(entry["day"], old_n, new_n)
+        rebucket_journal(state, crops)
     for r, c, tile in iter_tiles(state):
         weed = tile.get("weed")
         if isinstance(weed, dict) and "appeared_day" in weed:
@@ -1018,6 +1441,8 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
         changed = True
     if "last_note" not in state:
         state["last_note"] = None
+        changed = True
+    if migrate_journal(state, load_crops()):
         changed = True
     if ensure_weather_seed(state, rules, None):
         changed = True
@@ -1075,6 +1500,7 @@ def _apply_end_note(state: dict, player: str, note: str | None) -> str:
             "text": text,
             "day": int(state["day"]),
         }
+        record_journal_note(state, player, text, day=int(state["day"]))
         log_append(
             state,
             f"{display_name(player)} leaves a note: {text}",
@@ -1671,6 +2097,7 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
     notes = _apply_evening_growth(state, crops, rules)
     state["day"] = int(state["day"]) + 1
     state["season"] = season_for_day(state["day"], crops)
+    archive_journal_if_needed(state, crops)
     ensure_weather_seed(state, rules, crops)
     state["weather"] = weather_for_day(
         state["day"], crops, rules, seed=int(state["weather_seed"])

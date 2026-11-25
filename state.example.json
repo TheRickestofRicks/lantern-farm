@@ -112,6 +112,16 @@
     }
   ],
   "last_note": null,
+  "year": 1,
+  "journal": {
+    "year": 1,
+    "seasons": {
+      "spring": [],
+      "summer": [],
+      "autumn": [],
+      "winter": []
+    }
+  },
   "players": {
     "player1": {
       "energy": 100,

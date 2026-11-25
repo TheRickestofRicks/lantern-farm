@@ -29,7 +29,12 @@ from engine import (
     load_state,
     max_energy,
     migrate_state,
+    normalize_season,
     normalize_player,
+    recent_notes,
+    season_journal_entries,
+    SEASONS,
+    year_for_day,
     player_slot,
     player_where,
     players_at,
@@ -277,6 +282,61 @@ def format_player_note(note: dict | None) -> str:
     return f"Note from {who} (player text): {text}"
 
 
+def format_journal_line(entry: dict | None) -> str:
+    """One journal line: day plus the untrusted-player-text label."""
+    if not entry:
+        return ""
+    labeled = format_player_note(entry)
+    if not labeled:
+        return ""
+    day = entry.get("day")
+    if day:
+        return f"[day {day}] {labeled}"
+    return labeled
+
+
+def recent_note_lines(state: dict, limit: int | None = None) -> list[str]:
+    """Last notes, most recent first, already de-duplicated and labelled."""
+    entries = recent_notes(state, limit) if limit is not None else recent_notes(state)
+    lines = [format_journal_line(entry) for entry in entries]
+    return [line for line in lines if line]
+
+
+def format_season_journal(state: dict, season: str | None = None) -> str:
+    """The current year's journal, or one season of it, as labelled player text."""
+    from engine import normalize_season as _norm
+    if season is not None and str(season).strip() and _norm(season) is None:
+        return (
+            "Seasons are spring, summer, autumn (or fall), and winter.\n"
+        )
+    year, grouped = season_journal_entries(state, season)
+    wanted = _norm(season) if season else None
+    lines = [f"Lantern Farm journal — Year {year}"]
+    if wanted:
+        lines[0] = f"Lantern Farm journal — Year {year}, {wanted.capitalize()}"
+    names = [wanted] if wanted else list(SEASONS)
+    any_notes = False
+    for name in names:
+        if not wanted:
+            lines.append("")
+            lines.append(f"{name.capitalize()}:")
+        entries = grouped.get(name) or []
+        if not entries:
+            if wanted:
+                lines.append("(No notes in this season yet.)")
+            else:
+                lines.append("  (No notes in this season yet.)")
+            continue
+        any_notes = True
+        for entry in entries:
+            line = format_journal_line(entry)
+            if line:
+                lines.append(("  " if not wanted else "") + line)
+    if not any_notes and wanted:
+        pass
+    return "\n".join(lines) + "\n"
+
+
 def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None = None) -> list[str]:
     """The first lines of `look` — day, weather, gold, whose turn, energy."""
     crops = crops or load_crops()
@@ -301,7 +361,7 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
     lines = [
         flavor("title_line") or "Lantern Farm  🏮",
         f"Day {day}  ·  {season.capitalize()} (day {within} of {total})  ·  "
-        f"{sky}  ·  {gold}G",
+        f"Year {year_for_day(day, crops)}  ·  {sky}  ·  {gold}G",
         f"It's {display_name(current)}'s turn.  " + "  ·  ".join(bits),
     ]
     places = []
@@ -319,9 +379,6 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
             if snacks:
                 from engine import snacks_per_turn
                 lines.append(f"Snacks eaten this turn: {snacks}/{snacks_per_turn()}.")
-    labeled = format_player_note(state.get("last_note") or None)
-    if labeled:
-        lines.append(labeled)
     return lines
 
 
@@ -380,6 +437,17 @@ def describe_state(
                 lines.append(f"  {act}")
         else:
             lines.append("  (none)")
+
+    notes = recent_note_lines(state)
+    if notes:
+        lines.append("")
+        lines.append("Recent notes (last 15, most recent first):")
+        seen = set()
+        for line in notes:
+            if line in seen:
+                continue
+            seen.add(line)
+            lines.append(f"  {line}")
 
     log = state.get("log") or []
     if log:

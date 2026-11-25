@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import sys
 
-from describe import describe_state, look
-from engine import do_action, parse_player, reset_state, session
+from describe import describe_state, format_season_journal, look
+from engine import do_action, normalize_season, parse_player, reset_state, session
 from hey_notify import maybe_notify_after_end_turn
 
 
@@ -24,6 +24,8 @@ def usage() -> str:
     return f"""{title()}
 
   python3 cli.py look
+  python3 cli.py journal
+  python3 cli.py journal summer
   python3 cli.py do "<action>"
 {examples}
   python3 cli.py new
@@ -59,6 +61,11 @@ with 50 energy. When both have ended their turn, the day advances and it
 becomes {display_name(start)}'s turn.
 You can leave a short note:  python3 cli.py do "end turn water the kabocha"
 or  python3 cli.py do "end turn: water the kabocha"
+
+End-turn notes are kept in a journal for the current year, one page per
+season (spring, summer, autumn, winter). `look` shows the last 15 notes.
+`python3 cli.py journal` prints this year's journal; add a season (fall
+means autumn) to read just that page. Older years are archived and not shown.
 
 Rows and columns are 1-indexed. Row 1 is the top, col 1 is the left.
 The cabin is top-right (row 1 col 3) and cannot be farmed.
@@ -123,6 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     cmd = args[0].lower()
     if cmd == "look":
         sys.stdout.write(look(viewer=player))
+        return 0
+    if cmd == "journal":
+        season = " ".join(args[1:]).strip()
+        if season and normalize_season(season) is None:
+            sys.stderr.write("Seasons are spring, summer, autumn (or fall), and winter.\n")
+            return 2
+        with session(write=False) as (state, _crops):
+            sys.stdout.write(format_season_journal(state, season or None))
         return 0
     if cmd in {"new", "reset"}:
         reset_state()
