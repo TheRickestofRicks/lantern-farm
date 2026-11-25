@@ -348,6 +348,10 @@ PAGE = r"""<!DOCTYPE html>
       box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.45), 0 4px 0 #120c08;
     }
     button.tile:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+    #status.auth-needed, #status.load-error {
+      color: var(--bad);
+      font-weight: 600;
+    }
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -587,7 +591,10 @@ PAGE = r"""<!DOCTYPE html>
     const CABIN_BY_WEATHER = __CABIN_BY_WEATHER__;
     const DEFAULT_PLAYER = __DEFAULT_PLAYER__;
     const PLAYER_NAMES = Object.fromEntries(PLAYERS.map(function (p) { return [p.id, p.name]; }));
-    const PLAYER = (new URLSearchParams(location.search).get("player") || DEFAULT_PLAYER).toLowerCase();
+    let PLAYER = (new URLSearchParams(location.search).get("player") || DEFAULT_PLAYER).toLowerCase();
+    const AUTH_NEEDED = "This page needs your private farm link (see the URL file in local/).";
+    let pollTimer = null;
+    let authStopped = false;
     function displayName(id) { return PLAYER_NAMES[id] || cap(id); }
     let selected = null;
     let lastSig = "";
@@ -935,7 +942,7 @@ PAGE = r"""<!DOCTYPE html>
           body: JSON.stringify({command: command})
         });
         if (res.status === 401 || res.status === 403) {
-          showToast("This page is not authorized to play.", false);
+          showAuthNeeded();
           return;
         }
         const data = await res.json();
@@ -949,26 +956,70 @@ PAGE = r"""<!DOCTYPE html>
           }
         }
         showToast(data.message, data.ok);
-        render(data);
+        try {
+          render(data);
+        } catch (err) {
+          console.error("Could not draw the farm:", err);
+          showLoadError("Could not draw the farm. Check the browser console for details.");
+        }
       } catch (err) {
+        console.error("Farm action failed:", err);
         showToast("Could not reach the farm server.", false);
       }
     }
 
+    function showAuthNeeded() {
+      if (authStopped) return;
+      authStopped = true;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      const el = $("status");
+      if (el) {
+        el.textContent = AUTH_NEEDED;
+        el.className = "status auth-needed";
+      }
+      showToast(AUTH_NEEDED, false);
+    }
+
+    function showLoadError(msg) {
+      const el = $("status");
+      if (el && (el.textContent || "").indexOf("Loading the farm") === 0) {
+        el.textContent = msg;
+        el.className = "status load-error";
+      }
+      showToast(msg, false);
+    }
+
     async function poll() {
+      if (authStopped) return;
       try {
         const res = await fetch("/api/state", {cache: "no-store", credentials: "same-origin"});
         if (res.status === 401 || res.status === 403) {
+          showAuthNeeded();
           return;
+        }
+        if (!res.ok) {
+          throw new Error("Farm state request failed (" + res.status + ")");
         }
         const data = await res.json();
         const sig = JSON.stringify(data.state);
         if (sig !== lastSig) {
           lastSig = sig;
-          render(data);
+          try {
+            render(data);
+          } catch (err) {
+            console.error("Could not draw the farm:", err);
+            showLoadError("Could not draw the farm. Check the browser console for details.");
+            return;
+          }
         }
       } catch (err) {
-        // Keep the last view if a poll fails.
+        console.error("Farm poll failed:", err);
+        if (!lastData) {
+          showLoadError("Could not load the farm. Check the browser console for details.");
+        }
       }
     }
 
@@ -1206,7 +1257,7 @@ PAGE = r"""<!DOCTYPE html>
 
     document.addEventListener("keydown", onKey);
     poll();
-    setInterval(poll, 1500);
+    pollTimer = setInterval(poll, 1500);
   </script>
 </body>
 </html>
