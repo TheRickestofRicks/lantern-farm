@@ -9,12 +9,14 @@ Default player, theme, and copy come from config.local.json.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from describe import describe_state
 from engine import (
@@ -75,6 +77,132 @@ def bind_hosts() -> list[str]:
     if ts and ts not in hosts:
         hosts.append(ts)
     return hosts
+
+
+# Ports this process is actually listening on (includes test servers).
+_LISTEN_PORTS: set[int] = set()
+# Tests may install a token map so they never read or write config.local.json.
+_TEST_WEB_TOKENS: dict[str, str] | None = None
+
+COOKIE_NAME = "lantern_farm_key"
+
+
+def web_port() -> int:
+    from config import load_config
+    try:
+        return int((load_config().get("bind") or {}).get("port") or PORT)
+    except (TypeError, ValueError):
+        return PORT
+
+
+def _register_listen_port(port: int) -> None:
+    try:
+        _LISTEN_PORTS.add(int(port))
+    except (TypeError, ValueError):
+        return
+
+
+def _host_variants(raw: str, ports: set[int]) -> set[str]:
+    """Expand a configured host/origin into Host-header and origin forms."""
+    item = (raw or "").strip().rstrip("/")
+    if not item:
+        return set()
+    origin = ""
+    host = item
+    if item.lower().startswith("http://"):
+        origin = item
+        host = item[7:]
+    elif item.lower().startswith("https://"):
+        origin = item
+        host = item[8:]
+    host = host.split("/", 1)[0]
+    if not host:
+        return set()
+    out = {host.lower()}
+    name, sep, port = host.rpartition(":")
+    has_port = bool(sep and port.isdigit() and name)
+    base = name.lower() if has_port else host.lower()
+    out.add(base)
+    for p in ports:
+        out.add(f"{base}:{p}")
+    if origin:
+        out.add(origin.lower())
+    else:
+        for p in ports:
+            out.add(f"http://{base}:{p}")
+    return {v for v in out if v}
+
+
+def allowed_hosts_and_origins() -> tuple[set[str], set[str]]:
+    """Return (host-header values, origin values) for this farm."""
+    from config import load_config
+    ports = set(_LISTEN_PORTS)
+    ports.add(web_port())
+    ports.add(PORT)
+    hosts: set[str] = set()
+    for builtin in ("127.0.0.1", "localhost"):
+        hosts |= _host_variants(builtin, ports)
+    cfg = load_config().get("bind") or {}
+    for item in list(cfg.get("allowed_hosts") or []) + list(cfg.get("extra_hosts") or []) + list(cfg.get("hosts") or []):
+        hosts |= _host_variants(str(item), ports)
+    ts = _tailnet_ipv4()
+    if ts:
+        hosts |= _host_variants(ts, ports)
+    origins = {h for h in hosts if h.startswith("http://") or h.startswith("https://")}
+    host_headers = {h for h in hosts if not h.startswith("http://") and not h.startswith("https://")}
+    return host_headers, origins
+
+
+def web_tokens() -> dict[str, str]:
+    """Player id to web token. Tests may override. Never log these values."""
+    if _TEST_WEB_TOKENS is not None:
+        return dict(_TEST_WEB_TOKENS)
+    from config import load_config, player_ids
+    raw = load_config().get("web_tokens") or {}
+    out: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for pid, token in raw.items():
+            key = str(pid or "").strip().lower()
+            val = str(token or "").strip()
+            if key and val:
+                out[key] = val
+    for rec in load_config().get("players") or []:
+        if not isinstance(rec, dict):
+            continue
+        key = str(rec.get("id") or "").strip().lower()
+        val = str(rec.get("web_token") or rec.get("token") or "").strip()
+        if key and val and key not in out:
+            out[key] = val
+    known = set(player_ids())
+    if known:
+        out = {k: v for k, v in out.items() if k in known}
+    return out
+
+
+def player_for_token(given: str | None) -> str | None:
+    """Return the player id for a presented token, or None. Constant-time compare."""
+    token = (given or "").strip()
+    if not token:
+        return None
+    presented = hashlib.sha256(token.encode("utf-8")).digest()
+    found: str | None = None
+    for pid, stored in web_tokens().items():
+        digest = hashlib.sha256(stored.encode("utf-8")).digest()
+        if hmac.compare_digest(digest, presented):
+            found = pid
+    return found
+
+
+def _parse_cookies(header: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in (header or "").split(";"):
+        if "=" not in part:
+            continue
+        name, val = part.split("=", 1)
+        name = name.strip()
+        if name:
+            out[name] = val.strip()
+    return out
 
 
 PAGE = r"""<!DOCTYPE html>
@@ -557,6 +685,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     function render(data) {
       lastData = data;
+      if (data && data.viewer) PLAYER = data.viewer;
       renderForecast(data);
       const s = data.state;
       const sky = weatherWord[s.weather] || s.weather;
@@ -597,7 +726,7 @@ PAGE = r"""<!DOCTYPE html>
         const last = (s.last_note) || data.last_note;
         if (last && last.text && last.from) {
           noteEl.hidden = false;
-          noteEl.innerHTML = "<span class='who'>" + escapeHtml(displayName(last.from)) + "'s note:</span> " +
+          noteEl.innerHTML = "<span class='who'>Note from " + escapeHtml(displayName(last.from)) + " (player text):</span> " +
             escapeHtml(last.text);
         } else {
           noteEl.hidden = true;
@@ -801,9 +930,14 @@ PAGE = r"""<!DOCTYPE html>
       try {
         const res = await fetch("/api/do", {
           method: "POST",
+          credentials: "same-origin",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({command: command, player: PLAYER})
+          body: JSON.stringify({command: command})
         });
+        if (res.status === 401 || res.status === 403) {
+          showToast("This page is not authorized to play.", false);
+          return;
+        }
         const data = await res.json();
         lastSig = JSON.stringify(data.state);
         if (data.ok) {
@@ -823,7 +957,10 @@ PAGE = r"""<!DOCTYPE html>
 
     async function poll() {
       try {
-        const res = await fetch("/api/state?player=" + encodeURIComponent(PLAYER), {cache: "no-store"});
+        const res = await fetch("/api/state", {cache: "no-store", credentials: "same-origin"});
+        if (res.status === 401 || res.status === 403) {
+          return;
+        }
         const data = await res.json();
         const sig = JSON.stringify(data.state);
         if (sig !== lastSig) {
@@ -1085,7 +1222,7 @@ FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 
 
 
-def render_page() -> str:
+def render_page(viewer: str | None = None) -> str:
     """Fill theme, player names, and flavor text into the HTML page."""
     import json as _json
     import re
@@ -1110,7 +1247,7 @@ def render_page() -> str:
             count=1,
             flags=re.S,
         )
-    web_p = cfg_web()
+    web_p = viewer or cfg_web()
     cli_p = default_cli_player()
     other = display_name(other_player_id(web_p))
     footer = flavor(
@@ -1192,9 +1329,18 @@ def api_payload(
 
 class FarmHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        # Never log query strings or headers: they may contain a player token.
+        path = urlparse(self.path).path
+        sys.stderr.write("%s - %s %s\n" % (self.address_string(), self.command, path))
 
-    def _send(self, code: int, body, content_type: str, cache: bool = False) -> None:
+    def _send(
+        self,
+        code: int,
+        body,
+        content_type: str,
+        cache: bool = False,
+        extra_headers: list[tuple[str, str]] | None = None,
+    ) -> None:
         if isinstance(body, str):
             data = body.encode("utf-8")
         else:
@@ -1206,21 +1352,99 @@ class FarmHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=120")
         else:
             self.send_header("Cache-Control", "no-store")
+        if extra_headers:
+            for name, value in extra_headers:
+                self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(data)
+        if data:
+            self.wfile.write(data)
+
+    def _host_forbidden(self) -> bool:
+        host = (self.headers.get("Host") or "").strip().lower().rstrip(".")
+        allowed, _origins = allowed_hosts_and_origins()
+        if host and host in allowed:
+            return False
+        self._send(403, "forbidden\n", "text/plain; charset=utf-8")
+        return True
+
+    def _origin_forbidden(self) -> bool:
+        origin = (self.headers.get("Origin") or "").strip().rstrip("/").lower()
+        if not origin:
+            return False
+        _hosts, origins = allowed_hosts_and_origins()
+        if origin in origins:
+            return False
+        self._send(403, "forbidden\n", "text/plain; charset=utf-8")
+        return True
+
+    def _presented_token(self) -> str:
+        params = parse_qs(urlparse(self.path).query)
+        keys = params.get("key") or []
+        if keys and str(keys[0]).strip():
+            return str(keys[0]).strip()
+        cookies = _parse_cookies(self.headers.get("Cookie") or "")
+        return (cookies.get(COOKIE_NAME) or "").strip()
+
+    def _authorized_player(self) -> str | None:
+        return player_for_token(self._presented_token())
+
+    def _token_cookie_header(self, token: str) -> str:
+        return (
+            f"{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
+        )
+
+    def _path_without_key(self) -> str:
+        parsed = urlparse(self.path)
+        pairs: list[tuple[str, str]] = []
+        for key, values in parse_qs(parsed.query, keep_blank_values=True).items():
+            if key == "key":
+                continue
+            for value in values:
+                pairs.append((key, value))
+        query = urlencode(pairs)
+        return parsed.path + (("?" + query) if query else "")
+
+    def _auth_headers(self) -> list[tuple[str, str]]:
+        token = self._presented_token()
+        if token and player_for_token(token):
+            return [("Set-Cookie", self._token_cookie_header(token))]
+        return []
 
     def do_GET(self) -> None:  # noqa: N802
+        if self._host_forbidden() or self._origin_forbidden():
+            return
         path = unquote(urlparse(self.path).path)
         if path in {"/", "/index.html"}:
-            self._send(200, render_page(), "text/html; charset=utf-8")
+            player = self._authorized_player()
+            if not player:
+                self._send(401, "unauthorized\n", "text/plain; charset=utf-8")
+                return
+            params = parse_qs(urlparse(self.path).query)
+            extra = self._auth_headers()
+            if params.get("key"):
+                extra = extra + [("Location", self._path_without_key())]
+                self._send(302, "ok\n", "text/plain; charset=utf-8", extra_headers=extra)
+                return
+            self._send(
+                200,
+                render_page(viewer=player),
+                "text/html; charset=utf-8",
+                extra_headers=extra,
+            )
             return
         if path == "/api/state":
-            query = urlparse(self.path).query
-            params = parse_qs(query)
-            player = (params.get("player") or [default_web_player()])[0]
+            player = self._authorized_player()
+            if not player:
+                self._send(401, "unauthorized\n", "text/plain; charset=utf-8")
+                return
             with session(write=False) as (state, crops):
                 payload = api_payload(state, crops, player=player)
-            self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+            self._send(
+                200,
+                json.dumps(payload),
+                "application/json; charset=utf-8",
+                extra_headers=self._auth_headers(),
+            )
             return
         if path == "/favicon.svg" or path == "/favicon.ico":
             self._send(200, FAVICON, "image/svg+xml", cache=True)
@@ -1235,9 +1459,19 @@ class FarmHandler(BaseHTTPRequestHandler):
         self._send(404, "not found\n", "text/plain; charset=utf-8")
 
     def do_POST(self) -> None:  # noqa: N802
+        if self._host_forbidden() or self._origin_forbidden():
+            return
         path = unquote(urlparse(self.path).path)
         if path != "/api/do":
             self._send(404, "not found\n", "text/plain; charset=utf-8")
+            return
+        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if content_type != "application/json":
+            self._send(415, "unsupported media type\n", "text/plain; charset=utf-8")
+            return
+        player = self._authorized_player()
+        if not player:
+            self._send(401, "unauthorized\n", "text/plain; charset=utf-8")
             return
         try:
             length = int(self.headers.get("Content-Length", "0") or 0)
@@ -1255,14 +1489,19 @@ class FarmHandler(BaseHTTPRequestHandler):
         if not isinstance(data, dict):
             self._send(400, "invalid json\n", "text/plain; charset=utf-8")
             return
+        # Player comes from the token, never from the body.
         command = str(data.get("command") or data.get("action") or "")
-        player = _web_player(data.get("player"))
         with session(write=True) as (state, crops):
             ok, message = do_action(state, crops, command, player=player)
             if ok:
                 maybe_notify_after_end_turn(player, state, ok)
             payload = api_payload(state, crops, ok, message, player=player)
-        self._send(200, json.dumps(payload), "application/json; charset=utf-8")
+        self._send(
+            200,
+            json.dumps(payload),
+            "application/json; charset=utf-8",
+            extra_headers=self._auth_headers(),
+        )
 
 
 class ReusableServer(ThreadingHTTPServer):
@@ -1272,10 +1511,16 @@ class ReusableServer(ThreadingHTTPServer):
 
 def try_bind(host: str, port: int) -> ReusableServer | None:
     try:
-        return ReusableServer((host, port), FarmHandler)
+        server = ReusableServer((host, port), FarmHandler)
     except OSError as exc:
         sys.stderr.write(f"Could not bind {host}:{port} — {exc}\n")
         return None
+    try:
+        bound = int(server.server_address[1])
+    except (TypeError, ValueError, IndexError):
+        bound = port
+    _register_listen_port(bound)
+    return server
 
 
 def serve(port: int = PORT) -> None:

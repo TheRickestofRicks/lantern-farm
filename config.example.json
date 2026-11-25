@@ -57,6 +57,14 @@
   },
   "bind": {
     "port": 8790,
-    "extra_hosts": []
+    "extra_hosts": [],
+    "allowed_hosts": [
+      "127.0.0.1",
+      "localhost"
+    ]
+  },
+  "web_tokens": {
+    "player1": "",
+    "player2": ""
   }
 }

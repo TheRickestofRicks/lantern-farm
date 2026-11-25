@@ -379,31 +379,43 @@ def handle_rpc(message: dict) -> dict | None:
     }
 
 
-def _write_stdio(message: dict) -> None:
+def _write_stdio(message: dict | list) -> None:
+    """MCP stdio is newline-delimited JSON: one message per line, no headers."""
     raw = json.dumps(message, ensure_ascii=False).encode("utf-8")
-    header = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii")
-    sys.stdout.buffer.write(header)
-    sys.stdout.buffer.write(raw)
+    sys.stdout.buffer.write(raw + b"\n")
     sys.stdout.buffer.flush()
 
 
-def _read_stdio() -> dict | None:
+def _read_stdio() -> dict | list | None:
+    """Read one MCP stdio message. Prefer newline-delimited JSON; fall back to Content-Length."""
+    line = sys.stdin.buffer.readline()
+    if not line:
+        return None
+    stripped = line.lstrip()
+    if stripped.startswith(b"{") or stripped.startswith(b"["):
+        try:
+            return json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+    # Fallback: LSP-style Content-Length framing.
     headers: dict[str, str] = {}
     while True:
-        line = sys.stdin.buffer.readline()
-        if not line:
-            return None
         if line in (b"\n", b"\r\n"):
             break
         try:
             text = line.decode("ascii", errors="replace")
         except Exception:
             return None
-        if ":" not in text:
-            continue
-        key, val = text.split(":", 1)
-        headers[key.strip().lower()] = val.strip()
-    length = int(headers.get("content-length") or "0")
+        if ":" in text:
+            key, val = text.split(":", 1)
+            headers[key.strip().lower()] = val.strip()
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+    try:
+        length = int(headers.get("content-length") or "0")
+    except ValueError:
+        return None
     if length <= 0:
         return None
     body = sys.stdin.buffer.read(length)
@@ -411,7 +423,7 @@ def _read_stdio() -> dict | None:
         return None
     try:
         return json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -426,11 +438,7 @@ def serve_stdio() -> int:
             replies = [handle_rpc(item) for item in message]
             batch = [r for r in replies if r is not None]
             if batch:
-                raw = json.dumps(batch, ensure_ascii=False).encode("utf-8")
-                header = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii")
-                sys.stdout.buffer.write(header)
-                sys.stdout.buffer.write(raw)
-                sys.stdout.buffer.flush()
+                _write_stdio(batch)
             continue
         reply = handle_rpc(message)
         if reply is not None:

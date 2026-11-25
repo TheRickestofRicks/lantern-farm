@@ -81,6 +81,15 @@ available on the machine, it binds those too. Click a tile for its actions.
 Use **End turn** and the shop from the side panel. The page polls the JSON
 state, so if someone acts from the CLI, the pictures update on their own.
 
+The web page is locked to the same machine (or an allowed host). Requests must
+use `application/json` for POSTs, a recognized `Host` (and `Origin`, if sent),
+and a per-player token from `config.local.json` (`web_tokens`). Open the page
+as `http://127.0.0.1:8790/?player=<id>&key=<token>`; the server can also set
+an HttpOnly `SameSite=Strict` cookie. The player is taken from the token, not
+from the request body. The CLI talks to the engine directly; the MCP HTTP
+transport keeps its own bearer token. Turn notes are shown as untrusted player
+text.
+
 Keyboard (the page ignores keys while you are typing in an input):
 
 - `1`–`9` select a plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9)

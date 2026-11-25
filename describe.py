@@ -187,6 +187,19 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     )
 
 
+
+def format_player_note(note: dict | None) -> str:
+    """Label a handoff note as untrusted player text. Strips control characters."""
+    from engine import sanitize_note
+    if not note or not note.get("text") or not note.get("from"):
+        return ""
+    text = sanitize_note(note.get("text"))
+    if not text:
+        return ""
+    who = display_name(note.get("from"))
+    return f"Note from {who} (player text): {text}"
+
+
 def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None = None) -> list[str]:
     """The first lines of `look` — day, weather, gold, whose turn, energy."""
     crops = crops or load_crops()
@@ -218,9 +231,9 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
         view = normalize_player(viewer)
         if view:
             lines.append(f"Playing as {display_name(view)}.")
-    note = state.get("last_note") or None
-    if note and note.get("text") and note.get("from"):
-        lines.append(f"{display_name(note['from'])}'s note: {note['text']}")
+    labeled = format_player_note(state.get("last_note") or None)
+    if labeled:
+        lines.append(labeled)
     return lines
 
 

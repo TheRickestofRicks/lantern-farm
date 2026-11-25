@@ -838,6 +838,12 @@ class ConfigAndMCP(unittest.TestCase):
         # No host-specific bind addresses or env-file paths.
         self.assertNotIn("100.", blob)
         self.assertNotIn("~/.config/", blob)
+        bind = example.get("bind") or {}
+        self.assertIn("127.0.0.1", bind.get("allowed_hosts") or [])
+        self.assertIn("localhost", bind.get("allowed_hosts") or [])
+        tokens = example.get("web_tokens") or {}
+        self.assertEqual(set(tokens), {"player1", "player2"})
+        self.assertFalse(any(str(v or "").strip() for v in tokens.values()))
 
     def test_local_overlay_keeps_configured_display_names(self):
         from config import display_name, load_config, notify_config, player_ids, starting_player
@@ -900,6 +906,7 @@ class ConfigAndMCP(unittest.TestCase):
         self.assertIn("ends the turn", msg.lower())
         look = mcp_server.farm_look(p2, path=path)
         self.assertIn("see you", look)
+        self.assertIn(f"Note from {display_name(p1)} (player text):", look)
         # It is now the other player's turn on the temp save, not the live one.
         ok, msg = mcp_server.farm_do(p1, "water 1 1")
         self.assertFalse(ok)
@@ -1003,6 +1010,183 @@ class ConfigAndMCP(unittest.TestCase):
             if previous is not None:
                 os.environ["LANTERN_FARM_NO_NOTIFY"] = previous
         self.assertEqual(called["n"], 0)
+
+
+    def test_mcp_stdio_is_newline_delimited_json(self):
+        import subprocess
+        import sys
+        script = Path(__file__).resolve().parent / "mcp_server.py"
+        init = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        listed = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        env = os.environ.copy()
+        env["LANTERN_FARM_NO_NOTIFY"] = "1"
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            input=(init + "\n" + listed + "\n").encode("utf-8"),
+            capture_output=True,
+            timeout=10,
+            env=env,
+            cwd=str(script.parent),
+        )
+        self.assertNotIn(b"Content-Length", proc.stdout)
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        self.assertGreaterEqual(len(lines), 2, proc.stderr.decode("utf-8", "replace"))
+        messages = [json.loads(ln) for ln in lines]
+        by_id = {m["id"]: m for m in messages}
+        self.assertEqual(by_id[1]["result"]["serverInfo"]["name"], "lantern-farm")
+        names = [tool["name"] for tool in by_id[2]["result"]["tools"]]
+        self.assertEqual(names, ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_rules"])
+        self.assertEqual(proc.returncode, 0)
+
+
+class PlayerNotesAreUntrusted(unittest.TestCase):
+    def test_look_labels_notes_as_player_text_and_strips_controls(self):
+        from describe import describe_state, format_player_note
+        crops = load_crops()
+        state = fresh_state(crops)
+        state["last_note"] = {"from": P1, "text": "hello\x07 there", "day": 1}
+        labeled = format_player_note(state["last_note"])
+        self.assertEqual(labeled, f"Note from {N1} (player text): hello there")
+        text = describe_state(state, crops, viewer=P2)
+        self.assertIn(labeled, text)
+        self.assertNotIn("\x07", text)
+        self.assertNotIn(f"{N1}'s note:", text)
+
+
+class WebCsrfAndTokens(unittest.TestCase):
+    def setUp(self):
+        import threading
+        import web
+        self.web = web
+        save_state = __import__("engine", fromlist=["save_state"]).save_state
+        save_state(fresh_state(load_crops()), engine.STATE_PATH)
+        web._TEST_WEB_TOKENS = {P1: "test-token-one", P2: "test-token-two"}
+        self.server = web.try_bind("127.0.0.1", 0)
+        self.assertIsNotNone(self.server)
+        self.port = int(self.server.server_address[1])
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        try:
+            self.server.shutdown()
+            self.server.server_close()
+        except Exception:
+            pass
+        self.web._TEST_WEB_TOKENS = None
+        self.web._LISTEN_PORTS.discard(self.port)
+
+    def _request(self, method, path, body=None, headers=None):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request(method, path, body=body, headers=headers or {})
+            resp = conn.getresponse()
+            data = resp.read()
+            return resp.status, {k.lower(): v for k, v in resp.getheaders()}, data
+        finally:
+            conn.close()
+
+    def test_text_plain_post_is_rejected(self):
+        status, _, _ = self._request(
+            "POST",
+            "/api/do?key=test-token-one",
+            body=b'{"command": "look"}',
+            headers={"Content-Type": "text/plain"},
+        )
+        self.assertEqual(status, 415)
+
+    def test_bad_origin_is_forbidden(self):
+        status, _, _ = self._request(
+            "POST",
+            "/api/do?key=test-token-one",
+            body=b'{"command": "look"}',
+            headers={"Content-Type": "application/json", "Origin": "https://evil.example"},
+        )
+        self.assertEqual(status, 403)
+
+    def test_bad_host_is_forbidden_on_get_and_post(self):
+        status, _, _ = self._request(
+            "GET",
+            "/api/state?key=test-token-one",
+            headers={"Host": "evil.example"},
+        )
+        self.assertEqual(status, 403)
+        status, _, _ = self._request(
+            "POST",
+            "/api/do?key=test-token-one",
+            body=b'{"command": "look"}',
+            headers={"Content-Type": "application/json", "Host": "evil.example"},
+        )
+        self.assertEqual(status, 403)
+
+    def test_missing_or_wrong_token_is_unauthorized(self):
+        status, _, _ = self._request("GET", "/")
+        self.assertIn(status, (401, 403))
+        status, _, _ = self._request("GET", "/api/state")
+        self.assertIn(status, (401, 403))
+        status, _, _ = self._request(
+            "POST",
+            "/api/do",
+            body=b'{"command": "look"}',
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertIn(status, (401, 403))
+        status, _, _ = self._request("GET", "/api/state?key=wrong-token")
+        self.assertIn(status, (401, 403))
+        status, _, _ = self._request(
+            "POST",
+            "/api/do?key=wrong-token",
+            body=b'{"command": "look"}',
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertIn(status, (401, 403))
+
+    def test_right_token_works_and_sets_cookie(self):
+        status, headers, body = self._request("GET", "/api/state?key=test-token-one")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload.get("viewer"), P1)
+        status, headers, _ = self._request("GET", f"/?player={P1}&key=test-token-one")
+        self.assertEqual(status, 302)
+        cookie = headers.get("set-cookie") or ""
+        self.assertTrue(cookie.startswith(self.web.COOKIE_NAME + "="))
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        # Cookie alone is enough after the first visit.
+        status, _, body = self._request(
+            "GET",
+            "/api/state",
+            headers={"Cookie": f"{self.web.COOKIE_NAME}=test-token-one"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body).get("viewer"), P1)
+
+    def test_body_player_cannot_override_the_token(self):
+        # Token for the second player, body claims the first: still not their turn.
+        status, _, body = self._request(
+            "POST",
+            "/api/do?key=test-token-two",
+            body=json.dumps({"command": "till 1 1", "player": P1}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertFalse(payload.get("ok"))
+        self.assertEqual(payload.get("viewer"), P2)
+        # Token for the first player, body claims the second: the action is still theirs.
+        status, _, body = self._request(
+            "POST",
+            "/api/do?key=test-token-one",
+            body=json.dumps({"command": "till 1 1", "player": P2}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertTrue(payload.get("ok"), payload.get("message"))
+        self.assertEqual(payload.get("viewer"), P1)
+        tile = payload["state"]["tiles"][0][0]
+        self.assertTrue(tile.get("tilled"))
 
 
 
