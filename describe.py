@@ -18,6 +18,7 @@ from engine import (
     is_player_in_cabin,
     crop_cycle_days,
     crop_is_dormant,
+    crop_hint,
     is_perennial,
     grow_days,
     regrow_days,
@@ -271,7 +272,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         return (
             f"  {here} — {tilled} soil, {moist}. "
             f"{crop_name(kind, info)}, establishing ({label_est}); it will fruit after its first winter, {moist}."
-            f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
+            f" Planted on day {crop.get('planted_day', '?')}.{crop_hint(crop, tile, state, info)}{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = crop_cycle_days(info, crop) if info else "?"
     grown = crop.get("days_grown", 0)
@@ -281,7 +282,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     dry_bit = ""
     if dry:
         limit = wither_after(crops)
-        dry_bit = f", {dry} dry day(s) (withers at {limit})"
+        dry_bit = f", {dry} dry day(s)"
     ready = ""
     if stage == "mature":
         ready = " Ready to harvest."
@@ -292,7 +293,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{kind}, day {grown} of {needed}, {label}, {moist}"
-        f"{dry_bit}. Planted on day {planted}.{ready}{who_bit}{weed_bit} (sprite: {key})"
+        f"{dry_bit}. Planted on day {planted}.{ready}{crop_hint(crop, tile, state, info)}{who_bit}{weed_bit} (sprite: {key})"
     )
 
 
@@ -487,14 +488,17 @@ def describe_state(
 
     lines.append("")
     lines.append(
-        "Notes: a crop grows 1 day only if it was watered (or rained/snowed on) "
-        "that day. It withers after "
-        f"{wither_after(crops)} dry day(s), or if the season turns against it. "
+        "Notes: a crop puts on growth only if it was watered (or rained/snowed on) "
+        "that day. Look at a plant for a gentle hint about how it's doing — it will "
+        "not print numbers. You can pick a little early, but a healthier, fully grown "
+        "plant is more likely to give a fuller harvest (strawberries 1–3, kabocha and "
+        "roots 1–2, always at least one). Plants only wither after a long drought if "
+        "they are already struggling, or after several days out of season. "
         f"The cabin is always top-right (row {CABIN_ROW} col {CABIN_COL}). "
         "A planted or tilled plot may sprout a gentle weed at day turn; "
         "pluck it with `pluck <row> <col>` (5 energy, key Q) before the next "
-        "day, or the plot grows weedy and the crop skips every other watered day. "
-        "Weeds never kill crops. "
+        "day, or the plot grows weedy: weeds slow growth and wear the plant down. "
+        "Weeds never kill crops on their own. "
         "The sprite key on each tile is the same one the image view uses. "
         "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
         "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "

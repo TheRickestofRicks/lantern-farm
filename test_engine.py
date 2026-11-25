@@ -256,11 +256,8 @@ class GrowthRules(unittest.TestCase):
         self.assertEqual(crop["dry_days"], 1)
         self.assertEqual(crop["stage"], "seed")
 
-    def test_withers_after_configured_dry_days(self):
+    def test_two_dry_days_do_not_wither(self):
         r, c = self._planted("kabocha")
-        limit = int(self.crops["wither_after_dry_days"])
-        # Use only sunny days: 1 and 2 are sun, so two sleeps stay dry.
-        self.assertGreaterEqual(limit, 2)
         self.assertEqual(weather_for_day(1, self.crops, self.rules, seed=self.weather_seed), "sun")
         self.assertEqual(weather_for_day(2, self.crops, self.rules, seed=self.weather_seed), "sun")
         ok, _ = sleep(self.state, self.crops, no_weed_rules())
@@ -272,8 +269,22 @@ class GrowthRules(unittest.TestCase):
         self.assertTrue(ok)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertEqual(crop["dry_days"], 2)
-        self.assertEqual(crop["stage"], "withered")
+        self.assertNotEqual(crop["stage"], "withered")
+        self.assertLess(int(crop.get("health") or 100), 100)
         self.assertEqual(crop["days_grown"], 0)
+
+    def test_long_drought_at_low_health_withers(self):
+        from engine import _apply_evening_growth, maybe_wither
+        r, c = self._planted("kabocha")
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        crop["health"] = 20
+        crop["dry_days"] = 5
+        crop["growth"] = 40
+        self.state["tiles"][r - 1][c - 1]["watered"] = False
+        notes = _apply_evening_growth(self.state, self.crops, no_weed_rules())
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "withered")
+        self.assertTrue(any("drought" in n or "withered" in n for n in notes))
 
     def test_rain_waters_everything_and_counts_as_a_growth_day(self):
         r, c = self._planted("kabocha")
@@ -369,7 +380,7 @@ class GrowthRules(unittest.TestCase):
         before = int(self.state["inventory"]["turnip"])
         ok, msg = harvest(self.state, self.crops, r, c)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["inventory"]["turnip"], before + 1)
+        self.assertGreaterEqual(self.state["inventory"]["turnip"], before + 1)
         self.assertIsNone(self.state["tiles"][r - 1][c - 1]["crop"])
 
     def test_buy_and_sell(self):
@@ -408,8 +419,13 @@ class GrowthRules(unittest.TestCase):
         self.assertEqual(state["day"], 16)
         self.assertEqual(state["season"], "summer")
         crop = state["tiles"][0][0]["crop"]
+        self.assertNotEqual(crop["stage"], "withered")
+        self.assertGreaterEqual(int(crop.get("off_season_days") or 0), 1)
+        # Three off-season evenings wither an annual.
+        from engine import _apply_season_to_crop
+        _apply_season_to_crop(state, self.crops, crop, 1, 1)
+        _apply_season_to_crop(state, self.crops, crop, 1, 1)
         self.assertEqual(crop["stage"], "withered")
-        self.assertIn("summer", msg.lower())
 
     def test_sprite_key_follows_state(self):
         tile = self.state["tiles"][0][2]
@@ -1658,7 +1674,7 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(crop["stage"], "mature")
         ok, msg = harvest(self.state, self.crops, r, c)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["inventory"]["strawberry"], 1)
+        self.assertGreaterEqual(self.state["inventory"]["strawberry"], 1)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertEqual(crop["stage"], "regrowing")
         self._grow_days(r, c, 7)
@@ -1798,7 +1814,7 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(crop["stage"], "mature")
         ok, msg = harvest(self.state, self.crops, r, c)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["inventory"]["everbearing"], 1)
+        self.assertGreaterEqual(self.state["inventory"]["everbearing"], 1)
         self.assertEqual(self.state["inventory"].get("strawberry", 0), 0)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertEqual(crop["stage"], "regrowing")
@@ -2527,6 +2543,74 @@ class PackChestAndCraft(unittest.TestCase):
         for player in (P1, P2):
             if player in (loaded.get("players") or {}):
                 self.assertTrue(all(s is None for s in pack_of(loaded, player)))
+
+
+
+class GrowthHealthAndYield(unittest.TestCase):
+    def test_yield_roll_is_at_least_one_and_favors_high_quality(self):
+        from engine import yield_roll
+        lows = highs = 0
+        for i in range(40):
+            lows += yield_roll("strawberry", 70, 50, 1, 1, 1, i)
+            highs += yield_roll("strawberry", 100, 100, 1, 1, 1, i)
+        self.assertGreater(highs, lows)
+        self.assertGreaterEqual(yield_roll("kabocha", 60, 40, 3, 1, 1, 0), 1)
+        self.assertIn(yield_roll("kabocha", 100, 100, 3, 1, 1, 0), (1, 2))
+
+    def test_early_harvest_is_refused_below_the_threshold(self):
+        crops = load_crops()
+        state = fresh_state(crops, rules=no_weed_rules())
+        till(state, crops, 1, 1)
+        give_seeds(state, "kabocha", 1)
+        plant(state, crops, 1, 1, "kabocha")
+        crop = state["tiles"][0][0]["crop"]
+        crop["growth"] = 40
+        crop["health"] = 100
+        crop["stage"] = "growing"
+        ok, msg = harvest(state, crops, 1, 1)
+        self.assertFalse(ok)
+        self.assertIn("filling out", msg.lower())
+        self.assertNotIn("%", msg)
+        crop["growth"] = 60
+        ok, msg = harvest(state, crops, 1, 1)
+        self.assertTrue(ok, msg)
+        self.assertGreaterEqual(state["inventory"]["kabocha"], 1)
+
+    def test_hints_contain_no_percentages(self):
+        from engine import crop_hint
+        from describe import describe_tile
+        crops = load_crops()
+        state = fresh_state(crops, rules=no_weed_rules())
+        till(state, crops, 1, 1)
+        give_seeds(state, "carrot", 1)
+        plant(state, crops, 1, 1, "carrot")
+        crop = state["tiles"][0][0]["crop"]
+        crop["growth"] = 80
+        crop["health"] = 90
+        crop["stage"] = "growing"
+        hint = crop_hint(crop, state["tiles"][0][0], state, crop_info(crops, "carrot"))
+        self.assertTrue(hint)
+        self.assertNotIn("%", hint)
+        self.assertNotRegex(hint, r"health|growth",)
+        line = describe_tile(state, crops, 1, 1)
+        self.assertNotIn("%", line)
+        self.assertNotIn("80", line)
+
+    def test_migration_sets_growth_from_days_grown_and_health_to_100(self):
+        from engine import migrate_crop_vitals
+        crops = load_crops()
+        state = fresh_state(crops, rules=no_weed_rules())
+        till(state, crops, 1, 1)
+        give_seeds(state, "kabocha", 1)
+        plant(state, crops, 1, 1, "kabocha")
+        crop = state["tiles"][0][0]["crop"]
+        crop["days_grown"] = 17
+        crop["stage"] = "mature"
+        crop.pop("growth", None)
+        crop.pop("health", None)
+        self.assertTrue(migrate_crop_vitals(state, crops))
+        self.assertEqual(crop["growth"], 100)
+        self.assertEqual(crop["health"], 100)
 
 
 

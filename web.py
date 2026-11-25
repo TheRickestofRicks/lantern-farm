@@ -1190,6 +1190,35 @@ PAGE = r"""<!DOCTYPE html>
       return (names[r + "," + c] || "plot") + ", row " + r + " col " + c;
     }
 
+    function cropHint(tile, crop) {
+      if (!crop || crop.stage === "withered" || crop.stage === "dormant") return "";
+      const growth = (crop.growth != null) ? Number(crop.growth) : (crop.stage === "mature" ? 100 : 0);
+      const health = (crop.health != null) ? Number(crop.health) : 100;
+      const bits = [];
+      const mins = {kabocha: 60, carrot: 75};
+      const minG = mins[crop.kind] || 70;
+      if (growth < 25 && crop.stage !== "mature") bits.push("just getting started");
+      if (!tile.watered && (crop.dry_days || 0) >= 2) bits.push("is drying out");
+      else if (!tile.watered) bits.push("looks a little thirsty");
+      if (tile.weedy) bits.push("is a little crowded by weeds");
+      if (growth >= 100 && growth >= minG) bits.push("looks ready to pick");
+      else if (growth >= minG) bits.push("could be picked, though it might still put on more");
+      if (health <= 35) bits.push("is struggling");
+      else if (health >= 85 && tile.watered && !tile.weedy && growth < minG) bits.push("is thriving");
+      const unique = bits.filter(function (b, i) { return bits.indexOf(b) === i; }).slice(0, 2);
+      if (!unique.length) return "";
+      function form(p) {
+        if (p.indexOf("is ") === 0 || p.indexOf("looks ") === 0 || p.indexOf("could ") === 0) return p;
+        return "is " + p;
+      }
+      if (unique.length === 1) {
+        const p0 = unique[0];
+        return (p0.indexOf("is ") === 0 || p0.indexOf("looks ") === 0 || p0.indexOf("could ") === 0)
+          ? (" It " + p0 + ".") : (" It is " + p0 + ".");
+      }
+      return " It " + form(unique[0]) + " and " + form(unique[1]) + ".";
+    }
+
     function describeTile(tile, r, c) {
       if (!tile) return "Click a plot.";
       if (tile.type === "cabin") {
@@ -1230,8 +1259,9 @@ PAGE = r"""<!DOCTYPE html>
           ready += " It will fruit again in " + info.regrow_days + " watered day(s) after you pick it.";
         }
       }
+      let hint = cropHint(tile, crop);
       return tileName(r, c) + " — " + crop.kind + ", day " + crop.days_grown + of +
-        ", " + crop.stage + ", " + moist + "." + ready + weed;
+        ", " + crop.stage + ", " + moist + "." + ready + hint + weed;
     }
 
     function forecastIcon(kind) {

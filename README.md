@@ -234,14 +234,14 @@ configured.
   open a whole season. Older years are archived locally and are not shown.
   Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
-- A crop **withers after 2 dry days**, or the morning the season turns against it.
+- A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (strawberries 1–3, kabocha and roots 1–2, always at least one).
 - You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your pack. Each player has a 4-slot pack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries), kabocha soup (1 kabocha, a hearty snack), and root stew (carrot and turnip).
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
   plot (see `rules.json` `weeds`). Pluck it the same day with `pluck <row> <col>`
   (5 energy, key `Q`). If a weed is still there at the next day turn, the plot
-  becomes **weedy** and the crop skips every other watered day (50% growth).
+  becomes **weedy**: weeds slow growth and wear the plant down (they will not kill it on their own).
   Plucking clears the weed and the weedy state. Weeds never kill crops.
 
 ## Crops

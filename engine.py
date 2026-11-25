@@ -1549,6 +1549,8 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
     changed = migrate_tile_fields(state)
     if ensure_inventory_keys(state):
         changed = True
+    if migrate_crop_vitals(state):
+        changed = True
     if migrate_calendar(state, load_crops()):
         changed = True
     if "last_note" not in state:
@@ -1771,6 +1773,8 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
         "days_grown": 0,
         "stage": initial_stage(info),
         "dry_days": 0,
+        "growth": 0,
+        "health": 100,
     }
     clear_till_hold(tile)
     msg = f"{who(player, 'plant', 'plants')} {a_or_an(name)} {name} {noun} at {here}."
@@ -1810,6 +1814,226 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     return True, msg
 
 
+
+# Hidden growth / health and whole-item yields (see docs/granular-growth.md).
+MIN_HARVEST_GROWTH = {
+    "strawberry": 70,
+    "everbearing": 70,
+    "kabocha": 60,
+    "turnip": 70,
+    "carrot": 75,
+}
+YIELD_RANGE = {
+    "strawberry": (1, 3),
+    "everbearing": (1, 3),
+    "kabocha": (1, 2),
+    "turnip": (1, 2),
+    "carrot": (1, 2),
+}
+
+
+def min_harvest_growth(kind: str) -> int:
+    return int(MIN_HARVEST_GROWTH.get(kind, 70))
+
+
+def yield_range_for(kind: str) -> tuple[int, int]:
+    lo, hi = YIELD_RANGE.get(kind, (1, 2))
+    return max(1, int(lo)), max(1, int(hi))
+
+
+def crop_can_be_harvested(crop: dict, info: dict | None, state: dict, crops: dict | None = None) -> bool:
+    if not crop or crop.get("stage") in {None, "withered"}:
+        return False
+    if crop_is_dormant(crop, info, state.get("season")) and crop.get("stage") != "mature":
+        return False
+    if info and is_perennial(info) and not crop_can_fruit(crop, info, state, crops):
+        return False
+    ensure_crop_vitals(crop, info)
+    growth = int(crop.get("growth") or 0)
+    return growth >= min_harvest_growth(crop.get("kind") or "")
+
+
+def _quality(growth: int, health: int, bonus: float = 0.0) -> float:
+    q = (max(0, min(100, growth)) / 100.0) * (max(0, min(100, health)) / 100.0)
+    return max(0.0, min(1.0, q + bonus))
+
+
+def yield_roll(
+    kind: str,
+    growth: int,
+    health: int,
+    day: int,
+    row: int,
+    col: int,
+    harvest_index: int = 0,
+    bonus: float = 0.0,
+) -> int:
+    """Deterministic weighted roll. Always at least 1 if called for a legal harvest."""
+    lo, hi = yield_range_for(kind)
+    if hi <= lo:
+        return lo
+    q = _quality(growth, health, bonus)
+    r = weed_hash(int(day), int(row), int(col), salt=7000 + int(harvest_index)) % 100
+    if hi == 3:
+        p3 = 5 + 75 * (q ** 1.5)
+        p2 = p3 + (20 + 40 * q)
+        if r < p3:
+            return 3
+        if r < min(100, p2):
+            return 2
+        return 1
+    # 1–2 range
+    p2 = 15 + 70 * q
+    return 2 if r < p2 else 1
+
+
+def fertilizer_bonus(tile: dict) -> float:
+    fert = tile.get("fertilizer") if isinstance(tile, dict) else None
+    if not isinstance(fert, dict):
+        return 0.0
+    kind = fert.get("kind")
+    if kind == "yield":
+        return 0.25
+    if kind == "general":
+        return 0.10
+    return 0.0
+
+
+def growth_step_for(info: dict, crop: dict, weedy: bool = False, tile: dict | None = None) -> float:
+    cycle = crop_cycle_days(info, crop) or 1
+    step = 100.0 / cycle
+    if weedy:
+        step *= 0.5
+    fert = (tile or {}).get("fertilizer") if tile else None
+    if isinstance(fert, dict) and fert.get("kind") == "growth":
+        step *= 1.5
+    return step
+
+
+def ensure_crop_vitals(crop: dict, info: dict | None = None, *, establishing: bool = False) -> None:
+    if crop.get("health") is None:
+        crop["health"] = 100
+    growth = crop.get("growth")
+    grown = int(crop.get("days_grown") or 0)
+    # Mature plants (including test fixtures and pre-vitals saves) are fully grown.
+    # A days_grown fixture with growth still 0 (or missing) is inferred from the cycle.
+    missing = growth is None or (
+        float(growth or 0) == 0
+        and grown > 0
+        and crop.get("stage") not in {None, "seed", "withered"}
+        and not establishing
+    )
+    if missing or (crop.get("stage") == "mature" and float(growth or 0) < 100):
+        if establishing and growth is None:
+            crop["growth"] = 0
+        elif crop.get("stage") == "mature":
+            crop["growth"] = 100
+        else:
+            cycle = crop_cycle_days(info, crop) if info else 0
+            crop["growth"] = min(100.0, (100.0 * grown / cycle) if cycle else 0)
+    g = float(crop.get("growth") or 0)
+    crop["growth"] = 100 if g >= 99.99 else max(0.0, min(100.0, g))
+    crop["health"] = int(crop.get("health") or 100)
+
+
+def migrate_crop_vitals(state: dict, crops: dict | None = None) -> bool:
+    """Fill hidden growth/health on living plants. Idempotent."""
+    crops = crops or load_crops()
+    changed = False
+    for r, c, tile in iter_tiles(state):
+        crop = tile.get("crop")
+        if not crop or crop.get("stage") == "withered":
+            continue
+        info = crop_info(crops, crop.get("kind"))
+        before = (crop.get("growth"), crop.get("health"))
+        establishing = bool(
+            info
+            and is_perennial(info)
+            and not crop_can_fruit(crop, info, state, crops)
+        )
+        ensure_crop_vitals(crop, info, establishing=establishing)
+        if (crop.get("growth"), crop.get("health")) != before:
+            changed = True
+    return changed
+
+
+def crop_hint(crop: dict, tile: dict, state: dict, info: dict | None = None) -> str:
+    """Gentle look-text hints. Never print growth or health numbers."""
+    if not crop:
+        return ""
+    stage = crop.get("stage")
+    if stage == "withered":
+        return ""
+    if stage == "dormant" or (info and crop_is_dormant(crop, info, state.get("season")) and stage != "mature"):
+        return ""
+    growth = int(crop.get("growth") if crop.get("growth") is not None else (100 if stage == "mature" else 0))
+    health = int(crop.get("health") if crop.get("health") is not None else 100)
+    watered = bool(tile.get("watered"))
+    weedy = bool(tile.get("weedy"))
+    dry = int(crop.get("dry_days") or 0)
+    bits = []
+    kind = crop.get("kind") or ""
+    if growth < 25 and stage not in {"mature"}:
+        bits.append("just getting started")
+    if not watered and dry >= 2:
+        bits.append("is drying out")
+    elif not watered:
+        bits.append("looks a little thirsty")
+    if weedy:
+        bits.append("is a little crowded by weeds")
+    can_pick = growth >= min_harvest_growth(kind)
+    if can_pick and growth >= 100:
+        bits.append("looks ready to pick")
+    elif can_pick:
+        bits.append("could be picked, though it might still put on more")
+    if health <= 35:
+        bits.append("is struggling")
+    elif health >= 85 and watered and not weedy and not can_pick:
+        bits.append("is thriving")
+    elif 40 <= health < 75 and not any("struggling" in b or "thirsty" in b or "drying" in b for b in bits):
+        bits.append("is getting along")
+    # Keep to one or two hints.
+    # Prefer the most useful: pick window, thirst/weeds, then health.
+    unique = []
+    for b in bits:
+        if b not in unique:
+            unique.append(b)
+    unique = unique[:2]
+    if not unique:
+        return ""
+    if len(unique) == 1:
+        phrase = unique[0]
+        if phrase.startswith("is ") or phrase.startswith("looks ") or phrase.startswith("could "):
+            return f" It {phrase}."
+        return f" It is {phrase}."
+    a, b = unique[0], unique[1]
+    def form(p):
+        if p.startswith("is "):
+            return p
+        if p.startswith("looks ") or p.startswith("could "):
+            return p
+        return "is " + p
+    return f" It {form(a)} and {form(b)}."
+
+
+def maybe_wither(crop: dict, tile: dict, info: dict | None, state: dict, here: str, notes: list) -> bool:
+    """Rare wither: health 0, long drought at low health, or three off-season evenings."""
+    health = int(crop.get("health") or 0)
+    dry = int(crop.get("dry_days") or 0)
+    off = int(crop.get("off_season_days") or 0)
+    kind = crop.get("kind")
+    if health <= 0 or (dry >= 6 and health <= 20) or (off >= 3 and not is_perennial(info)):
+        crop["stage"] = "withered"
+        if off >= 3 and not is_perennial(info):
+            notes.append(f"The {kind} at {here} withered in the {state.get('season')} air.")
+        elif dry >= 6:
+            notes.append(f"The {kind} at {here} withered after a long drought.")
+        else:
+            notes.append(f"The {kind} at {here} withered.")
+        return True
+    return False
+
+
 def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tuple[bool, str]:
     r, c, err = parse_row_col(row, col)
     if err:
@@ -1835,18 +2059,22 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         and crop_is_dormant(crop, peek_info, state.get("season"))
     ):
         return False, f"The {kind_peek} at {here} is dormant and resting until spring."
-    if crop.get("stage") != "mature":
-        info = crop_info(crops, crop["kind"]) or {}
-        needed = crop_cycle_days(info, crop) if info else "?"
-        return (
-            False,
-            f"The {crop['kind']} at {here} is not ready "
-            f"(day {crop.get('days_grown', 0)} of {needed}, {crop.get('stage')}).",
-        )
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
-    from inventory import pack_space_for, store_item, sync_inventory_view
-    yield_n = 1
+    ensure_crop_vitals(crop, info)
+    if not crop_can_be_harvested(crop, info, state, crops):
+        return (
+            False,
+            f"The {kind} at {here} is still filling out; it isn't ready to pick yet.",
+        )
+    from inventory import pack_space_for, store_item, sync_inventory_view, item_name
+    growth = int(crop.get("growth") or 0)
+    health = int(crop.get("health") or 100)
+    harvests = int(crop.get("harvests") or 0)
+    yield_n = yield_roll(
+        kind, growth, health, int(state.get("day") or 1), r, c, harvests,
+        bonus=fertilizer_bonus(tile),
+    )
     if player and not pack_space_for(state, player, kind, yield_n):
         return False, (
             f"{display_name(player)}'s pack is full. "
@@ -1858,28 +2086,30 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     if regrow_days(info) > 0 or is_perennial(info):
         crop["harvests"] = int(crop.get("harvests") or 0) + 1
         crop["days_grown"] = 0
+        crop["growth"] = 0
+        crop["days_grown"] = 0
+        crop["health"] = max(1, int(crop.get("health") or 100) - 5)
+        noun = crop_name_plural(kind, info, yield_n)
         if is_perennial(info) and state.get("season") not in (info.get("seasons") or []):
             crop["stage"] = "dormant"
             msg = (
-                f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
+                f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}. "
                 "It will rest until spring."
             )
         else:
             crop["stage"] = "regrowing"
             again = regrow_days(info) or grow_days(info)
             msg = (
-                f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
+                f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}. "
                 f"It will fruit again in {again} watered day(s) if it is still in season."
             )
         log_append(state, msg, player)
         return True, msg
     tile["crop"] = None
     # The bed stays tilled; today's water remains. Till-hold starts (or resets if watered).
-    if tile.get("watered"):
-        reset_till_hold(tile)
-    else:
-        reset_till_hold(tile)
-    msg = f"{who(player, 'harvest', 'harvests')} a {kind} at {here}."
+    reset_till_hold(tile)
+    noun = crop_name_plural(kind, info, yield_n)
+    msg = f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}."
     log_append(state, msg, player)
     return True, msg
 
@@ -2129,8 +2359,14 @@ def _apply_season_to_crop(state: dict, crops: dict, crop: dict, row: int, col: i
             notes.append(f"The {kind} at {here} has woken for {season}.")
         return notes
     if season not in (info.get("seasons") or []):
-        crop["stage"] = "withered"
-        notes.append(f"The {kind} at {here} withered in the {season} air.")
+        crop["off_season_days"] = int(crop.get("off_season_days") or 0) + 1
+        crop["health"] = max(0, int(crop.get("health") if crop.get("health") is not None else 100) - 20)
+        ensure_crop_vitals(crop, info)
+        if maybe_wither(crop, get_tile(state, row, col), info, state, here, notes):
+            return notes
+        notes.append(f"The {kind} at {here} is unhappy in the {season} air.")
+    else:
+        crop["off_season_days"] = 0
     return notes
 
 
@@ -2170,6 +2406,8 @@ def _apply_runners(state: dict, crops: dict) -> list[str]:
             "days_grown": 0,
             "stage": initial_stage(info),
             "dry_days": 0,
+            "growth": 0,
+            "health": 100,
         }
         crop["runner_season"] = season_i
         notes.append(
@@ -2197,7 +2435,6 @@ def _pick_runner_plot(state: dict, row: int, col: int, day: int, seed: int):
 
 def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -> list[str]:
     notes = []
-    limit = wither_after(crops)
     for r, c, tile in iter_tiles(state):
         if tile["type"] != "soil":
             continue
@@ -2211,16 +2448,24 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
         here = position_name(r, c)
         kind = crop["kind"]
         info = crop_info(crops, kind)
+        establishing = bool(info and is_perennial(info) and not crop_can_fruit(crop, info, state, crops))
+        ensure_crop_vitals(crop, info, establishing=establishing)
         if crop_is_dormant(crop, info, state.get("season")):
             crop["dry_days"] = 0
+            if tile.get("weedy"):
+                crop["health"] = max(0, int(crop.get("health") or 100) - 3)
             tile["watered"] = False
             continue
         if tile.get("watered"):
             crop["dry_days"] = 0
-            can_grow = bool(info) and crop.get("stage") != "mature"
-            if is_perennial(info) and not crop_can_fruit(crop, info, state, crops):
+            if tile.get("weedy"):
+                crop["health"] = max(0, int(crop.get("health") or 100) - 6)
+            else:
+                crop["health"] = min(100, int(crop.get("health") or 100) + 4)
+            # General fertilizer's one-time health bump is applied when the bag is used.
+            can_grow = bool(info) and crop.get("stage") != "mature" and not establishing
+            if establishing:
                 can_grow = False
-                # First-year plants still put on leaves, but never fruit yet.
                 if crop.get("stage") not in {"mature", "withered"}:
                     established = int(crop.get("days_established") or 0)
                     if tile.get("weedy"):
@@ -2237,39 +2482,37 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
                     if leaf != "mature":
                         crop["stage"] = leaf
             if can_grow and info:
-                skip_growth = False
+                step = growth_step_for(info, crop, weedy=bool(tile.get("weedy")), tile=tile)
                 if tile.get("weedy"):
-                    ticks = int(tile.get("weedy_ticks") or 0)
-                    # Gentle: first watered day after becoming weedy still grows;
-                    # the next one is skipped, then they alternate (50%).
-                    skip_growth = (ticks % 2 == 1)
-                    tile["weedy_ticks"] = ticks + 1
-                if skip_growth:
-                    notes.append(
-                        f"The weedy {kind} at {here} skips a day of growth."
-                    )
+                    tile["weedy_ticks"] = int(tile.get("weedy_ticks") or 0) + 1
+                grown = min(100.0, float(crop.get("growth") or 0) + float(step))
+                crop["growth"] = 100 if grown >= 99.99 else round(grown, 4)
+                cycle = crop_cycle_days(info, crop) or 1
+                if crop["growth"] >= 100:
+                    crop["growth"] = 100
+                    crop["days_grown"] = cycle
+                    new_stage = "mature"
                 else:
-                    crop["days_grown"] = int(crop.get("days_grown", 0)) + 1
+                    crop["days_grown"] = min(cycle - 1, max(0, int(round(float(crop["growth"]) / 100.0 * cycle))))
                     new_stage = stage_for(crop["days_grown"], info, crop)
-                    if new_stage != crop.get("stage"):
-                        crop["stage"] = new_stage
-                        if new_stage == "mature":
-                            notes.append(f"The {kind} at {here} is mature and ready to harvest.")
-                        else:
-                            notes.append(
-                                f"The {kind} at {here} is now {stage_label(info, new_stage)} "
-                                f"(day {crop['days_grown']} of {crop_cycle_days(info, crop)})."
-                            )
+                    if new_stage == "mature":
+                        new_stage = "growing"
+                if new_stage != crop.get("stage"):
+                    crop["stage"] = new_stage
+                    if new_stage == "mature":
+                        notes.append(f"The {kind} at {here} looks ready to pick.")
                     else:
-                        crop["stage"] = new_stage
-            # Mature crops stay mature when watered. Weeds never kill a crop.
+                        notes.append(
+                            f"The {kind} at {here} is now {stage_label(info, new_stage)}."
+                        )
+                else:
+                    crop["stage"] = new_stage
+            # Mature crops stay mature when watered. Weeds never kill a crop by themselves.
         else:
             crop["dry_days"] = int(crop.get("dry_days", 0)) + 1
-            if crop["dry_days"] >= limit:
-                crop["stage"] = "withered"
-                notes.append(
-                    f"The {kind} at {here} withered after {crop['dry_days']} dry day(s)."
-                )
+            drain = 12 if tile.get("weedy") else 8
+            crop["health"] = max(0, int(crop.get("health") or 100) - drain)
+            maybe_wither(crop, tile, info, state, here, notes)
         tile["watered"] = False
     return notes
 
@@ -2680,7 +2923,7 @@ def legal_actions(
                 from inventory import pack_has, TOOL_CAN
                 if not actor or pack_has(state, actor, TOOL_CAN, 1, rules):
                     actions.append(f"water {r} {c}")
-        if crop and crop.get("stage") == "mature":
+        if crop and crop_can_be_harvested(crop, crop_info(crops, crop.get("kind")), state, crops):
             from inventory import pack_space_for
             if not actor or pack_space_for(state, actor, crop.get("kind") or "item", 1, rules):
                 actions.append(f"harvest {r} {c}")
