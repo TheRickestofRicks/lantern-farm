@@ -67,3 +67,8 @@ Same style and layout as the matching non-snow ground tiles, no footprints, no p
 ## Weed placement (later pass)
 
 The first `weed` and `weedy` overlays were painted in the centre of the cell, so they disappeared under crop sprites. They were recomposed from those originals (no new painting): a slightly darker, more saturated cut-out of the same plants, placed in the lower-left corner for a single weed, and in the lower-left and lower-right corners for a weedy plot, leaving the crop centre clear. The earlier centred keyed PNGs are kept as `sources/originals/weed_centered.png` and `weedy_centered.png`.
+
+## Cabin door pass (later)
+
+The first cabin tiles had wooden steps leading to a four-pane lantern window and no front door. All five weather variants were repainted so a clearly visible wooden front door sits at the top of the steps, with the lantern-lit window beside it. The same cabin is used in clear, cloud, rain, storm, and snow. Style and yard ground were referenced from the Storybook `soil.png` and `soil_wet.png` tiles so the cabin matches neighbouring plots. The earlier no-door 1024 sources and 512 pack tiles are kept as `sources/originals/*_no_door.jpg` and `*_no_door.png`.
+
