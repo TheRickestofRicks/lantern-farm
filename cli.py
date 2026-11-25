@@ -43,17 +43,27 @@ Actions:
   harvest                 (or harvest <row> <col>)
   pluck                   (or pluck <row> <col>)
   eat <crop>
-  buy <kind> <count>
-  sell <kind> <count>
+  buy <kind> <count>      (at the cabin)
+  sell <kind> <count>     (at the cabin, from pack or chest)
+  take <item> [count]     (chest to pack, at the cabin)
+  drop <item> [count]     (pack to chest, at the cabin)
+  craft <recipe>          (at the cabin: strawberry_jam, kabocha_soup, root_stew)
   end turn
   end turn <note>
   end turn: <note>
 
 You can only till, plant, water, harvest, or pluck the tile you are standing on.
-Each step costs 5 energy, including diagonals. Harvest, buy, sell, and eat
-are free. Eat a harvested crop from the pack (up to 2 snacks a turn) to
-restore energy: strawberry 30, everbearing strawberry 20, and later crops if you have them (carrot 10, turnip 12, kabocha 25). Eating spends the crop
-instead of selling it.
+Till needs a hoe in your pack; water needs a watering can. There is one hoe
+and two cans in the world; they start in the cabin chest. Each player has a
+4-slot pack (tools take a slot each). Harvest goes into the pack — if it is
+full, walk home and drop something first. Buy, sell, take, drop, and craft
+are done at the cabin. Recipes: strawberry jam (3 berries, any kind),
+kabocha soup (1 kabocha, +45 energy), and root stew (carrot + turnip).
+
+Each step costs 5 energy, including diagonals. Harvest, buy, sell, eat,
+take, drop, and craft are free. Eat a snack from the pack (up to 2 a turn)
+to restore energy: strawberry 30, everbearing 20, jam 50, soup 45, stew 40,
+and later crops if you have them (carrot 10, turnip 12, kabocha 25).
 
 Ending your turn in the cabin is sleep — next day you wake there with 100
 energy. Ending it anywhere else is passing out — you wake where you fell

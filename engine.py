@@ -248,6 +248,8 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
 
 
 def player_slot(state: dict, player: str) -> dict:
+    from inventory import empty_pack, normalize_pack
+
     players = state.setdefault("players", {})
     slot = players.setdefault(player, {})
     slot.setdefault("energy", 0)
@@ -255,6 +257,10 @@ def player_slot(state: dict, player: str) -> dict:
     slot.setdefault("row", CABIN_ROW)
     slot.setdefault("col", CABIN_COL)
     slot.setdefault("snacks_eaten", 0)
+    if "pack" not in slot:
+        slot["pack"] = empty_pack()
+    else:
+        slot["pack"] = normalize_pack(slot.get("pack"))
     return slot
 
 
@@ -1124,15 +1130,11 @@ def crop_cycle_days(info: dict, crop: dict | None = None) -> int:
 
 
 def ensure_inventory_keys(state: dict, crops: dict | None = None) -> bool:
-    """Add missing inventory keys for known crops as 0. Never change counts."""
-    crops = crops or load_crops()
-    inv = state.setdefault("inventory", {})
-    changed = False
-    for kind, info in (crops.get("crops") or {}).items():
-        for key in (stock_key(kind, info), kind):
-            if key not in inv:
-                inv[key] = 0
-                changed = True
+    """Install packs and the cabin chest, then refresh the totals view."""
+    from inventory import migrate_inventory, sync_inventory_view
+
+    changed = migrate_inventory(state, crops or load_crops(), load_rules())
+    sync_inventory_view(state)
     return changed
 
 
@@ -1231,9 +1233,11 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
         "year": 1,
         "journal": empty_journal(1),
     }
-    apply_new_day_turns(state, load_rules())
+    apply_new_day_turns(state, rules)
+    from inventory import migrate_inventory
+    migrate_inventory(state, crops, rules)
     if is_wet_weather(weather):
-        dawn_water(state)
+        dawn_water(state, rules)
         log_append(state, weather_arrive_message(weather))
     return state
 
@@ -1408,21 +1412,27 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
         if not in_bounds(row, col):
             row, col = CABIN_ROW, CABIN_COL
         slept = is_cabin_at(row, col)
+        from inventory import empty_pack, normalize_pack
+
         slots[key] = {
             "energy": cap if slept else faint,
             "ended_turn": False,
             "row": CABIN_ROW if slept else row,
             "col": CABIN_COL if slept else col,
             "snacks_eaten": 0,
+            "pack": normalize_pack(prev.get("pack")) if prev.get("pack") is not None else empty_pack(),
         }
     for key in known_players():
         if key not in slots:
+            from inventory import empty_pack
+
             slots[key] = {
                 "energy": cap,
                 "ended_turn": False,
                 "row": CABIN_ROW,
                 "col": CABIN_COL,
                 "snacks_eaten": 0,
+                "pack": empty_pack(),
             }
     state["players"] = slots
     fallback = next(iter(slots), "player1")
@@ -1701,6 +1711,13 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
         cleared = f" {who(player, 'clear', 'clears')} the withered plant."
     if tile.get("tilled") and not cleared:
         return False, f"{here[0].upper() + here[1:]} is already tilled."
+    if player:
+        from inventory import pack_has, TOOL_HOE, sync_inventory_view, item_name
+        if not pack_has(state, player, TOOL_HOE):
+            return False, (
+                f"{display_name(player)} needs a hoe in their pack to till. "
+                "Take one from the cabin chest."
+            )
     tile["tilled"] = True
     reset_till_hold(tile)
     msg = f"{who(player, 'till', 'tills')} the soil at {here}.{cleared}"
@@ -1736,9 +1753,18 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
     name = crop_name(kind, info)
     noun = stock_noun(info, 1)
     nouns = stock_noun(info, 2)
-    if int(state["inventory"].get(seed_key, 0)) < 1:
+    from inventory import pack_has, take_available, sync_inventory_view
+    have = int(state["inventory"].get(seed_key, 0) or 0)
+    if player and not pack_has(state, player, seed_key):
+        return False, (
+            f"No {name} {nouns} in the pack. Take some from the cabin chest, "
+            "or buy them at the shop."
+        )
+    if not player and have < 1:
         return False, f"You have no {name} {nouns}. Buy some at the shop."
-    state["inventory"][seed_key] = int(state["inventory"].get(seed_key, 0)) - 1
+    taken = take_available(state, seed_key, 1, player, pack_only=bool(player))
+    if taken < 1:
+        return False, f"You have no {name} {nouns}. Buy some at the shop."
     tile["crop"] = {
         "kind": kind,
         "planted_day": int(state["day"]),
@@ -1766,6 +1792,13 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
         return False, f"The {crop['kind']} at {here} is dormant and doesn't need water."
     if tile.get("watered"):
         return False, f"{here[0].upper() + here[1:]} is already watered today."
+    if player:
+        from inventory import pack_has, TOOL_CAN
+        if not pack_has(state, player, TOOL_CAN):
+            return False, (
+                f"{display_name(player)} needs a watering can in their pack. "
+                "Take one from the cabin chest."
+            )
     tile["watered"] = True
     if not tile_is_living_plant(tile):
         reset_till_hold(tile)
@@ -1812,7 +1845,16 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         )
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
-    state["inventory"][kind] = int(state["inventory"].get(kind, 0)) + 1
+    from inventory import pack_space_for, store_item, sync_inventory_view
+    yield_n = 1
+    if player and not pack_space_for(state, player, kind, yield_n):
+        return False, (
+            f"{display_name(player)}'s pack is full. "
+            "Drop something at the cabin chest, then come back to harvest."
+        )
+    leftover = store_item(state, kind, yield_n, player, prefer="pack" if player else "chest")
+    if leftover:
+        return False, "There is no room for the harvest."
     if regrow_days(info) > 0 or is_perennial(info):
         crop["harvests"] = int(crop.get("harvests") or 0) + 1
         crop["days_grown"] = 0
@@ -1877,11 +1919,19 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
             False,
             f"Not enough gold. {count} {label} cost {price}G; you have {gold}G.",
         )
+    if player and not is_player_in_cabin(state, player):
+        return False, "The shop is at the cabin. Walk there to buy."
     state["gold"] = gold - price
     seed_key = stock_key(kind, info)
-    state["inventory"][seed_key] = int(state["inventory"].get(seed_key, 0)) + count
+    from inventory import store_item, pack_space_for, item_name as inv_item_name
+    prefer = "pack" if player and pack_space_for(state, player, seed_key, count) else "chest"
+    if player and prefer == "pack" and not pack_space_for(state, player, seed_key, count):
+        prefer = "chest"
+    store_item(state, seed_key, count, player, prefer=prefer if player else "chest")
+    where = "the pack" if prefer == "pack" and player else "the cabin chest"
     msg = (
-        f"{who(player, 'buy', 'buys')} {count} {label} for {price}G. "
+        f"{who(player, 'buy', 'buys')} {count} {label} for {price}G "
+        f"({where}). "
         f"{display_name(player) if player else 'You'} "
         f"{'has' if player else 'have'} {state['gold']}G left."
     )
@@ -1889,24 +1939,42 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     return True, msg
 
 
-def sell(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[bool, str]:
-    kind = normalize_kind(str(kind))
-    info = crop_info(crops, kind)
-    if not info:
+def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: dict | None = None) -> tuple[bool, str]:
+    from inventory import (
+        item_name,
+        item_sell_price,
+        normalize_item,
+        take_available,
+        pack_has,
+        item_count,
+        sync_inventory_view,
+    )
+    if player and not is_player_in_cabin(state, player):
+        return False, "Sell from the cabin. Carry the goods home first."
+    item = normalize_item(str(kind)) or normalize_kind(str(kind))
+    price = item_sell_price(item, crops, rules)
+    if price is None:
         known = ", ".join(crops.get("crops", {}))
-        return False, f"Unknown crop {kind!r}. You can sell: {known}."
+        return False, f"Unknown or unsellable item {kind!r}. You can sell: {known}."
     count, err = _parse_count(n)
     if err:
         return False, err
-    have = int(state["inventory"].get(kind, 0))
+    have = item_count(state, item, rules)
+    if player:
+        from inventory import pack_of, chest_of, stack_count
+        have = stack_count(pack_of(state, player, rules), item) + stack_count(chest_of(state, rules), item)
     if have < count:
-        return False, f"You only have {have} {crop_name_plural(kind, info, have)} to sell."
-    gold = int(info["sell_price"]) * count
-    state["inventory"][kind] = have - count
+        return False, f"You only have {have} {item_name(item, max(have, 1), crops, rules).split(' ', 1)[-1] if have != 1 else item_name(item, 1, crops, rules)[2:]} to sell."
+    taken = take_available(state, item, count, player, pack_only=False, rules=rules)
+    if taken < count:
+        # refund nothing; take_available is all-or-we already checked
+        return False, f"You only have {taken} to sell."
+    gold = int(price) * count
     state["gold"] = int(state["gold"]) + gold
-    noun = crop_name_plural(kind, info, count)
+    noun = item_name(item, count, crops, rules)
+    # item_name already includes the count
     msg = (
-        f"{who(player, 'sell', 'sells')} {count} {noun} for {gold}G. "
+        f"{who(player, 'sell', 'sells')} {noun} for {gold}G. "
         f"{display_name(player) if player else 'You'} now "
         f"{'has' if player else 'have'} {state['gold']}G."
     )
@@ -2364,20 +2432,22 @@ def do_move_command(
 
 
 def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) -> tuple[bool, str]:
-    """Eat a harvested crop from the pack. Free, capped per turn, restores energy."""
+    """Eat a snack from the pack. Free, capped per turn, restores energy."""
+    from inventory import item_eat_energy, normalize_item, pack_has, take_available, item_name
+
     rules = rules or load_rules()
     raw_kind = (kind or "").strip().lower()
-    if raw_kind.endswith("_seed") or raw_kind.endswith(" seed"):
+    if raw_kind.endswith("_seed") or raw_kind.endswith(" seed") or raw_kind.endswith("_seedling") or raw_kind.endswith(" seedling"):
         return False, "Seeds aren't a snack. Eat a harvested crop, like: eat carrot"
-    kind = normalize_kind(kind)
-    restore = eat_energy_for(crops, kind)
+    item = normalize_item(kind) or normalize_kind(kind)
+    restore = item_eat_energy(item, crops, rules)
     if restore is None:
-        if crop_info(crops, kind):
-            return False, f"{kind} isn't edible raw."
-        return False, f"Unknown crop '{kind}'. Try carrot, turnip, or kabocha."
-    have = int(state.setdefault("inventory", {}).get(kind, 0) or 0)
-    if have <= 0:
-        return False, f"No {kind} in the pack."
+        if crop_info(crops, item):
+            return False, f"{item} isn't edible raw."
+        return False, f"Unknown snack '{kind}'. Try carrot, turnip, kabocha, or a crafted food."
+    kind = item
+    if not pack_has(state, player, kind, 1, rules):
+        return False, f"No {item_name(kind, 1, crops, rules)[2:]} in the pack."
     slot = player_slot(state, player)
     eaten = int(slot.get("snacks_eaten") or 0)
     cap_snacks = snacks_per_turn(rules)
@@ -2388,7 +2458,9 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
     if energy >= cap_e:
         return False, f"{display_name(player)} is already at full energy. Sell it or save it."
     gained = min(restore, cap_e - energy)
-    state["inventory"][kind] = have - 1
+    taken = take_available(state, kind, 1, player, pack_only=True, rules=rules)
+    if taken < 1:
+        return False, f"No {kind} in the pack."
     slot["energy"] = energy + gained
     slot["snacks_eaten"] = eaten + 1
     left = cap_snacks - (eaten + 1)
@@ -2401,6 +2473,151 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
 
 
 # --- dispatcher --------------------------------------------------------------
+
+
+def take_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
+    """Move items from the cabin chest into the pack. Must be at the cabin."""
+    from inventory import (
+        normalize_item,
+        parse_item_and_count,
+        pack_space_for,
+        remove_from_chest,
+        add_to_pack,
+        item_name,
+        chest_of,
+        stack_count,
+        sync_inventory_view,
+    )
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    if not is_player_in_cabin(state, player):
+        return False, "The chest is at the cabin. Walk there to take something."
+    if isinstance(item, list):
+        item, n, err = parse_item_and_count(item)
+        if err:
+            return False, err
+    else:
+        item = normalize_item(str(item)) or str(item).strip().lower()
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        n = count
+    if not pack_space_for(state, player, item, n, rules):
+        return False, f"{display_name(player)}'s pack has no room for {item_name(item, n, crops, rules)}."
+    have = stack_count(chest_of(state, rules), item)
+    if have < n:
+        return False, f"The chest only has {item_name(item, have, crops, rules)}."
+    removed = remove_from_chest(state, item, n, rules)
+    leftover = add_to_pack(state, player, item, removed, rules)
+    if leftover:
+        # Should not happen after the space check; put leftover back.
+        from inventory import add_to_chest
+        add_to_chest(state, item, leftover, rules)
+        removed -= leftover
+    sync_inventory_view(state, rules)
+    if removed <= 0:
+        return False, "Nothing was taken."
+    msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules)} from the chest."
+    log_append(state, msg, player)
+    return True, msg
+
+
+def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
+    """Move items from the pack into the cabin chest. Must be at the cabin."""
+    from inventory import (
+        normalize_item,
+        parse_item_and_count,
+        remove_from_pack,
+        add_to_chest,
+        item_name,
+        pack_has,
+        sync_inventory_view,
+    )
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    if not is_player_in_cabin(state, player):
+        return False, "The chest is at the cabin. Walk there to drop something."
+    if isinstance(item, list):
+        item, n, err = parse_item_and_count(item)
+        if err:
+            return False, err
+    else:
+        item = normalize_item(str(item)) or str(item).strip().lower()
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        n = count
+    if not pack_has(state, player, item, n, rules):
+        return False, f"No {item_name(item, n, crops, rules)} in the pack."
+    removed = remove_from_pack(state, player, item, n, rules)
+    add_to_chest(state, item, removed, rules)
+    sync_inventory_view(state, rules)
+    msg = f"{display_name(player)} puts {item_name(item, removed, crops, rules)} in the chest."
+    log_append(state, msg, player)
+    return True, msg
+
+
+def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
+    """Cook a recipe at the cabin, using pack first, then the chest."""
+    from inventory import (
+        recipes,
+        normalize_item,
+        take_available,
+        store_item,
+        pack_space_for,
+        item_name,
+        item_count,
+        pack_of,
+        chest_of,
+        stack_count,
+        sync_inventory_view,
+    )
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    if not is_player_in_cabin(state, player):
+        return False, "Craft at the cabin kitchen."
+    key = normalize_item(str(recipe)) or str(recipe or "").strip().lower().replace(" ", "_")
+    recs = recipes(rules)
+    rec = recs.get(key)
+    if not rec:
+        names = ", ".join(recs)
+        return False, f"Unknown recipe {recipe!r}. You can craft: {names}."
+    # Check ingredients (pack + chest).
+    needed = dict(rec.get("ingredients") or {})
+    berry_need = int(rec.get("berries") or 0)
+    def available(item):
+        return stack_count(pack_of(state, player, rules), item) + stack_count(chest_of(state, rules), item)
+    for item, n in needed.items():
+        item = normalize_item(item) or item
+        if available(item) < int(n):
+            return False, f"Not enough {item_name(item, int(n), crops, rules)} to craft {rec.get('name') or key}."
+    if berry_need:
+        berries = available("strawberry") + available("everbearing")
+        if berries < berry_need:
+            return False, f"Not enough strawberries. {rec.get('name') or key} needs {berry_need}."
+    # Consume.
+    for item, n in needed.items():
+        item = normalize_item(item) or item
+        take_available(state, item, int(n), player, pack_only=False, rules=rules)
+    if berry_need:
+        left = berry_need
+        for berry in ("strawberry", "everbearing"):
+            if left <= 0:
+                break
+            got = take_available(state, berry, left, player, pack_only=False, rules=rules)
+            left -= got
+        if left > 0:
+            return False, "Not enough strawberries."
+    # Result.
+    leftover = store_item(state, key, 1, player, prefer="pack", rules=rules)
+    where = "the chest" if leftover or not pack_space_for(state, player, key, 1, rules) else "the pack"
+    # store_item with prefer pack already overflowed to chest, leftover is 0 then.
+    # Determine where it landed: if pack has it now...
+    from inventory import pack_has
+    where = "the pack" if pack_has(state, player, key, 1, rules) else "the chest"
+    msg = f"{display_name(player)} cooks {item_name(key, 1, crops, rules)} at the cabin ({where})."
+    log_append(state, msg, player)
+    return True, msg
 
 
 def is_end_turn_command(command: str) -> bool:
@@ -2445,38 +2662,94 @@ def legal_actions(
         withered = bool(crop and crop.get("stage") == "withered")
         if (not crop or withered) and (not tile.get("tilled") or withered):
             if energy >= energy_cost("till", rules):
-                actions.append(f"till {r} {c}")
+                from inventory import pack_has, TOOL_HOE
+                if not actor or pack_has(state, actor, TOOL_HOE, 1, rules):
+                    actions.append(f"till {r} {c}")
         if tile.get("tilled") and not crop:
             if energy >= energy_cost("plant", rules):
+                from inventory import pack_has
                 for kind, info in crops.get("crops", {}).items():
-                    if state["season"] in info["seasons"] and int(
-                        state["inventory"].get(stock_key(kind, info), 0)
-                    ) > 0:
+                    seed_key = stock_key(kind, info)
+                    in_pack = pack_has(state, actor, seed_key, 1, rules) if actor else int(state["inventory"].get(seed_key, 0)) > 0
+                    if state["season"] in info["seasons"] and in_pack:
                         actions.append(f"plant {r} {c} {kind}")
         if not tile.get("watered"):
             info = crop_info(crops, crop["kind"]) if crop and crop.get("kind") else {}
             dormant = crop_is_dormant(crop, info, state.get("season")) if crop else False
             if (not dormant) and energy >= energy_cost("water", rules):
-                actions.append(f"water {r} {c}")
+                from inventory import pack_has, TOOL_CAN
+                if not actor or pack_has(state, actor, TOOL_CAN, 1, rules):
+                    actions.append(f"water {r} {c}")
         if crop and crop.get("stage") == "mature":
-            actions.append(f"harvest {r} {c}")
+            from inventory import pack_space_for
+            if not actor or pack_space_for(state, actor, crop.get("kind") or "item", 1, rules):
+                actions.append(f"harvest {r} {c}")
         if withered:
             actions.append(f"harvest {r} {c}")
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
-    for kind, info in crops.get("crops", {}).items():
-        if crop_for_sale(info, state.get("season")):
-            price = int(info["seed_price"])
-            if int(state["gold"]) >= price:
-                actions.append(f"buy {kind} 1")
-        if int(state["inventory"].get(kind, 0)) > 0:
-            actions.append(f"sell {kind} 1")
+    from inventory import (
+        pack_of,
+        chest_of,
+        recipes,
+        item_eat_energy,
+        item_sell_price,
+        stack_count,
+    )
+    at_cabin = is_cabin_at(*here)
+    if at_cabin:
+        for kind, info in crops.get("crops", {}).items():
+            if crop_for_sale(info, state.get("season")):
+                price = int(info["seed_price"])
+                if int(state["gold"]) >= price:
+                    actions.append(f"buy {kind} 1")
+        sellable = {}
+        if actor:
+            for slot in (pack_of(state, actor, rules) + chest_of(state, rules)):
+                if not slot:
+                    continue
+                item = slot.get("item")
+                if item and item_sell_price(item, crops, rules) is not None:
+                    sellable[item] = sellable.get(item, 0) + int(slot.get("count") or 0)
+        for item, have in sellable.items():
+            if have > 0:
+                actions.append(f"sell {item} 1")
+        for slot in chest_of(state, rules):
+            if slot and slot.get("item"):
+                actions.append(f"take {slot['item']}")
+        if actor:
+            for slot in pack_of(state, actor, rules):
+                if slot and slot.get("item"):
+                    actions.append(f"drop {slot['item']}")
+        def _have(item):
+            n = 0
+            if actor:
+                n += stack_count(pack_of(state, actor, rules), item)
+            n += stack_count(chest_of(state, rules), item)
+            return n
+        for rec_id, rec in recipes(rules).items():
+            ok_rec = True
+            if int(rec.get("berries") or 0):
+                if _have("strawberry") + _have("everbearing") < int(rec["berries"]):
+                    ok_rec = False
+            for item, n in (rec.get("ingredients") or {}).items():
+                if _have(item) < int(n):
+                    ok_rec = False
+                    break
+            if ok_rec:
+                actions.append(f"craft {rec_id}")
+    if actor:
+        for slot in pack_of(state, actor, rules):
+            if not slot:
+                continue
+            item = slot.get("item")
             if (
-                eat_energy_for(crops, kind) is not None
+                item
+                and item_eat_energy(item, crops, rules) is not None
                 and int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
                 and energy < max_energy(rules)
             ):
-                actions.append(f"eat {kind}")
+                actions.append(f"eat {item}")
     actions.append("end turn")
     return actions
 
@@ -2526,6 +2799,19 @@ def do_action(
         if len(args) != 1:
             return False, "Usage: eat <crop>   example: eat carrot"
         return eat(state, crops, args[0], actor, rules)
+
+    if verb in {"take", "drop", "put", "stow", "craft"}:
+        if verb == "craft":
+            if not args:
+                return False, "Usage: craft <recipe>   example: craft strawberry_jam"
+            return craft(state, " ".join(args), actor, rules, crops)
+        if verb in {"put", "stow"}:
+            verb = "drop"
+        if not args:
+            return False, f"Usage: {verb} <item> [count]   example: {verb} hoe"
+        if verb == "take":
+            return take_item(state, args, None, actor, rules, crops)
+        return drop_item(state, args, None, actor, rules, crops)
 
     # Plot work is on the tile you're standing on. Coords are optional,
     # but if given they must be the current tile.
@@ -2590,7 +2876,7 @@ def do_action(
         return (
             False,
             "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
-            "pluck, eat, buy, sell, or end turn.",
+            "pluck, eat, buy, sell, take, drop, craft, or end turn.",
         )
 
     if ok and cost:

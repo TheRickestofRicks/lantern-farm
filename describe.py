@@ -15,6 +15,7 @@ from engine import (
     describe_where,
     display_name,
     get_tile,
+    is_player_in_cabin,
     crop_cycle_days,
     crop_is_dormant,
     is_perennial,
@@ -91,6 +92,31 @@ def _inventory_line(state: dict, crops: dict | None = None) -> str:
         if key in seen or int(count) <= 0:
             continue
         parts.append(_item_phrase(key, int(count), crops))
+    if not parts:
+        return "  (empty)"
+    return "  " + ", ".join(parts)
+
+
+def _pack_line(state: dict, crops: dict | None, viewer: str | None) -> str:
+    from inventory import pack_of, item_name
+    if not viewer:
+        return "  (no player)"
+    parts = []
+    for slot in pack_of(state, viewer):
+        if slot and slot.get("item"):
+            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops))
+    empty = 4 - len(parts)
+    if not parts:
+        return "  (empty, 4 slots)"
+    return "  " + ", ".join(parts) + (f"  · {empty} open slot(s)" if empty else "  · pack is full")
+
+
+def _chest_line(state: dict, crops: dict | None) -> str:
+    from inventory import chest_of, item_name
+    parts = []
+    for slot in chest_of(state):
+        if slot and slot.get("item"):
+            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops))
     if not parts:
         return "  (empty)"
     return "  " + ", ".join(parts)
@@ -412,8 +438,10 @@ def describe_state(
         lines += [""] + forecast
     lines += [
         "",
-        "Inventory:",
-        _inventory_line(state, crops),
+        "Pack:",
+        _pack_line(state, crops, viewer),
+        "Cabin chest:",
+        _chest_line(state, crops),
         "",
         "Mini map:",
         ascii_map(state),
@@ -473,7 +501,10 @@ def describe_state(
         "each step costs 5 energy, diagonals included. "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
-        "Eat a harvested crop from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
+        "Till needs a hoe in your pack; water needs a watering can. One hoe and two cans "
+        "start in the cabin chest. Each player has a 4-slot pack. Harvest goes into the pack; "
+        "carry it home to share or sell. `take`, `drop`, `buy`, `sell`, and `craft` only work at the cabin. "
+        "Eat a snack from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
         "The shop sells June-bearing strawberry seeds and everbearing strawberry seedlings "
         "in spring and summer. June-bearing plants establish in their first year and fruit "
         "every 7 days through spring into early summer after their first winter, then rest "

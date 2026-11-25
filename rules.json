@@ -10,7 +10,10 @@
     "end_turn": 0,
     "pluck": 5,
     "move": 5,
-    "eat": 0
+    "eat": 0,
+    "take": 0,
+    "drop": 0,
+    "craft": 0
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -61,5 +64,35 @@
   },
   "snacks_per_turn": 2,
   "pass_out_energy": 50,
-  "till_hold_days": 5
+  "till_hold_days": 5,
+  "pack_slots": 4,
+  "pack_stack": 8,
+  "recipes": {
+    "strawberry_jam": {
+      "name": "strawberry jam",
+      "berries": 3,
+      "eat_energy": 50,
+      "sell_price": 90,
+      "description": "Three berries simmered into a jar of jam. A hearty snack, or a little more gold than the fruit alone."
+    },
+    "kabocha_soup": {
+      "name": "kabocha soup",
+      "ingredients": {
+        "kabocha": 1
+      },
+      "eat_energy": 45,
+      "sell_price": 40,
+      "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw."
+    },
+    "root_stew": {
+      "name": "root stew",
+      "ingredients": {
+        "carrot": 1,
+        "turnip": 1
+      },
+      "eat_energy": 40,
+      "sell_price": 60,
+      "description": "A carrot and a turnip stewed together. Warm and filling."
+    }
+  }
 }

@@ -39,7 +39,7 @@ from engine import (
 )
 from hey_notify import maybe_notify_after_end_turn
 from packs import content_type_for, public_packs, safe_pack_file
-from sprites import is_safe_key, sprite_key, svg_for_key
+from sprites import is_safe_key, sprite_key, svg_for_key, svg_for_item
 
 def default_web_player() -> str:
     from config import default_web_player as _default
@@ -1132,6 +1132,18 @@ PAGE = r"""<!DOCTYPE html>
       return here;
     }
 
+    function slotsPhrase(slots) {
+      if (!slots || !slots.length) return "empty";
+      const bits = [];
+      let open = 0;
+      for (const slot of slots) {
+        if (!slot || !slot.item) { open += 1; continue; }
+        bits.push(itemName(slot.item, slot.count || 1));
+      }
+      if (!bits.length) return "empty" + (open ? (" (" + open + " slots)") : "");
+      return bits.join(", ");
+    }
+
     function invPhrase(inv) {
       const order = ["strawberry_seed","strawberry","everbearing_seedling","everbearing","kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
       const bits = [];
@@ -1285,7 +1297,8 @@ PAGE = r"""<!DOCTYPE html>
         "<span class='playing-as'>Playing as " + displayName(PLAYER) +
           (data.your_turn ? "" : " — waiting, it's " + displayName(current) + "'s turn") +
         "</span>";
-      $("inv").textContent = "Pack: " + invPhrase(s.inventory);
+      const packSlots = (data.pack && data.pack.length) ? data.pack : ((players[PLAYER] || {}).pack || []);
+      $("inv").textContent = "Pack: " + slotsPhrase(packSlots) + "  ·  Chest: " + slotsPhrase(s.chest || data.chest || []);
       const endBtn = $("end-turn");
       if (endBtn) {
         endBtn.disabled = !data.your_turn;
@@ -1713,7 +1726,7 @@ PAGE = r"""<!DOCTYPE html>
         buy.type = "button";
         buy.className = "btn primary";
         buy.textContent = "Buy";
-        buy.disabled = gold < info.seed_price || !data.your_turn;
+        buy.disabled = gold < info.seed_price || !data.your_turn || !data.in_cabin;
         buy.addEventListener("click", function () {
           actCmd("buy " + kind + " " + readQty());
         });
@@ -1727,7 +1740,7 @@ PAGE = r"""<!DOCTYPE html>
         sell.type = "button";
         sell.className = "btn";
         sell.textContent = "Sell 1";
-        sell.disabled = fruit < 1 || !data.your_turn;
+        sell.disabled = fruit < 1 || !data.your_turn || !data.in_cabin;
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
         row.appendChild(sell);
         if (eat) {
@@ -1749,6 +1762,12 @@ PAGE = r"""<!DOCTYPE html>
       const shop = $("shop");
       if (!shop) return;
       shop.innerHTML = "";
+      if (!data.in_cabin) {
+        const note = document.createElement("p");
+        note.className = "shop-empty";
+        note.textContent = "Walk to the cabin to buy, sell, craft, or use the chest. Harvested crops have to be carried home in your pack.";
+        shop.appendChild(note);
+      }
       const crops = data.crops || {};
       const inv = data.state.inventory || {};
       const season = (data.state && data.state.season) || "";
@@ -1782,6 +1801,68 @@ PAGE = r"""<!DOCTYPE html>
         shop.appendChild(title);
         sellables.forEach(function (pair) {
           appendShopCard(shop, data, pair[0], pair[1], {buy: false, sell: true});
+        });
+      }
+      if (data.in_cabin && data.your_turn) {
+        const chestTitle = document.createElement("div");
+        chestTitle.className = "shop-section-title";
+        chestTitle.textContent = "Cabin chest";
+        shop.appendChild(chestTitle);
+        const chest = data.chest || (data.state && data.state.chest) || [];
+        if (!chest.length) {
+          const empty = document.createElement("p");
+          empty.className = "shop-empty";
+          empty.textContent = "The chest is empty.";
+          shop.appendChild(empty);
+        }
+        chest.forEach(function (slot) {
+          if (!slot || !slot.item) return;
+          const row = document.createElement("div");
+          row.className = "shop-card";
+          const img = document.createElement("img");
+          img.src = "/item/" + slot.item + ".svg";
+          img.alt = slot.item;
+          row.appendChild(img);
+          const body = document.createElement("div");
+          body.innerHTML = "<b>" + escapeHtml(itemName(slot.item, slot.count || 1)) + "</b>";
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn";
+          btn.textContent = "Take";
+          btn.addEventListener("click", function () { actCmd("take " + slot.item); });
+          body.appendChild(btn);
+          row.appendChild(body);
+          shop.appendChild(row);
+        });
+        const pack = data.pack || [];
+        const held = pack.filter(function (s) { return s && s.item; });
+        if (held.length) {
+          const dropTitle = document.createElement("div");
+          dropTitle.className = "shop-section-title";
+          dropTitle.textContent = "Put in the chest";
+          shop.appendChild(dropTitle);
+          held.forEach(function (slot) {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "btn";
+            btn.textContent = "Drop " + itemName(slot.item, slot.count || 1);
+            btn.addEventListener("click", function () { actCmd("drop " + slot.item); });
+            shop.appendChild(btn);
+          });
+        }
+        const craftTitle = document.createElement("div");
+        craftTitle.className = "shop-section-title";
+        craftTitle.textContent = "Kitchen";
+        shop.appendChild(craftTitle);
+        [["strawberry_jam", "Strawberry jam (3 berries)"],
+         ["kabocha_soup", "Kabocha soup (1 kabocha)"],
+         ["root_stew", "Root stew (carrot + turnip)"]].forEach(function (pair) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn";
+          btn.textContent = "Craft " + pair[1];
+          btn.addEventListener("click", function () { actCmd("craft " + pair[0]); });
+          shop.appendChild(btn);
         });
       }
     }
@@ -2319,6 +2400,8 @@ def api_payload(
         "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
         "cabin": [CABIN_ROW, CABIN_COL],
+        "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
+        "chest": state.get("chest") or [],
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
     }
@@ -2452,6 +2535,13 @@ class FarmHandler(BaseHTTPRequestHandler):
                 self._send(400, "bad sprite key\n", "text/plain; charset=utf-8")
                 return
             self._send(200, svg_for_key(key), "image/svg+xml; charset=utf-8", cache=True)
+            return
+        if path.startswith("/item/") and path.endswith(".svg"):
+            key = path[len("/item/") : -len(".svg")]
+            if not is_safe_key(key):
+                self._send(400, "bad item key\n", "text/plain; charset=utf-8")
+                return
+            self._send(200, svg_for_item(key), "image/svg+xml; charset=utf-8", cache=True)
             return
         if path.startswith("/static/packs/"):
             found = safe_pack_file(path)

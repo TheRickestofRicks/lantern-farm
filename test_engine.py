@@ -100,13 +100,61 @@ def stand(state, player, row=1, col=1):
     return player_where(state, player)
 
 
-def give_seeds(state, kind, n=2):
+def give_item(state, item, n=1, player=None, where=None):
+    """Put items in a pack (if player) or the chest, and refresh the totals view."""
+    from inventory import add_to_pack, add_to_chest, sync_inventory_view, migrate_inventory
+    from engine import load_crops, load_rules
+    migrate_inventory(state, load_crops(), load_rules())
+    dest = where or ("pack" if player else "chest")
+    if dest == "pack" and player:
+        leftover = add_to_pack(state, player, item, n)
+        if leftover:
+            add_to_chest(state, item, leftover)
+    else:
+        add_to_chest(state, item, n)
+    sync_inventory_view(state)
+    from inventory import item_count
+    return item_count(state, item)
+
+
+def give_seeds(state, kind, n=2, player=None):
     """Grant planting stock so tests can still plant later-content crops."""
     from engine import crop_info, load_crops, stock_key
     info = crop_info(load_crops(), kind) or {}
     key = stock_key(kind, info)
-    state["inventory"][key] = int(state["inventory"].get(key, 0)) + n
-    return state["inventory"][key]
+    return give_item(state, key, n, player=player)
+
+
+def kit_out(state, player):
+    """Put a hoe and a watering can in the player's pack, taking them from the chest."""
+    from inventory import (
+        migrate_inventory,
+        ensure_starting_tools,
+        remove_from_chest,
+        add_to_pack,
+        pack_has,
+        TOOL_HOE,
+        TOOL_CAN,
+        sync_inventory_view,
+    )
+    from engine import load_crops, load_rules
+    rules = load_rules()
+    migrate_inventory(state, load_crops(), rules)
+    ensure_starting_tools(state, rules)
+    for item in (TOOL_HOE, TOOL_CAN):
+        if pack_has(state, player, item, 1, rules):
+            continue
+        remove_from_chest(state, item, 1, rules)
+        add_to_pack(state, player, item, 1, rules)
+    sync_inventory_view(state, rules)
+
+
+def hand_tool(state, item, src, dst):
+    """Move a tool from one pack to another (test handoff)."""
+    from inventory import remove_from_pack, add_to_pack, sync_inventory_view
+    if remove_from_pack(state, src, item, 1):
+        add_to_pack(state, dst, item, 1)
+    sync_inventory_view(state)
 
 
 class WeatherDeterminism(unittest.TestCase):
@@ -263,7 +311,8 @@ class GrowthRules(unittest.TestCase):
     def test_same_actions_produce_the_same_state(self):
         def play():
             state = fresh_state(self.crops)
-            give_seeds(state, "kabocha", 1)
+            kit_out(state, P1)
+            give_seeds(state, "kabocha", 1, player=P1)
             cmds = [
                 "move to 1 1",
                 "till 1 1",
@@ -329,8 +378,8 @@ class GrowthRules(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["gold"], gold - 30)
         self.assertEqual(self.state["inventory"]["strawberry_seed"], 4)
-        # Later crops stay sellable from the pack even when they are not in the shop.
-        self.state["inventory"]["carrot"] = 1
+        # Later crops stay sellable even when they are not in the shop.
+        give_item(self.state, "carrot", 1)
         ok, msg = sell(self.state, self.crops, "carrot", 1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["inventory"]["carrot"], 0)
@@ -350,7 +399,7 @@ class GrowthRules(unittest.TestCase):
         ok, _ = till(state, self.crops, 1, 1)
         self.assertTrue(ok)
         # Give a seed if needed
-        state["inventory"]["turnip_seed"] = 1
+        give_seeds(state, "turnip", 1)
         ok, msg = plant(state, self.crops, 1, 1, "turnip")
         self.assertTrue(ok, msg)
         water(state, self.crops, 1, 1)
@@ -426,8 +475,9 @@ class TurnsAndEnergy(unittest.TestCase):
         self.crops = load_crops()
         self.rules = load_rules()
         self.state = fresh_state(self.crops)
+        kit_out(self.state, P1)
         # Some tests still plant later-content kabocha from the pack.
-        give_seeds(self.state, "kabocha", 2)
+        give_seeds(self.state, "kabocha", 2, player=P1)
 
     def test_costs_come_from_rules_json(self):
         self.assertEqual(energy_cost("till", self.rules), 10)
@@ -493,6 +543,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
         gold = self.state["gold"]
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
         ok, msg = do_action(self.state, self.crops, "sell turnip 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
@@ -519,6 +570,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(self.state["players"][P2]["energy"], 100)
         self.assertEqual(self.state["day"], 1)
         # The other player spends some, then...
+        hand_tool(self.state, "hoe", P1, P2)
         stand(self.state, P2, 2, 2)
         ok, _ = do_action(self.state, self.crops, "till 2 2", player=P2)
         self.assertTrue(ok)
@@ -806,7 +858,7 @@ class SeasonalWeatherAndForecast(unittest.TestCase):
         state["weather"] = "sun"
         r, c = 1, 1
         till(state, self.crops, r, c)
-        state["inventory"]["carrot_seed"] = 1
+        give_seeds(state, "carrot", 1)
         ok, msg = plant(state, self.crops, r, c, "carrot")
         self.assertTrue(ok, msg)
         # Jumping the calendar must not keep a wet flag from day 1.
@@ -1022,6 +1074,10 @@ class ConfigAndMCP(unittest.TestCase):
         ok, msg = mcp_server.farm_do(p2, "till 1 1")
         self.assertFalse(ok)
         self.assertIn(display_name(p1), msg)
+        ok, msg = mcp_server.farm_do(p1, "take hoe")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p1, "take watering_can")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "move to 1 1")
         self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "till 1 1")
@@ -1038,6 +1094,8 @@ class ConfigAndMCP(unittest.TestCase):
         # It is now the other player's turn on the temp save, not the live one.
         ok, msg = mcp_server.farm_do(p1, "water 1 1")
         self.assertFalse(ok)
+        ok, msg = mcp_server.farm_do(p2, "take watering_can")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p2, "move to 1 1")
         self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p2, "water 1 1")
@@ -1195,7 +1253,9 @@ class WebCsrfAndTokens(unittest.TestCase):
         import web
         self.web = web
         save_state = __import__("engine", fromlist=["save_state"]).save_state
-        save_state(fresh_state(load_crops()), engine.STATE_PATH)
+        st = fresh_state(load_crops())
+        kit_out(st, P1)
+        save_state(st, engine.STATE_PATH)
         web._TEST_WEB_TOKENS = {P1: "test-token-one", P2: "test-token-two"}
         self.server = web.try_bind("127.0.0.1", 0)
         self.assertIsNotNone(self.server)
@@ -1338,6 +1398,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.crops = load_crops()
         self.rules = load_rules()
         self.state = fresh_state(self.crops)
+        kit_out(self.state, P1)
 
     def test_fresh_and_migrated_players_start_in_the_cabin(self):
         self.assertTrue(is_player_in_cabin(self.state, P1))
@@ -1349,7 +1410,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
             slot.pop("col", None)
             slot.pop("snacks_eaten", None)
         energy = orphan["players"][P1]["energy"]
-        self.assertTrue(migrate_state(orphan, self.rules))
+        migrate_state(orphan, self.rules)
         self.assertEqual(player_where(orphan, P1), (CABIN_ROW, CABIN_COL))
         self.assertEqual(orphan["players"][P1]["energy"], energy)
         self.assertEqual(orphan["players"][P1]["snacks_eaten"], 0)
@@ -1456,7 +1517,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertEqual(eat_energy_for(self.crops, "strawberry"), 30)
         self.assertEqual(eat_energy_for(self.crops, "everbearing"), 20)
         self.assertEqual(eat_energy_for(self.crops, "kabocha"), 25)
-        self.state["inventory"]["carrot"] = 3
+        give_item(self.state, "carrot", 3, player=P1)
         self.state["players"][P1]["energy"] = 20
         ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1)
         self.assertTrue(ok, msg)
@@ -1478,13 +1539,13 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertEqual(self.state["inventory"]["carrot"], 0)
 
     def test_eat_will_not_exceed_max_energy(self):
-        self.state["inventory"]["kabocha"] = 1
+        give_item(self.state, "kabocha", 1, player=P1)
         self.state["players"][P1]["energy"] = 90
         ok, msg = do_action(self.state, self.crops, "eat kabocha", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 100)
         self.assertEqual(self.state["inventory"]["kabocha"], 0)
-        self.state["inventory"]["kabocha"] = 1
+        give_item(self.state, "kabocha", 1, player=P1)
         ok, msg = do_action(self.state, self.crops, "eat kabocha", player=P1)
         self.assertFalse(ok)
         self.assertEqual(self.state["inventory"]["kabocha"], 1)
@@ -1522,18 +1583,19 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertNotIn("buy carrot 1", actions)
 
     def test_later_crops_remain_plantable_sellable_and_edible_from_the_pack(self):
-        give_seeds(self.state, "turnip", 1)
+        kit_out(self.state, P1)
+        give_seeds(self.state, "turnip", 1, player=P1)
         stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "till 1 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         ok, msg = do_action(self.state, self.crops, "plant 1 1 turnip", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.state["inventory"]["kabocha"] = 1
+        give_item(self.state, "kabocha", 1)  # chest; sell() without a player uses the chest
         gold = self.state["gold"]
         ok, msg = sell(self.state, self.crops, "kabocha", 1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["gold"], gold + 50)
-        self.state["inventory"]["carrot"] = 1
+        give_item(self.state, "carrot", 1, player=P1)
         self.state["players"][P1]["energy"] = 80
         ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -1806,20 +1868,21 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_everbearing_snack_and_migrate_keys(self):
         from engine import migrate_state
-        self.state["inventory"]["everbearing"] = 1
+        give_item(self.state, "everbearing", 1, player=P1)
         self.state["players"][P1]["energy"] = 50
         ok, msg = do_action(self.state, self.crops, "eat everbearing", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 70)
         self.assertEqual(self.state["inventory"]["everbearing"], 0)
         state = fresh_state(self.crops)
+        gold = state["gold"]
+        # Removing keys from the totals view must not drop real chest counts;
+        # migrate fills missing crop keys as 0.
         state["inventory"].pop("everbearing_seedling", None)
         state["inventory"].pop("everbearing", None)
-        gold = state["gold"]
-        changed = migrate_state(state, self.rules)
-        self.assertTrue(changed)
-        self.assertEqual(state["inventory"]["everbearing_seedling"], 0)
-        self.assertEqual(state["inventory"]["everbearing"], 0)
+        migrate_state(state, self.rules)
+        self.assertEqual(state["inventory"].get("everbearing_seedling", 0), 0)
+        self.assertEqual(state["inventory"].get("everbearing", 0), 0)
         self.assertEqual(state["gold"], gold)
 
     def test_strawberry_sprites_cover_each_stage(self):
@@ -1839,19 +1902,25 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_migrate_adds_strawberry_keys_without_touching_tiles_or_counts(self):
         from engine import migrate_state, ensure_inventory_keys
+        # A legacy-shaped save: no chest yet, shared count map, missing strawberry keys.
         state = fresh_state(self.crops)
-        state["inventory"].pop("strawberry_seed", None)
-        state["inventory"].pop("strawberry", None)
-        state["inventory"]["kabocha"] = 3
+        # Pour starting seeds out so this looks like an older farm mid-game.
+        from inventory import chest_of, remove_from_chest, add_to_chest, sync_inventory_view
+        for slot in list(chest_of(state)):
+            if slot and str(slot.get("item") or "").endswith("_seed") or (slot and str(slot.get("item") or "").endswith("_seedling")):
+                remove_from_chest(state, slot["item"], int(slot.get("count") or 0))
+        # Keep tools; add 3 kabocha as existing produce.
+        add_to_chest(state, "kabocha", 3)
+        sync_inventory_view(state)
         state["gold"] = 182
         till(state, self.crops, 2, 2)
         give_seeds(state, "kabocha", 1)
         plant(state, self.crops, 2, 2, "kabocha")
         crop_before = dict(state["tiles"][1][1]["crop"])
-        changed = migrate_state(state, self.rules)
-        self.assertTrue(changed)
-        self.assertEqual(state["inventory"]["strawberry_seed"], 0)
-        self.assertEqual(state["inventory"]["strawberry"], 0)
+        # After planting, chest still holds the 3 kabocha fruit (seed was used).
+        migrate_state(state, self.rules)
+        self.assertEqual(state["inventory"].get("strawberry_seed", 0), 0)
+        self.assertEqual(state["inventory"].get("strawberry", 0), 0)
         self.assertEqual(state["inventory"]["kabocha"], 3)
         self.assertEqual(state["gold"], 182)
         self.assertEqual(state["tiles"][1][1]["crop"], crop_before)
@@ -2304,7 +2373,7 @@ class TillHold(unittest.TestCase):
 
     def test_a_planted_bed_does_not_revert(self):
         till(self.state, self.crops, 1, 1)
-        self.state["inventory"]["carrot_seed"] = 1
+        give_seeds(self.state, "carrot", 1)
         ok, msg = plant(self.state, self.crops, 1, 1, "carrot")
         self.assertTrue(ok, msg)
         self.assertIsNone(till_hold_left(self.state["tiles"][0][0]))
@@ -2322,6 +2391,144 @@ class TillHold(unittest.TestCase):
         till(self.state, self.crops, 1, 1)
         line = describe_tile(self.state, self.crops, 1, 1)
         self.assertIn("5 days left until it reverts if left unwatered", line)
+
+class PackChestAndCraft(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+
+    def test_tools_start_in_the_chest_and_packs_start_empty(self):
+        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_HOE, TOOL_CAN
+        self.assertEqual(item_count(self.state, TOOL_HOE), 1)
+        self.assertEqual(item_count(self.state, TOOL_CAN), 2)
+        self.assertEqual(stack_count(chest_of(self.state), TOOL_HOE), 1)
+        self.assertEqual(stack_count(chest_of(self.state), TOOL_CAN), 2)
+        self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
+        for player in (P1, P2):
+            self.assertTrue(all(slot is None for slot in pack_of(self.state, player)))
+
+    def test_till_requires_a_hoe_in_the_pack(self):
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "till", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("hoe", msg.lower())
+        self.assertFalse(self.state["tiles"][0][0]["tilled"])
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "till", player=P1)
+        self.assertTrue(ok, msg)
+
+    def test_water_requires_a_can_in_the_pack(self):
+        till(self.state, self.crops, 1, 1)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "water", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("watering can", msg.lower())
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take watering_can", player=P1)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "water", player=P1)
+        self.assertTrue(ok, msg)
+
+    def test_harvest_goes_to_the_pack_and_refuses_when_full(self):
+        from inventory import add_to_pack, pack_of, pack_has
+        kit_out(self.state, P1)
+        # Fill the two remaining pack slots (hoe + can already occupy two).
+        add_to_pack(self.state, P1, "carrot", 1)
+        add_to_pack(self.state, P1, "kabocha", 1)
+        self.assertTrue(all(s is not None for s in pack_of(self.state, P1)))
+        till(self.state, self.crops, 1, 1)
+        give_seeds(self.state, "turnip", 1)
+        plant(self.state, self.crops, 1, 1, "turnip")
+        tile = self.state["tiles"][0][0]
+        tile["crop"]["stage"] = "mature"
+        tile["crop"]["days_grown"] = 9
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "harvest", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("pack is full", msg.lower())
+        self.assertEqual(tile["crop"]["stage"], "mature")
+        # Make room and harvest.
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "drop carrot", player=P1)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "harvest", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "turnip", 1))
+
+    def test_buy_sell_take_drop_and_craft_are_cabin_only(self):
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "buy strawberry 1", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "drop hoe", player=P1)
+        self.assertTrue(ok, msg)
+        give_item(self.state, "strawberry", 3, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft strawberry_jam", player=P1)
+        self.assertTrue(ok, msg)
+        from inventory import pack_has
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1))
+        give_item(self.state, "kabocha", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft kabocha_soup", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "kabocha_soup", 1))
+        # Soup restores energy from the pack, even away from the cabin.
+        stand(self.state, P1, 1, 1)
+        self.state["players"][P1]["energy"] = 20
+        ok, msg = do_action(self.state, self.crops, "eat kabocha_soup", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 65)
+
+    def test_packs_survive_a_day_turn(self):
+        from inventory import pack_has
+        kit_out(self.state, P1)
+        give_item(self.state, "strawberry", 2, player=P1)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P1)
+        self.assertTrue(ok)
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P2)
+        self.assertTrue(ok)
+        self.assertEqual(self.state["day"], 2)
+        self.assertTrue(pack_has(self.state, P1, "hoe", 1))
+        self.assertTrue(pack_has(self.state, P1, "strawberry", 2))
+
+    def test_legacy_inventory_moves_to_the_chest(self):
+        from inventory import item_count, chest_of, stack_count, pack_of, TOOL_HOE, TOOL_CAN
+        from engine import migrate_state, save_state, load_state
+        import tempfile
+        folder = Path(tempfile.mkdtemp(prefix="lantern-farm-legacy-"))
+        path = folder / "state.json"
+        # Minimal pre-pack save: shared inventory, no chest, no packs.
+        legacy = fresh_state(self.crops, rules=self.rules)
+        # Strip pack/chest and restore a shared inventory map.
+        legacy.pop("chest", None)
+        legacy.pop("_inventory_is_view", None)
+        for slot in (legacy.get("players") or {}).values():
+            slot.pop("pack", None)
+        legacy["inventory"] = {"kabocha": 1, "strawberry_seed": 3}
+        save_state(legacy, path)
+        loaded = load_state(self.crops, path)
+        self.assertEqual(item_count(loaded, "kabocha"), 1)
+        self.assertEqual(item_count(loaded, "strawberry_seed"), 3)
+        self.assertEqual(stack_count(chest_of(loaded), "kabocha"), 1)
+        self.assertEqual(item_count(loaded, TOOL_HOE), 1)
+        self.assertEqual(item_count(loaded, TOOL_CAN), 2)
+        for player in (P1, P2):
+            if player in (loaded.get("players") or {}):
+                self.assertTrue(all(s is None for s in pack_of(loaded, player)))
+
+
 
 
 if __name__ == "__main__":

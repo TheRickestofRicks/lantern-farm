@@ -635,3 +635,46 @@ def is_safe_key(key: str) -> bool:
     if not key or len(key) > 80:
         return False
     return all(ch.isalnum() or ch == "_" for ch in key)
+
+
+# Placeholder item icons (simple shapes; painted art can replace them later).
+_ITEM_LABELS = {
+    "hoe": "HOE",
+    "watering_can": "CAN",
+    "strawberry_jam": "JAM",
+    "kabocha_soup": "SOUP",
+    "root_stew": "STEW",
+    "fertilizer_general": "FERT",
+    "fertilizer_yield": "YLD",
+    "fertilizer_growth": "GRW",
+}
+
+_ITEM_COLORS = {
+    "hoe": ("#6b4a2b", "#c4a574"),
+    "watering_can": ("#3d5c6e", "#9ec3d4"),
+    "strawberry_jam": ("#8b1e2d", "#f2d4a3"),
+    "kabocha_soup": ("#8a5a12", "#f0d48a"),
+    "root_stew": ("#5a3a22", "#e2c48a"),
+    "fertilizer_general": ("#1f6b5a", "#7dcec0"),
+    "fertilizer_yield": ("#2a6b2a", "#9ad48a"),
+    "fertilizer_growth": ("#2a5a6b", "#8ad4ce"),
+}
+
+
+def svg_for_item(item: str) -> str:
+    """A small placeholder icon for a tool, food, or bag."""
+    item = (item or "").strip().lower()
+    label = _ITEM_LABELS.get(item)
+    fill, ink = _ITEM_COLORS.get(item, ("#5a4a38", "#f0e4c8"))
+    if not label:
+        if item.endswith("_seed") or item.endswith("_seedling"):
+            label, fill, ink = "SEED", "#3d6b38", "#d7e8b0"
+        else:
+            label, fill, ink = (item[:4].upper() or "ITEM"), fill, ink
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img">'
+        f'<rect width="80" height="80" rx="14" fill="{fill}"/>'
+        f'<circle cx="40" cy="32" r="14" fill="{ink}" opacity="0.85"/>'
+        f'<text x="40" y="64" text-anchor="middle" font-size="11" font-family="Georgia,serif" fill="{ink}">{label}</text>'
+        f"</svg>"
+    )
