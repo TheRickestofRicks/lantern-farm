@@ -208,10 +208,10 @@ def farm_rules() -> str:
             "You can only till, plant, water, harvest, or pluck the tile you are standing on.",
             "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 5 energy, diagonals included.",
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
-            "Eat a snack from the pack with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the item instead of selling it.",
-            "Each player has a 4-slot pack. Till needs a hoe in the pack; water needs a watering can. One hoe and two cans start in the shared cabin chest. Take, drop, buy, sell, and craft only at the cabin. Harvest goes into the pack.",
+            "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the item instead of selling it.",
+            "Each player has a 4-slot backpack. Till needs a hoe in the backpack; water needs a watering can. One hoe and two cans start in the shared cabin chest. Take, drop, buy, sell, and craft only at the cabin. Harvest goes into the backpack. At the cabin, `take <item> 1` / `take <item> all` and `drop <item> 1` / `drop <item> all` move a stack between the chest and the backpack.",
             "Craft at the cabin: strawberry_jam (3 berries), kabocha_soup (1 kabocha, +45 energy), root_stew (carrot and turnip).",
-            "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Later crops stay in the pack if you already grew them.",
+            "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Later crops stay in the backpack if you already grew them.",
             "The day advances when every player has ended their turn.",
         ],
     }

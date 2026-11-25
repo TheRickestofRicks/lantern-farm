@@ -511,6 +511,29 @@ PAGE = r"""<!DOCTYPE html>
     }
     .toast.bad { color: var(--bad); }
     .inv { margin: 0 0 0.8rem; color: var(--ink); }
+    .inv-panel .shop-section-title { margin-top: 0; }
+    .inv-panel .shop-card {
+      grid-template-columns: 56px 1fr;
+      padding: 0.55rem 0;
+    }
+    .inv-panel .shop-card img {
+      width: 56px;
+      height: 56px;
+      border-radius: 10px;
+    }
+    .inv-slots {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0 0 0.35rem;
+      line-height: 1.4;
+    }
+    .shop-card .item-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.85rem;
+      padding-top: 0.15rem;
+    }
     details {
       margin-top: 1rem;
       color: var(--muted);
@@ -1176,16 +1199,23 @@ PAGE = r"""<!DOCTYPE html>
           bits.push(itemName(key, n));
         }
       }
-      return bits.length ? bits.join(", ") : "empty pack";
+      return bits.length ? bits.join(", ") : "empty backpack";
     }
 
     function cropInfo(kind) {
       return (lastData && lastData.crops && lastData.crops[kind]) || {};
     }
     function itemName(key, n) {
+      n = (n == null) ? 1 : n;
+      const labels = lastData && lastData.item_names;
+      if (labels && labels[key]) {
+        const info = labels[key];
+        const noun = (n === 1) ? (info.name || spacedName(key)) : (info.name_plural || ((info.name || spacedName(key)) + "s"));
+        return n + " " + noun;
+      }
       const fert = lastData && lastData.fertilizers && lastData.fertilizers[key];
       if (fert) {
-        const noun = (n === 1) ? (fert.name || key) : ((fert.name_plural) || ((fert.name || key) + "s"));
+        const noun = (n === 1) ? (fert.name || spacedName(key)) : ((fert.name_plural) || ((fert.name || spacedName(key)) + "s"));
         return n + " " + noun;
       }
       let kind = key;
@@ -1193,13 +1223,16 @@ PAGE = r"""<!DOCTYPE html>
       if (key.endsWith("_seedling")) { kind = key.slice(0, -9); stock = "seedling"; }
       else if (key.endsWith("_seed")) { kind = key.slice(0, -5); stock = "seed"; }
       const info = cropInfo(kind);
-      const name = info.name || kind;
+      const name = info.name || spacedName(kind);
       if (stock) {
         const noun = stock + (n === 1 ? "" : "s");
         return n + " " + name + " " + noun;
       }
       const fruit = n === 1 ? name : (info.name_plural || (name + "s"));
       return n + " " + fruit;
+    }
+    function spacedName(key) {
+      return String(key || "").replace(/_/g, " ");
     }
 
     function tileName(r, c) {
@@ -1357,8 +1390,7 @@ PAGE = r"""<!DOCTYPE html>
         "<span class='playing-as'>Playing as " + displayName(PLAYER) +
           (data.your_turn ? "" : " — waiting, it's " + displayName(current) + "'s turn") +
         "</span>";
-      const packSlots = (data.pack && data.pack.length) ? data.pack : ((players[PLAYER] || {}).pack || []);
-      $("inv").textContent = "Pack: " + slotsPhrase(packSlots) + "  ·  Chest: " + slotsPhrase(s.chest || data.chest || []);
+      renderBackpack(data);
       const endBtn = $("end-turn");
       if (endBtn) {
         endBtn.disabled = !data.your_turn;
@@ -1823,6 +1855,84 @@ PAGE = r"""<!DOCTYPE html>
       shop.appendChild(card);
     }
 
+    function packSlotsOf(data) {
+      const players = (data && data.players) || (data && data.state && data.state.players) || {};
+      if (data && data.pack && data.pack.length) return data.pack;
+      return (players[PLAYER] || {}).pack || [];
+    }
+
+    function appendItemCard(parent, slot, opts) {
+      opts = opts || {};
+      if (!slot || !slot.item) return;
+      const count = slot.count || 1;
+      const row = document.createElement("div");
+      row.className = "shop-card";
+      const img = document.createElement("img");
+      img.src = "/item/" + slot.item + ".svg";
+      img.alt = itemName(slot.item, count);
+      row.appendChild(img);
+      const body = document.createElement("div");
+      const title = document.createElement("b");
+      title.textContent = itemName(slot.item, count);
+      body.appendChild(title);
+      const btns = document.createElement("div");
+      btns.className = "item-actions";
+      const can = !!opts.canAct;
+      function addBtn(label, cmd) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn";
+        btn.textContent = label;
+        btn.disabled = !can;
+        btn.addEventListener("click", function () { actCmd(cmd); });
+        btns.appendChild(btn);
+      }
+      if (opts.take) {
+        if (count <= 1) addBtn("Take", "take " + slot.item + " 1");
+        else {
+          addBtn("Take 1", "take " + slot.item + " 1");
+          addBtn("Take all", "take " + slot.item + " all");
+        }
+      }
+      if (opts.drop) {
+        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1");
+        else {
+          addBtn("Drop 1", "drop " + slot.item + " 1");
+          addBtn("Drop all", "drop " + slot.item + " all");
+        }
+      }
+      if (btns.childNodes.length) body.appendChild(btns);
+      row.appendChild(body);
+      parent.appendChild(row);
+    }
+
+    function renderBackpack(data) {
+      const el = $("inv");
+      if (!el) return;
+      el.innerHTML = "";
+      el.classList.add("inv-panel");
+      const title = document.createElement("div");
+      title.className = "shop-section-title";
+      title.textContent = "Backpack";
+      el.appendChild(title);
+      const pack = packSlotsOf(data);
+      const held = pack.filter(function (s) { return s && s.item; });
+      const open = pack.length ? pack.filter(function (s) { return !(s && s.item); }).length : Math.max(0, 4 - held.length);
+      const meta = document.createElement("p");
+      meta.className = "inv-slots";
+      if (!held.length) meta.textContent = "The backpack is empty.";
+      else if (open <= 0) meta.textContent = "Backpack is full.";
+      else meta.textContent = open + " open slot" + (open === 1 ? "" : "s") + ".";
+      if (!data.in_cabin && held.length) {
+        meta.textContent += " Walk to the cabin to drop items in the chest.";
+      }
+      el.appendChild(meta);
+      const canAct = !!(data.your_turn && data.in_cabin);
+      held.forEach(function (slot) {
+        appendItemCard(el, slot, {drop: true, canAct: canAct});
+      });
+    }
+
     function renderShop(data) {
       const shop = $("shop");
       if (!shop) return;
@@ -1830,7 +1940,7 @@ PAGE = r"""<!DOCTYPE html>
       if (!data.in_cabin) {
         const note = document.createElement("p");
         note.className = "shop-empty";
-        note.textContent = "Walk to the cabin to buy, sell, craft, or use the chest. Harvested crops have to be carried home in your pack.";
+        note.textContent = "Walk to the cabin to buy, sell, craft, or use the chest. Harvested crops have to be carried home in your backpack.";
         shop.appendChild(note);
       }
       const crops = data.crops || {};
@@ -1877,7 +1987,7 @@ PAGE = r"""<!DOCTYPE html>
       if (sellables.length) {
         const title = document.createElement("div");
         title.className = "shop-section-title";
-        title.textContent = "From the pack";
+        title.textContent = "From the backpack";
         shop.appendChild(title);
         sellables.forEach(function (pair) {
           appendShopCard(shop, data, pair[0], pair[1], {buy: false, sell: true});
@@ -1895,39 +2005,19 @@ PAGE = r"""<!DOCTYPE html>
           empty.textContent = "The chest is empty.";
           shop.appendChild(empty);
         }
+        const canAct = !!(data.your_turn && data.in_cabin);
         chest.forEach(function (slot) {
-          if (!slot || !slot.item) return;
-          const row = document.createElement("div");
-          row.className = "shop-card";
-          const img = document.createElement("img");
-          img.src = "/item/" + slot.item + ".svg";
-          img.alt = slot.item;
-          row.appendChild(img);
-          const body = document.createElement("div");
-          body.innerHTML = "<b>" + escapeHtml(itemName(slot.item, slot.count || 1)) + "</b>";
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "btn";
-          btn.textContent = "Take";
-          btn.addEventListener("click", function () { actCmd("take " + slot.item); });
-          body.appendChild(btn);
-          row.appendChild(body);
-          shop.appendChild(row);
+          appendItemCard(shop, slot, {take: true, canAct: canAct});
         });
-        const pack = data.pack || [];
+        const pack = packSlotsOf(data);
         const held = pack.filter(function (s) { return s && s.item; });
         if (held.length) {
           const dropTitle = document.createElement("div");
           dropTitle.className = "shop-section-title";
-          dropTitle.textContent = "Put in the chest";
+          dropTitle.textContent = "Backpack";
           shop.appendChild(dropTitle);
           held.forEach(function (slot) {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "btn";
-            btn.textContent = "Drop " + itemName(slot.item, slot.count || 1);
-            btn.addEventListener("click", function () { actCmd("drop " + slot.item); });
-            shop.appendChild(btn);
+            appendItemCard(shop, slot, {drop: true, canAct: canAct});
           });
         }
         const craftTitle = document.createElement("div");
@@ -2161,7 +2251,7 @@ PAGE = r"""<!DOCTYPE html>
       const pack = (lastData && lastData.pack) || (lastData && lastData.state && lastData.state.players && lastData.viewer && lastData.state.players[lastData.viewer] && lastData.state.players[lastData.viewer].pack) || [];
       const kinds = fertilizerKindsInPack(pack);
       if (!kinds.length) {
-        showToast("No fertilizer in the pack.", false);
+        showToast("No fertilizer in the backpack.", false);
         return;
       }
       if (kinds.length === 1) {
@@ -2178,7 +2268,7 @@ PAGE = r"""<!DOCTYPE html>
       if (!kinds.length) {
         plantPick = null;
         render(lastData);
-        showToast("No seeds in the pack.", false);
+        showToast("No seeds in the backpack.", false);
         return;
       }
       if (kinds.length === 1) {
@@ -2455,6 +2545,25 @@ def render_page(viewer: str | None = None) -> str:
     return html
 
 
+def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
+    """Human names (with spaces) for every known item, used by the web UI."""
+    from inventory import FERTILIZERS, TOOLS, recipes, item_name
+    from engine import stock_key
+    keys = list(TOOLS) + list(FERTILIZERS) + list(recipes(rules))
+    for kind, info in (crops.get("crops") or {}).items():
+        keys.append(kind)
+        keys.append(stock_key(kind, info))
+    out = {}
+    for key in keys:
+        one = item_name(key, 1, crops, rules)
+        many = item_name(key, 2, crops, rules)
+        # item_name prefixes the count ("1 strawberry jam").
+        name = one.split(" ", 1)[-1] if one else key.replace("_", " ")
+        name_plural = many.split(" ", 1)[-1] if many else name + "s"
+        out[key] = {"name": name, "name_plural": name_plural}
+    return out
+
+
 def _fertilizer_catalog(rules: dict | None = None) -> dict:
     from inventory import FERTILIZERS, FERTILIZER_SHOP_SEASONS, fertilizer_info
     out = {}
@@ -2541,6 +2650,7 @@ def api_payload(
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
         "chest": state.get("chest") or [],
         "fertilizers": _fertilizer_catalog(rules),
+        "item_names": _item_name_catalog(crops, rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
     }

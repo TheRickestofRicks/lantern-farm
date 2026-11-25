@@ -39,15 +39,15 @@ DEFAULT_RECIPES = {
         "name": "kabocha soup",
         "ingredients": {"kabocha": 1},
         "eat_energy": 45,
-        "sell_price": 40,
-        "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw.",
+        "sell_price": 70,
+        "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone.",
     },
     "root_stew": {
         "name": "root stew",
         "ingredients": {"carrot": 1, "turnip": 1},
         "eat_energy": 40,
-        "sell_price": 60,
-        "description": "A carrot and a turnip stewed together. Warm, filling, and a little more gold than selling them raw.",
+        "sell_price": 70,
+        "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw.",
     },
 }
 
@@ -653,16 +653,19 @@ def store_item(
     return left
 
 
-def parse_item_and_count(args: list[str]) -> tuple[str | None, int | None, str | None]:
-    """Parse `hoe`, `2 carrot`, or `watering can` / `strawberry 3`."""
+def parse_item_and_count(args: list[str]) -> tuple[str | None, int | str | None, str | None]:
+    """Parse `hoe`, `2 carrot`, `strawberry 3`, or `everbearing all`."""
     if not args:
         return None, None, "Say which item, like: take hoe"
     tokens = [str(a) for a in args]
     count = None
-    # Leading or trailing whole number is the count.
+    # Leading or trailing whole number is the count; trailing "all" means the whole stack.
     if tokens[0].isdigit():
         count = int(tokens[0])
         tokens = tokens[1:]
+    elif tokens[-1].lower() == "all" and len(tokens) > 1:
+        count = "all"
+        tokens = tokens[:-1]
     elif tokens[-1].isdigit() and len(tokens) > 1:
         count = int(tokens[-1])
         tokens = tokens[:-1]
@@ -670,7 +673,7 @@ def parse_item_and_count(args: list[str]) -> tuple[str | None, int | None, str |
         return None, None, "Say which item, like: take hoe"
     if count is None:
         count = 1
-    if count < 1:
+    if count != "all" and count < 1:
         return None, None, "Choose a count of at least 1."
     item = normalize_item(" ".join(tokens))
     if not item:

@@ -30,7 +30,7 @@ row 3 farmland  farmland  farmland
 
 Two players, configured in `config.local.json`. After a night in the cabin you
 wake with **100 energy**. Till, plant, and water cost **10** each; each step
-(including a diagonal) costs **5**. Harvest, buy, sell, and eat are free.
+(including a diagonal) costs **5**. Crafting at the kitchen costs **5**. Harvest, buy, sell, take, drop, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 
@@ -47,7 +47,7 @@ editing the engine.
 - When **both** have ended their turn for the day, the day advances
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.
-- Eat a harvested crop from the pack with `eat <crop>` (up to two snacks a
+- Eat a harvested crop from the backpack with `eat <crop>` (up to two snacks a
   turn). A strawberry restores 30, an everbearing strawberry 20. Later crops
   still snack if you have them (carrot 10, turnip 12, kabocha 25). Eating
   spends the crop instead of selling it.
@@ -110,7 +110,7 @@ Keyboard (the page ignores keys while you are typing in an input):
 - Arrow keys walk one step (5 energy)
 - `1`–`9` walk to that plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9; 3 is the cabin)
 - `T` till, `W` water, `H` harvest, `Q` pluck a weed, `F` fertilize the tile you are standing on
-- `P` plant on the current tile: if the pack has one seed type, plant it; otherwise a small
+- `P` plant on the current tile: if the backpack has one seed type, plant it; otherwise a small
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
 - `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
@@ -235,7 +235,7 @@ configured.
   Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
 - A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (strawberries 1–3, kabocha and roots 1–2, always at least one).
-- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your pack. Each player has a 4-slot pack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries), kabocha soup (1 kabocha, a hearty snack), and root stew (carrot and turnip). The shop also sells general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your pack; one application per plot per season.
+- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries), kabocha soup (1 kabocha, a hearty snack), and root stew (carrot and turnip). The shop also sells general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
@@ -251,7 +251,7 @@ strawberry seedlings in spring and summer. In autumn and winter the shop has
 nothing to sell yet — later seeds for those seasons arrive in a later update. Turnip, carrot, and
 kabocha stay in `crops.json` as later content (`"available": false`). Existing
 plants already in the ground keep growing and can be harvested; harvested later
-crops stay in the pack and can still be sold or eaten. Seeds you already own
+crops stay in the backpack and can still be sold or eaten. Seeds you already own
 can still be planted in season.
 
 The shop opens as a window (button or `S`, `Esc` to close). Each item shows
@@ -299,7 +299,7 @@ the cool of spring or autumn.
 
 A new farm starts on day 1 of spring with 80G and two strawberry seeds, both
 players in the cabin, on the starting player's turn at 100 energy.
-`eat <crop>` restores the Eat energy from a harvested crop in the pack (up to
+`eat <crop>` restores the Eat energy from a harvested crop in the backpack (up to
 two snacks a turn) and spends that crop instead of selling it.
 
 Stages: seed → sprouting → growing → mature (strawberries also have

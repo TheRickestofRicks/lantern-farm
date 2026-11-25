@@ -1728,7 +1728,7 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
         from inventory import pack_has, TOOL_HOE, sync_inventory_view, item_name
         if not pack_has(state, player, TOOL_HOE):
             return False, (
-                f"{display_name(player)} needs a hoe in their pack to till. "
+                f"{display_name(player)} needs a hoe in their backpack to till. "
                 "Take one from the cabin chest."
             )
     tile["tilled"] = True
@@ -1770,7 +1770,7 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
     have = int(state["inventory"].get(seed_key, 0) or 0)
     if player and not pack_has(state, player, seed_key):
         return False, (
-            f"No {name} {nouns} in the pack. Take some from the cabin chest, "
+            f"No {name} {nouns} in the backpack. Take some from the cabin chest, "
             "or buy them at the shop."
         )
     if not player and have < 1:
@@ -1811,7 +1811,7 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
         from inventory import pack_has, TOOL_CAN
         if not pack_has(state, player, TOOL_CAN):
             return False, (
-                f"{display_name(player)} needs a watering can in their pack. "
+                f"{display_name(player)} needs a watering can in their backpack. "
                 "Take one from the cabin chest."
             )
     tile["watered"] = True
@@ -2123,7 +2123,7 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     )
     if player and not pack_space_for(state, player, kind, yield_n):
         return False, (
-            f"{display_name(player)}'s pack is full. "
+            f"{display_name(player)}'s backpack is full. "
             "Drop something at the cabin chest, then come back to harvest."
         )
     leftover = store_item(state, kind, yield_n, player, prefer="pack" if player else "chest")
@@ -2221,16 +2221,16 @@ def fertilize(
                 if slot and is_fertilizer(slot.get("item")) and slot["item"] not in found:
                     found.append(slot["item"])
         if not found:
-            return False, "You need a bag of fertilizer in your pack."
+            return False, "You need a bag of fertilizer in your backpack."
         if len(found) > 1:
             names = ", ".join(FERTILIZERS[i]["name"] for i in found)
             return False, f"Which bag? You are carrying {names}. Try: fertilize general."
         item = found[0]
     if player and not pack_has(state, player, item, 1, rules):
-        return False, f"You need {item_name(item, 1, crops, rules)} in your pack."
+        return False, f"You need {item_name(item, 1, crops, rules)} in your backpack."
     taken = take_available(state, item, 1, player, pack_only=bool(player), rules=rules)
     if taken < 1:
-        return False, f"You need {item_name(item, 1, crops, rules)} in your pack."
+        return False, f"You need {item_name(item, 1, crops, rules)} in your backpack."
     info = fertilizer_info(item, rules) or FERTILIZERS[item]
     bag_kind = info["kind"]
     tile["fertilizer"] = {
@@ -2291,7 +2291,7 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         state["gold"] = gold - price
         prefer = "pack" if player and pack_space_for(state, player, fert_item, count) else "chest"
         store_item(state, fert_item, count, player, prefer=prefer if player else "chest")
-        where = "the pack" if prefer == "pack" and player else "the cabin chest"
+        where = "the backpack" if prefer == "pack" and player else "the cabin chest"
         msg = (
             f"{who(player, 'buy', 'buys')} {label} for {price}G "
             f"({where}). "
@@ -2333,7 +2333,7 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     if player and prefer == "pack" and not pack_space_for(state, player, seed_key, count):
         prefer = "chest"
     store_item(state, seed_key, count, player, prefer=prefer if player else "chest")
-    where = "the pack" if prefer == "pack" and player else "the cabin chest"
+    where = "the backpack" if prefer == "pack" and player else "the cabin chest"
     msg = (
         f"{who(player, 'buy', 'buys')} {count} {label} for {price}G "
         f"({where}). "
@@ -2866,7 +2866,7 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
         return False, f"Unknown snack '{kind}'. Try carrot, turnip, kabocha, or a crafted food."
     kind = item
     if not pack_has(state, player, kind, 1, rules):
-        return False, f"No {item_name(kind, 1, crops, rules)[2:]} in the pack."
+        return False, f"No {item_name(kind, 1, crops, rules)[2:]} in the backpack."
     slot = player_slot(state, player)
     eaten = int(slot.get("snacks_eaten") or 0)
     cap_snacks = snacks_per_turn(rules)
@@ -2879,7 +2879,7 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
     gained = min(restore, cap_e - energy)
     taken = take_available(state, kind, 1, player, pack_only=True, rules=rules)
     if taken < 1:
-        return False, f"No {kind} in the pack."
+        return False, f"No {kind} in the backpack."
     slot["energy"] = energy + gained
     slot["snacks_eaten"] = eaten + 1
     left = cap_snacks - (eaten + 1)
@@ -2892,6 +2892,34 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
 
 
 # --- dispatcher --------------------------------------------------------------
+
+
+def _is_all_count(n) -> bool:
+    return isinstance(n, str) and n.strip().lower() == "all"
+
+
+def _counts_by_item(slots) -> dict[str, int]:
+    from inventory import stack_count
+    held: dict[str, int] = {}
+    for slot in slots or []:
+        if not slot or not slot.get("item"):
+            continue
+        item = slot["item"]
+        if item not in held:
+            held[item] = stack_count(slots, item)
+    return held
+
+
+def take_drop_actions(verb: str, item: str, have: int, *, room_for=None) -> list[str]:
+    """Legal take/drop commands. Counts are always explicit so a label cannot lie."""
+    if have < 1:
+        return []
+    actions = []
+    if room_for is None or room_for(1):
+        actions.append(f"{verb} {item} 1")
+    if have > 1 and (room_for is None or room_for(have)):
+        actions.append(f"{verb} {item} all")
+    return actions
 
 
 def take_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
@@ -2921,9 +2949,13 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         if err:
             return False, err
         n = count
-    if not pack_space_for(state, player, item, n, rules):
-        return False, f"{display_name(player)}'s pack has no room for {item_name(item, n, crops, rules)}."
     have = stack_count(chest_of(state, rules), item)
+    if _is_all_count(n):
+        n = have
+    if n < 1 or have < 1:
+        return False, "The chest doesn't have that item."
+    if not pack_space_for(state, player, item, n, rules):
+        return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules)}."
     if have < n:
         return False, f"The chest only has {item_name(item, have, crops, rules)}."
     removed = remove_from_chest(state, item, n, rules)
@@ -2966,8 +2998,14 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         if err:
             return False, err
         n = count
+    from inventory import pack_of, stack_count
+    have = stack_count(pack_of(state, player, rules), item)
+    if _is_all_count(n):
+        n = have
+    if n < 1 or have < 1:
+        return False, f"No {item_name(item, 1, crops, rules)} in the backpack."
     if not pack_has(state, player, item, n, rules):
-        return False, f"No {item_name(item, n, crops, rules)} in the pack."
+        return False, f"No {item_name(item, n, crops, rules)} in the backpack."
     removed = remove_from_pack(state, player, item, n, rules)
     add_to_chest(state, item, removed, rules)
     sync_inventory_view(state, rules)
@@ -2999,7 +3037,7 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     recs = recipes(rules)
     rec = recs.get(key)
     if not rec:
-        names = ", ".join(recs)
+        names = ", ".join(r.get("name") or k.replace("_", " ") for k, r in recs.items())
         return False, f"Unknown recipe {recipe!r}. You can craft: {names}."
     # Check ingredients (pack + chest).
     needed = dict(rec.get("ingredients") or {})
@@ -3033,7 +3071,7 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     # store_item with prefer pack already overflowed to chest, leftover is 0 then.
     # Determine where it landed: if pack has it now...
     from inventory import pack_has
-    where = "the pack" if pack_has(state, player, key, 1, rules) else "the chest"
+    where = "the backpack" if pack_has(state, player, key, 1, rules) else "the chest"
     msg = f"{display_name(player)} cooks {item_name(key, 1, crops, rules)} at the cabin ({where})."
     log_append(state, msg, player)
     return True, msg
@@ -3156,13 +3194,20 @@ def legal_actions(
         for item, have in sellable.items():
             if have > 0:
                 actions.append(f"sell {item} 1")
-        for slot in chest_of(state, rules):
-            if slot and slot.get("item"):
-                actions.append(f"take {slot['item']}")
         if actor:
-            for slot in pack_of(state, actor, rules):
-                if slot and slot.get("item"):
-                    actions.append(f"drop {slot['item']}")
+            from inventory import pack_space_for
+            for item, have in _counts_by_item(chest_of(state, rules)).items():
+                actions.extend(take_drop_actions(
+                    "take",
+                    item,
+                    have,
+                    room_for=lambda n, item=item: pack_space_for(state, actor, item, n, rules),
+                ))
+            for item, have in _counts_by_item(pack_of(state, actor, rules)).items():
+                actions.extend(take_drop_actions("drop", item, have))
+        else:
+            for item, have in _counts_by_item(chest_of(state, rules)).items():
+                actions.extend(take_drop_actions("take", item, have))
         def _have(item):
             n = 0
             if actor:
@@ -3178,7 +3223,7 @@ def legal_actions(
                 if _have(item) < int(n):
                     ok_rec = False
                     break
-            if ok_rec:
+            if ok_rec and energy >= energy_cost("craft", rules):
                 actions.append(f"craft {rec_id}")
     if actor:
         for slot in pack_of(state, actor, rules):
@@ -3243,17 +3288,29 @@ def do_action(
         return eat(state, crops, args[0], actor, rules)
 
     if verb in {"take", "drop", "put", "stow", "craft"}:
-        if verb == "craft":
-            if not args:
-                return False, "Usage: craft <recipe>   example: craft strawberry_jam"
-            return craft(state, " ".join(args), actor, rules, crops)
         if verb in {"put", "stow"}:
             verb = "drop"
-        if not args:
-            return False, f"Usage: {verb} <item> [count]   example: {verb} hoe"
-        if verb == "take":
-            return take_item(state, args, None, actor, rules, crops)
-        return drop_item(state, args, None, actor, rules, crops)
+        cost = energy_cost(verb, rules)
+        energy = int(player_slot(state, actor)["energy"])
+        if cost > energy:
+            return (
+                False,
+                f"Not enough energy. {verb} costs {cost}; "
+                f"{display_name(actor)} has {energy} left.",
+            )
+        if verb == "craft":
+            if not args:
+                return False, "Usage: craft <recipe>   example: craft strawberry jam"
+            ok, msg = craft(state, " ".join(args), actor, rules, crops)
+        elif not args:
+            return False, f"Usage: {verb} <item> [count|all]   example: {verb} hoe 1"
+        elif verb == "take":
+            ok, msg = take_item(state, args, None, actor, rules, crops)
+        else:
+            ok, msg = drop_item(state, args, None, actor, rules, crops)
+        if ok and cost:
+            player_slot(state, actor)["energy"] = energy - cost
+        return ok, msg
 
     # Plot work is on the tile you're standing on. Coords are optional,
     # but if given they must be the current tile.

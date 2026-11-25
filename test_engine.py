@@ -46,6 +46,7 @@ from engine import (
     energy_cost,
     fresh_state,
     harvest,
+    legal_actions,
     load_crops,
     load_rules,
     migrate_state,
@@ -506,6 +507,7 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(energy_cost("pluck", self.rules), 5)
         self.assertEqual(energy_cost("move", self.rules), 5)
         self.assertEqual(energy_cost("eat", self.rules), 0)
+        self.assertEqual(energy_cost("craft", self.rules), 5)
         self.assertEqual(step_energy(self.rules), 5)
         self.assertEqual(snacks_per_turn(self.rules), 2)
         self.assertEqual(pass_out_energy(self.rules), 50)
@@ -2466,7 +2468,7 @@ class PackChestAndCraft(unittest.TestCase):
         stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "harvest", player=P1)
         self.assertFalse(ok)
-        self.assertIn("pack is full", msg.lower())
+        self.assertIn("backpack is full", msg.lower())
         self.assertEqual(tile["crop"]["stage"], "mature")
         # Make room and harvest.
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
@@ -2725,6 +2727,122 @@ def _crop_marker(svg: str) -> int:
         if i >= 0:
             return i
     return len(svg)
+
+
+
+class TakeDropStacks(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_legal_actions_offer_drop_one_and_drop_all_for_a_stack(self):
+        give_item(self.state, "everbearing", 3, player=P1)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("drop everbearing 1", actions)
+        self.assertIn("drop everbearing all", actions)
+        self.assertNotIn("drop everbearing", actions)
+        # A single item only offers the count-1 form.
+        give_item(self.state, "carrot", 1, player=P1)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("drop carrot 1", actions)
+        self.assertNotIn("drop carrot all", actions)
+        self.assertNotIn("drop carrot", actions)
+
+    def test_drop_all_moves_the_whole_stack_drop_one_moves_one(self):
+        from inventory import pack_has, stack_count, pack_of, chest_of
+        give_item(self.state, "everbearing", 3, player=P1)
+        ok, msg = do_action(self.state, self.crops, "drop everbearing 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "everbearing", 2, self.rules))
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "everbearing"), 1)
+        ok, msg = do_action(self.state, self.crops, "drop everbearing all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(pack_has(self.state, P1, "everbearing", 1, self.rules))
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "everbearing"), 3)
+        self.assertIn("2 everbearing", msg)
+
+    def test_bare_drop_still_moves_one_for_compatibility(self):
+        from inventory import pack_has, stack_count, chest_of
+        give_item(self.state, "everbearing", 3, player=P1)
+        ok, msg = do_action(self.state, self.crops, "drop everbearing", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "everbearing", 2, self.rules))
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "everbearing"), 1)
+
+    def test_take_one_and_take_all_from_the_chest(self):
+        from inventory import pack_has, stack_count, chest_of, pack_of
+        give_item(self.state, "everbearing", 3)  # chest
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("take everbearing 1", actions)
+        self.assertIn("take everbearing all", actions)
+        self.assertNotIn("take everbearing", actions)
+        ok, msg = do_action(self.state, self.crops, "take everbearing 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "everbearing", 1, self.rules))
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "everbearing"), 2)
+        ok, msg = do_action(self.state, self.crops, "take everbearing all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "everbearing", 3, self.rules))
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "everbearing"), 0)
+
+    def test_look_text_says_backpack(self):
+        from describe import describe_state
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("Backpack:", look)
+        self.assertNotIn("\nPack:", look)
+
+
+
+class CraftPricesAndNames(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_craft_costs_five_energy(self):
+        give_item(self.state, "strawberry", 3, player=P1)
+        energy = self.state["players"][P1]["energy"]
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], energy - 5)
+        from inventory import pack_has
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+
+    def test_crafted_foods_sell_for_more_than_their_ingredients(self):
+        from inventory import item_sell_price
+        from engine import crop_info
+        jam = item_sell_price("strawberry_jam", self.crops, self.rules)
+        soup = item_sell_price("kabocha_soup", self.crops, self.rules)
+        stew = item_sell_price("root_stew", self.crops, self.rules)
+        berry = int(crop_info(self.crops, "strawberry")["sell_price"])
+        kabocha = int(crop_info(self.crops, "kabocha")["sell_price"])
+        carrot = int(crop_info(self.crops, "carrot")["sell_price"])
+        turnip = int(crop_info(self.crops, "turnip")["sell_price"])
+        self.assertGreater(jam, 3 * berry)
+        self.assertGreater(soup, kabocha)
+        self.assertGreater(stew, carrot + turnip)
+
+    def test_human_names_use_spaces_and_commands_accept_them(self):
+        from inventory import item_name, normalize_item
+        self.assertEqual(normalize_item("watering can"), "watering_can")
+        self.assertEqual(normalize_item("strawberry jam"), "strawberry_jam")
+        self.assertEqual(normalize_item("strawberry seed"), "strawberry_seed")
+        self.assertNotIn("_", item_name("watering_can", 1, self.crops, self.rules))
+        self.assertNotIn("_", item_name("strawberry_jam", 2, self.crops, self.rules))
+        self.assertNotIn("_", item_name("strawberry_seed", 1, self.crops, self.rules))
+        self.assertIn("watering can", item_name("watering_can", 1, self.crops, self.rules))
+        give_item(self.state, "watering_can", 1)  # chest already has cans; extra is fine
+        # Take using the spaced name.
+        before = self.state["players"][P1]["energy"]
+        ok, msg = do_action(self.state, self.crops, "take watering can 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("watering can", msg)
+        self.assertNotIn("watering_can", msg)
+        ok, msg = do_action(self.state, self.crops, "drop watering can", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
 
 
 

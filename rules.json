@@ -13,7 +13,7 @@
     "eat": 0,
     "take": 0,
     "drop": 0,
-    "craft": 0,
+    "craft": 5,
     "fertilize": 5
   },
   "weeds": {
@@ -82,8 +82,8 @@
         "kabocha": 1
       },
       "eat_energy": 45,
-      "sell_price": 40,
-      "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw."
+      "sell_price": 70,
+      "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone."
     },
     "root_stew": {
       "name": "root stew",
@@ -92,8 +92,8 @@
         "turnip": 1
       },
       "eat_energy": 40,
-      "sell_price": 60,
-      "description": "A carrot and a turnip stewed together. Warm and filling."
+      "sell_price": 70,
+      "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw."
     }
   },
   "fertilizers": {

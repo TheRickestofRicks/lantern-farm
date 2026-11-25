@@ -110,7 +110,7 @@ def _pack_line(state: dict, crops: dict | None, viewer: str | None) -> str:
     empty = 4 - len(parts)
     if not parts:
         return "  (empty, 4 slots)"
-    return "  " + ", ".join(parts) + (f"  · {empty} open slot(s)" if empty else "  · pack is full")
+    return "  " + ", ".join(parts) + (f"  · {empty} open slot(s)" if empty else "  · backpack is full")
 
 
 def _chest_line(state: dict, crops: dict | None) -> str:
@@ -440,7 +440,7 @@ def describe_state(
         lines += [""] + forecast
     lines += [
         "",
-        "Pack:",
+        "Backpack:",
         _pack_line(state, crops, viewer),
         "Cabin chest:",
         _chest_line(state, crops),
@@ -502,17 +502,17 @@ def describe_state(
         "Weeds never kill crops on their own. "
         "The shop sells three bags of fertilizer in spring and summer "
         "(general 15G, yield-boost 25G, growth-boost 20G). Feed a plot with "
-        "`fertilize` (key F) while the bag is in your pack; one bag per plot per season. "
+        "`fertilize` (key F) while the bag is in your backpack; one bag per plot per season. "
         "The sprite key on each tile is the same one the image view uses. "
         "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
         "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "
         "each step costs 5 energy, diagonals included. "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
-        "Till needs a hoe in your pack; water needs a watering can. One hoe and two cans "
-        "start in the cabin chest. Each player has a 4-slot pack. Harvest goes into the pack; "
-        "carry it home to share or sell. `take`, `drop`, `buy`, `sell`, and `craft` only work at the cabin. "
-        "Eat a snack from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
+        "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "
+        "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
+        "carry it home to share or sell. `take` and `drop` at the cabin move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). `buy`, `sell`, and `craft` only work at the cabin too. "
+        "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). "
         "The shop sells June-bearing strawberry seeds and everbearing strawberry seedlings "
         "in spring and summer. June-bearing plants establish in their first year and fruit "
         "every 7 days through spring into early summer after their first winter, then rest "
@@ -520,8 +520,8 @@ def describe_state(
         "in 4 days and fruit every 7 days from spring through summer into early autumn, "
         "resting only in winter. Both live two years and may send runners into a neighbouring "
         "tilled empty plot. In autumn and winter the shop has nothing to sell for now. "
-        "Later crops stay in the pack if you already grew them. "
-        "Till, plant, and water cost energy (see rules.json); harvest, buy, sell, and eat are free. "
+        "Later crops stay in the backpack if you already grew them. "
+        "Till, plant, and water cost energy (see rules.json); crafting at the kitchen costs 5. Harvest, buy, sell, take, drop, and eat are free. "
         "The day advances when both players have ended their turn."
     )
     return "\n".join(lines) + "\n"
