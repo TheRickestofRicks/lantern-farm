@@ -63,3 +63,7 @@ Same style and layout as the matching non-snow ground tiles, no footprints, no p
 - **soil_wet_snow** — The same untilled layout, slushier and thinner snow, more dark damp earth showing.
 - **soil_tilled_snow** — Hand-tilled clods with snow settled in the hollows and darker earth on the raised clods.
 - **soil_watered_snow** — Tilled clods, wetter and darker, with thinner slushy snow in the hollows and a gentle damp sheen (not a glossy 3D render).
+
+## Weed placement (later pass)
+
+The first `weed` and `weedy` overlays were painted in the centre of the cell, so they disappeared under crop sprites. They were recomposed from those originals (no new painting): a slightly darker, more saturated cut-out of the same plants, placed in the lower-left corner for a single weed, and in the lower-left and lower-right corners for a weedy plot, leaving the crop centre clear. The earlier centred keyed PNGs are kept as `sources/originals/weed_centered.png` and `weedy_centered.png`.

@@ -575,35 +575,41 @@ def svg_unknown(key: str) -> str:
     )
 
 
-def _weed_overlay(weedy: bool = False) -> str:
-    """A gentle little weed in the lower-left, slightly fuller if the plot is weedy."""
-    # Sit to the side of the main crop so both can be seen.
-    x, y = 34, 118
-    leaf = P["weed"]
-    dark = P["weed2"]
-    tip = P["weed_tip"]
-    stem_h = 22 if weedy else 16
+def _weed_clump(x: int, y: int, fuller: bool = False, flip: bool = False) -> str:
+    """One small corner weed. Coordinates are the base of the stem."""
+    # A little darker/more saturated than the old mid-green, so clumps read on snow.
+    leaf, dark, tip, flower = "#3f6e32", "#2a4f24", "#5a8a30", "#c9d47a"
+    s = -1 if flip else 1
+    stem_h = 20 if fuller else 16
     parts = [
-        f'<path d="M{x},{y} C{x-1},{y-8} {x},{y-stem_h} {x},{y-stem_h}" '
+        f'<path d="M{x},{y} C{x-s},{y-8} {x},{y-stem_h} {x},{y-stem_h}" '
         f'stroke="{dark}" stroke-width="2" fill="none" stroke-linecap="round"/>',
-        f'<ellipse cx="{x-7}" cy="{y-10}" rx="7" ry="4" fill="{leaf}" '
-        f'transform="rotate(-28 {x-7} {y-10})"/>',
-        f'<ellipse cx="{x+7}" cy="{y-12}" rx="6.5" ry="3.6" fill="{tip}" '
-        f'transform="rotate(26 {x+7} {y-12})"/>',
+        f'<ellipse cx="{x-7*s}" cy="{y-10}" rx="7" ry="4" fill="{leaf}" '
+        f'transform="rotate({-28*s} {x-7*s} {y-10})"/>',
+        f'<ellipse cx="{x+7*s}" cy="{y-12}" rx="6.5" ry="3.6" fill="{tip}" '
+        f'transform="rotate({26*s} {x+7*s} {y-12})"/>',
     ]
-    if weedy:
+    if fuller:
         parts.append(
-            f'<path d="M{x+10},{y+2} C{x+12},{y-10} {x+9},{y-20} {x+9},{y-20}" '
+            f'<path d="M{x+10*s},{y+2} C{x+12*s},{y-10} {x+9*s},{y-20} {x+9*s},{y-20}" '
             f'stroke="{dark}" stroke-width="1.8" fill="none" stroke-linecap="round"/>'
         )
         parts.append(
-            f'<ellipse cx="{x+16}" cy="{y-14}" rx="6" ry="3.2" fill="{leaf}" '
-            f'transform="rotate(30 {x+16} {y-14})"/>'
+            f'<ellipse cx="{x+16*s}" cy="{y-14}" rx="6" ry="3.2" fill="{leaf}" '
+            f'transform="rotate({30*s} {x+16*s} {y-14})"/>'
         )
-        parts.append(f'<circle cx="{x+9}" cy="{y-21}" r="2.2" fill="{P["weed_flower"]}"/>')
+        parts.append(f'<circle cx="{x+9*s}" cy="{y-21}" r="2.2" fill="{flower}"/>')
     else:
-        parts.append(f'<circle cx="{x}" cy="{y-stem_h-1}" r="1.6" fill="{P["weed_flower"]}" opacity="0.85"/>')
+        parts.append(f'<circle cx="{x}" cy="{y-stem_h-1}" r="1.6" fill="{flower}" opacity="0.85"/>')
     return "\n".join(parts)
+
+
+def _weed_overlay(weedy: bool = False) -> str:
+    """Weeds sit in the lower corners so they stay visible beside a crop."""
+    left = _weed_clump(22, 140, fuller=weedy)
+    if not weedy:
+        return left
+    return left + "\n" + _weed_clump(138, 136, fuller=False, flip=True)
 
 
 def svg_for_key(key: str) -> str:

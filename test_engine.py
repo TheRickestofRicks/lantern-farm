@@ -2202,6 +2202,40 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertIn('"id": "storybook"', page)
         self.assertIn('"id": "classic"', page)
 
+    def test_storybook_weeds_sit_in_the_corners(self):
+        from packs import PACKS_ROOT
+
+        def alpha_map(name):
+            path = PACKS_ROOT / "storybook" / "overlays" / name
+            width, height, color, raw = self._png_info(path)
+            self.assertEqual((width, height, color), (512, 512, 6), name)
+            rows = self._unfilter_rows(width, height, 4, raw)
+            return rows, width, height
+
+        def coverage(rows, width, box):
+            x0, y0, x1, y1 = box
+            n = visible = 0
+            for y in range(y0, y1):
+                row = rows[y]
+                for x in range(x0, x1):
+                    n += 1
+                    if row[x * 4 + 3] > 16:
+                        visible += 1
+            return visible / n if n else 0
+
+        for name, expect_right in (("weed.png", False), ("weedy.png", True)):
+            rows, width, height = alpha_map(name)
+            mid = coverage(rows, width, (176, 176, 336, 336))
+            bl = coverage(rows, width, (0, 320, 160, 512))
+            br = coverage(rows, width, (352, 320, 512, 512))
+            self.assertLess(mid, 0.005, f"{name} should leave the crop centre clear")
+            self.assertGreater(bl, 0.02, f"{name} should be visible in the lower-left")
+            if expect_right:
+                self.assertGreater(br, 0.01, f"{name} should also appear in the lower-right")
+            else:
+                self.assertLess(br, 0.005, f"{name} is a single clump in the lower-left")
+
+
 
 if __name__ == "__main__":
     unittest.main()
