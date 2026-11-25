@@ -216,11 +216,20 @@ def ascii_map(state: dict) -> str:
     return "\n".join(lines)
 
 
+def runner_vine_phrase(crop: dict | None) -> str:
+    """Look-text for a runner that is still joined by its vine."""
+    from sprites import parse_runner_from, runner_vine_visible
+    parent = parse_runner_from(crop)
+    if not parent or not runner_vine_visible(crop):
+        return ""
+    return f" A runner from {position_name(*parent)}, still joined by its vine."
+
+
 def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     tile = get_tile(state, row, col)
     here = position_name(row, col)
     weather = str(state.get("weather") or "sun")
-    key = sprite_key(tile, weather)
+    key = sprite_key(tile, weather, row, col)
     who_here = players_at(state, row, col)
     who_bit = ""
     if who_here:
@@ -273,7 +282,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         return (
             f"  {here} — {tilled} soil, {moist}. "
             f"{crop_name(kind, info)}, establishing ({label_est}); it will fruit after its first winter, {moist}."
-            f" Planted on day {crop.get('planted_day', '?')}.{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+            f" Planted on day {crop.get('planted_day', '?')}.{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = crop_cycle_days(info, crop) if info else "?"
     grown = crop.get("days_grown", 0)
@@ -294,7 +303,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{kind}, day {grown} of {needed}, {label}, {moist}"
-        f"{dry_bit}. Planted on day {planted}.{ready}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+        f"{dry_bit}. Planted on day {planted}.{ready}{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
     )
 
 

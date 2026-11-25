@@ -278,7 +278,9 @@ wither), and live two years (8 seasons) before they die. Each day while they
 are active they have a 10% deterministic chance to send a runner into an
 orthogonally adjacent tilled, empty plot, at most once per plant per season:
 about a 3-in-4 chance of a new plant each growing season if there is space,
-without filling the farm in a week. A berry sells for 25G and snacks for +30
+without filling the farm in a week. A new runner still looks like a seed or
+sprout, with a vine reaching from the edge that faces its parent, until it
+grows into the next stage. A berry sells for 25G and snacks for +30
 energy (more than a kabocha). Two pickings in the fruiting year are not a
 fortune; the joy is the patch, the snack, and the runners.
 

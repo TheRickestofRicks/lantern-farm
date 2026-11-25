@@ -31,7 +31,15 @@
     "weedy": "overlays/weedy.png",
     "fertilizer_general": "overlays/fertilizer_general.png",
     "fertilizer_yield": "overlays/fertilizer_yield.png",
-    "fertilizer_growth": "overlays/fertilizer_growth.png"
+    "fertilizer_growth": "overlays/fertilizer_growth.png",
+    "vine_west": "overlays/vine_west.png",
+    "vine_east": "overlays/vine_east.png",
+    "vine_north": "overlays/vine_north.png",
+    "vine_south": "overlays/vine_south.png",
+    "vine_northwest": "overlays/vine_northwest.png",
+    "vine_northeast": "overlays/vine_northeast.png",
+    "vine_southwest": "overlays/vine_southwest.png",
+    "vine_southeast": "overlays/vine_southeast.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

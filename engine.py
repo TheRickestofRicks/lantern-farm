@@ -1243,6 +1243,7 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
         "last_note": None,
         "year": 1,
         "journal": empty_journal(1),
+        "migrated_runner_from": True,
     }
     apply_new_day_turns(state, rules)
     from inventory import migrate_inventory
@@ -1554,10 +1555,44 @@ def migrate_calendar(state: dict, crops: dict | None = None) -> bool:
 
 
 
+def migrate_runner_from(state: dict) -> bool:
+    """One-time: record that the runner at row 1 col 2 came from row 1 col 1.
+
+    Later runners write runner_from when they take root. This only backfills
+    the plant that was already on the farm before that field existed.
+    """
+    if state.get("migrated_runner_from"):
+        return False
+    changed = False
+    try:
+        child_tile = get_tile(state, 1, 2)
+        parent_tile = get_tile(state, 1, 1)
+    except (IndexError, TypeError, KeyError):
+        state["migrated_runner_from"] = True
+        return True
+    child = (child_tile or {}).get("crop") if isinstance(child_tile, dict) else None
+    parent = (parent_tile or {}).get("crop") if isinstance(parent_tile, dict) else None
+    from sprites import parse_runner_from
+    if (
+        isinstance(child, dict)
+        and isinstance(parent, dict)
+        and not parse_runner_from(child)
+        and child.get("kind")
+        and child.get("kind") == parent.get("kind")
+        and parent.get("runner_season") is not None
+    ):
+        child["runner_from"] = [1, 1]
+        changed = True
+    state["migrated_runner_from"] = True
+    return True
+
+
 def migrate_state(state: dict, rules: dict | None = None) -> bool:
     """Add turn/energy/weed fields to older saves. Returns True if the state changed."""
     rules = rules or load_rules()
     changed = migrate_tile_fields(state)
+    if migrate_runner_from(state):
+        changed = True
     if ensure_inventory_keys(state):
         changed = True
     if migrate_crop_vitals(state):
@@ -2583,6 +2618,7 @@ def _apply_runners(state: dict, crops: dict) -> list[str]:
             "dry_days": 0,
             "growth": 0,
             "health": 100,
+            "runner_from": [r, c],
         }
         crop["runner_season"] = season_i
         notes.append(

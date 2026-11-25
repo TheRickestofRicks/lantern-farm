@@ -955,7 +955,16 @@ PAGE = r"""<!DOCTYPE html>
         }
         return {kind: "cabin", weather: weather};
       }
-      let weedy = false, weed = false, snow = false, fertilizer = null;
+      let weedy = false, weed = false, snow = false, fertilizer = null, vine = null;
+      const vineDirs = ["northwest","northeast","southwest","southeast","north","south","east","west"];
+      for (let i = 0; i < vineDirs.length; i++) {
+        const suffix = "_vine_" + vineDirs[i];
+        if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+          vine = vineDirs[i];
+          key = key.slice(0, -suffix.length);
+          break;
+        }
+      }
       const fertKinds = ["general", "yield", "growth"];
       for (let i = 0; i < fertKinds.length; i++) {
         const suffix = "_fert_" + fertKinds[i];
@@ -983,7 +992,7 @@ PAGE = r"""<!DOCTYPE html>
         soil_wet: {tilled: false, watered: true}
       };
       if (soilKeys[key]) {
-        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer};
+        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine};
         out.tilled = soilKeys[key].tilled;
         out.watered = soilKeys[key].watered;
         return out;
@@ -999,11 +1008,12 @@ PAGE = r"""<!DOCTYPE html>
           weed: weed,
           weedy: weedy,
           snow: snow,
-          fertilizer: fertilizer
+          fertilizer: fertilizer,
+          vine: vine
         };
       }
-      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer};
-      return {kind: "unknown", raw: key, snow: snow, fertilizer: fertilizer};
+      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine};
+      return {kind: "unknown", raw: key, snow: snow, fertilizer: fertilizer, vine: vine};
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
@@ -1047,6 +1057,10 @@ PAGE = r"""<!DOCTYPE html>
         const crop = pack.overlays && pack.overlays[parsed.kind + "_" + parsed.stage];
         if (!crop) return null;
         layers.push("/static/packs/" + pack.id + "/" + crop);
+      }
+      if (parsed.vine) {
+        const vfile = pack.overlays && pack.overlays["vine_" + parsed.vine];
+        if (vfile) layers.push("/static/packs/" + pack.id + "/" + vfile);
       }
       if (parsed.weedy || parsed.weed) {
         const wkey = parsed.weedy ? "weedy" : "weed";
@@ -2666,7 +2680,7 @@ def api_payload(
     from engine import recent_notes, year_for_day
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
-    sprites = [[sprite_key(tile, sky) for tile in row] for row in state["tiles"]]
+    sprites = [[sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)] for r, row in enumerate(state["tiles"])]
     return {
         "ok": ok,
         "message": message,

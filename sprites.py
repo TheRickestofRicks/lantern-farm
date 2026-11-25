@@ -5,7 +5,53 @@ from __future__ import annotations
 SIZE = 160
 
 
-def sprite_key(tile: dict, weather: str | None = None) -> str:
+VINE_STAGES = frozenset({"seed", "sprouting", "seedling"})
+# Longest names first so parse_sprite_key can strip suffixes unambiguously.
+VINE_DIRECTIONS = (
+    "northwest",
+    "northeast",
+    "southwest",
+    "southeast",
+    "north",
+    "south",
+    "east",
+    "west",
+)
+
+
+def parse_runner_from(crop: dict | None) -> tuple[int, int] | None:
+    """Return the parent plot (1-indexed row, col) a runner came from, if recorded."""
+    raw = (crop or {}).get("runner_from")
+    if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+        try:
+            return int(raw[0]), int(raw[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def runner_vine_visible(crop: dict | None) -> bool:
+    """The vine shows only while the new plant is still establishing."""
+    if not crop or not parse_runner_from(crop):
+        return False
+    return str(crop.get("stage") or "") in VINE_STAGES
+
+
+def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | None = None) -> str | None:
+    """Direction of the parent from this plot, or None if the vine is gone."""
+    if not runner_vine_visible(crop) or row is None or col is None:
+        return None
+    pr, pc = parse_runner_from(crop)
+    dr, dc = pr - int(row), pc - int(col)
+    if dr == 0 and dc == 0:
+        return None
+    ns = "north" if dr < 0 else ("south" if dr > 0 else "")
+    ew = "west" if dc < 0 else ("east" if dc > 0 else "")
+    name = ns + ew
+    return name if name in set(VINE_DIRECTIONS) else None
+
+
+def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     if not tile or tile.get("type") == "cabin":
         w = (weather or "").strip().lower()
@@ -35,6 +81,9 @@ def sprite_key(tile: dict, weather: str | None = None) -> str:
     fert = tile.get("fertilizer") if isinstance(tile.get("fertilizer"), dict) else None
     if fert and fert.get("kind") in {"general", "yield", "growth"}:
         key += f"_fert_{fert['kind']}"
+    vine = runner_vine_direction(crop, row, col)
+    if vine:
+        key += f"_vine_{vine}"
     return key
 
 
@@ -52,6 +101,13 @@ def parse_sprite_key(key: str) -> dict:
     weed = False
     snow = False
     fertilizer = None
+    vine = None
+    for direction in VINE_DIRECTIONS:
+        suffix = "_vine_" + direction
+        if key.endswith(suffix):
+            vine = direction
+            key = key[: -len(suffix)]
+            break
     for kind in ("general", "yield", "growth"):
         suffix = "_fert_" + kind
         if key.endswith(suffix):
@@ -74,7 +130,7 @@ def parse_sprite_key(key: str) -> dict:
         "soil_wet": {"tilled": False, "watered": True},
     }
     if key in soil_keys:
-        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, **soil_keys[key]}
+        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine, **soil_keys[key]}
     parts = key.split("_")
     if len(parts) >= 3 and parts[-1] in {"wet", "dry"}:
         moist = parts[-1]
@@ -89,10 +145,11 @@ def parse_sprite_key(key: str) -> dict:
             "weedy": weedy,
             "snow": snow,
             "fertilizer": fertilizer,
+            "vine": vine,
         }
     if weed or weedy:
-        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer}
-    return {"kind": "unknown", "raw": key, "snow": snow, "fertilizer": fertilizer}
+        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine}
+    return {"kind": "unknown", "raw": key, "snow": snow, "fertilizer": fertilizer, "vine": vine}
 
 
 # Warm, slightly dusk palette — lantern light on earth.
@@ -647,6 +704,64 @@ def _weed_overlay(weedy: bool = False) -> str:
     return left + "\n" + _weed_clump(138, 136, fuller=False, flip=True)
 
 
+def _vine_overlay(direction: str) -> str:
+    """A strawberry runner vine entering from the edge that faces the parent."""
+    # Plant sits near (80, 100). Stop short of that centre.
+    stems = {
+        "west": [(0, 110), (24, 108), (44, 102), (58, 98)],
+        "east": [(160, 110), (136, 108), (116, 102), (102, 98)],
+        "north": [(80, 0), (78, 24), (79, 48), (80, 64)],
+        "south": [(80, 160), (81, 140), (80, 124), (80, 112)],
+        "northwest": [(0, 0), (24, 24), (44, 44), (58, 58)],
+        "northeast": [(160, 0), (136, 24), (116, 44), (102, 58)],
+        "southwest": [(0, 160), (24, 136), (44, 116), (58, 104)],
+        "southeast": [(160, 160), (136, 136), (116, 116), (102, 104)],
+    }
+    pts = stems.get(direction) or stems["west"]
+    path = " ".join(
+        ("M" if i == 0 else "L") + f"{x:.0f},{y:.0f}" for i, (x, y) in enumerate(pts)
+    )
+    # Leaves sit along the stem, slightly off to the side, strawberry-sprout colours.
+    leaf = P["leaf3"]
+    mid = P["leaf"]
+    leaves = []
+    # Pick 2–3 leaf positions from the polyline.
+    picks = [1, 2] if len(pts) >= 3 else [0]
+    angles = {
+        "west": (-28, 26),
+        "east": (28, -26),
+        "north": (-40, 40),
+        "south": (40, -40),
+        "northwest": (-20, 30),
+        "northeast": (20, -30),
+        "southwest": (20, -30),
+        "southeast": (-20, 30),
+    }.get(direction, (-28, 26))
+    for i, idx in enumerate(picks):
+        x, y = pts[idx]
+        rot = angles[i % len(angles)]
+        rx, ry = (8, 4.4) if i == 0 else (7, 3.8)
+        fill = leaf if i == 0 else mid
+        leaves.append(
+            f'<ellipse cx="{x + (6 if i == 0 else -5)}" cy="{y - 6}" '
+            f'rx="{rx}" ry="{ry}" fill="{fill}" '
+            f'transform="rotate({rot} {x} {y})"/>'
+        )
+    # A smaller tip leaflet near the end of the vine.
+    tx, ty = pts[-1]
+    leaves.append(
+        f'<ellipse cx="{tx}" cy="{ty - 5}" rx="5.5" ry="3.2" fill="{leaf}" '
+        f'opacity="0.95"/>'
+    )
+    stem = (
+        f'<path d="{path}" fill="none" stroke="#4a5a20" stroke-width="2.4" '
+        f'stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<path d="{path}" fill="none" stroke="#8a8a38" stroke-width="1.1" '
+        f'stroke-linecap="round" opacity="0.7"/>'
+    )
+    return f'<g id="vine-{direction}">\n  {stem}\n  {"".join(leaves)}\n</g>'
+
+
 def svg_for_key(key: str) -> str:
     info = parse_sprite_key(key)
     kind = info.get("kind")
@@ -663,6 +778,8 @@ def svg_for_key(key: str) -> str:
         layers.append(_fertilizer_overlay(info.get("fertilizer")))
     if kind and kind != "soil" and info.get("stage"):
         layers.append(_crop_layer(kind, info["stage"]))
+    if info.get("vine"):
+        layers.append(_vine_overlay(info["vine"]))
     if info.get("weedy") or info.get("weed"):
         layers.append(_weed_overlay(bool(info.get("weedy"))))
     return _svg("\n".join(layers))

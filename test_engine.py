@@ -1723,6 +1723,9 @@ class SpringCropsAndShop(unittest.TestCase):
             and (self.state["tiles"][rr - 1][cc - 1].get("crop") or {}).get("kind") == "strawberry"
         ]
         self.assertEqual(len(children), 1)
+        rr, cc = children[0]
+        child = self.state["tiles"][rr - 1][cc - 1]["crop"]
+        self.assertEqual(child.get("runner_from"), [r, c])
         notes2 = _apply_runners(self.state, self.crops)
         self.assertFalse(any("runner" in n.lower() for n in notes2))
         children2 = [
@@ -2218,6 +2221,14 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertIn("weedy", weedy[1]["file"])
         stacked = layers_for_key("strawberry_sprouting_dry_weed", man)
         self.assertEqual([layer["role"] for layer in stacked], ["ground", "crop", "weed"])
+        fert = layers_for_key("soil_tilled_fert_general", man)
+        self.assertEqual([layer["role"] for layer in fert], ["ground", "fertilizer"])
+        self.assertIn("fertilizer_general", fert[1]["file"])
+        vine = layers_for_key("strawberry_sprouting_wet_vine_west", man)
+        self.assertEqual([layer["role"] for layer in vine], ["ground", "crop", "vine"])
+        self.assertIn("vine_west", vine[2]["file"])
+        both = layers_for_key("strawberry_sprouting_wet_weed_fert_general_vine_west", man)
+        self.assertEqual([layer["role"] for layer in both], ["ground", "fertilizer", "crop", "vine", "weed"])
         cabin = layers_for_key("cabin", man)
         self.assertEqual([layer["role"] for layer in cabin], ["cabin"])
         self.assertTrue(cabin[0]["file"].endswith("cabin.png"))
@@ -2915,6 +2926,110 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         self.assertIn("sell strawberry_jam 1", actions)
         self.assertIn("eat kabocha_soup chest", actions)
         self.assertIn("sell kabocha_soup 1", actions)
+
+
+
+
+class RunnerVines(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+
+    def _runner_tile(self, stage="sprouting", parent=(1, 1), row=1, col=2):
+        return {
+            "type": "soil",
+            "tilled": True,
+            "watered": True,
+            "crop": {
+                "kind": "strawberry",
+                "stage": stage,
+                "runner_from": list(parent),
+                "planted_day": 26,
+                "days_grown": 0,
+                "growth": 0,
+                "health": 100,
+            },
+        }
+
+    def test_establishing_runner_uses_a_direction_aware_vine(self):
+        from sprites import sprite_key, parse_sprite_key, svg_for_key, runner_vine_direction
+        from describe import describe_tile
+        tile = self._runner_tile("sprouting")
+        self.state["tiles"][0][1] = tile
+        key = sprite_key(tile, "sun", 1, 2)
+        self.assertTrue(key.endswith("_vine_west"), key)
+        parsed = parse_sprite_key(key)
+        self.assertEqual(parsed.get("vine"), "west")
+        self.assertEqual(parsed.get("stage"), "sprouting")
+        self.assertEqual(runner_vine_direction(tile["crop"], 1, 2), "west")
+        svg = svg_for_key(key)
+        self.assertIn('id="vine-west"', svg)
+        # Crop marks (sprout ellipses) are painted before the vine group.
+        vine_at = svg.find('id="vine-west"')
+        self.assertGreater(vine_at, 0)
+        self.assertLess(svg.find("<ellipse"), vine_at)
+        # Look text names the parent and the vine.
+        line = describe_tile(self.state, self.crops, 1, 2)
+        self.assertIn("a runner from", line.lower())
+        self.assertIn("still joined by its vine", line.lower())
+        self.assertIn("row 1 col 1", line)
+        self.assertIn("_vine_west", line)
+
+    def test_vine_disappears_once_the_runner_grows_past_sprouting(self):
+        from sprites import sprite_key, svg_for_key
+        from describe import describe_tile
+        tile = self._runner_tile("growing")
+        self.state["tiles"][0][1] = tile
+        key = sprite_key(tile, "sun", 1, 2)
+        self.assertNotIn("_vine_", key)
+        self.assertEqual(tile["crop"].get("runner_from"), [1, 1])
+        svg = svg_for_key(key)
+        self.assertNotIn('id="vine-', svg)
+        line = describe_tile(self.state, self.crops, 1, 2)
+        self.assertNotIn("still joined by its vine", line.lower())
+
+    def test_diagonal_and_cardinal_parent_directions(self):
+        from sprites import runner_vine_direction
+        crop = {"kind": "strawberry", "stage": "seed", "runner_from": [2, 2]}
+        self.assertEqual(runner_vine_direction(crop, 2, 3), "west")
+        self.assertEqual(runner_vine_direction(crop, 2, 1), "east")
+        self.assertEqual(runner_vine_direction(crop, 3, 2), "north")
+        self.assertEqual(runner_vine_direction(crop, 1, 2), "south")
+        self.assertEqual(runner_vine_direction(crop, 3, 3), "northwest")
+        self.assertEqual(runner_vine_direction(crop, 1, 1), "southeast")
+
+    def test_everbearing_seedling_runners_also_show_a_vine(self):
+        from sprites import sprite_key
+        tile = {
+            "type": "soil",
+            "tilled": True,
+            "watered": False,
+            "crop": {"kind": "everbearing", "stage": "seedling", "runner_from": [3, 2]},
+        }
+        key = sprite_key(tile, "sun", 3, 3)
+        self.assertTrue(key.endswith("_vine_west"), key)
+
+    def test_migrate_records_the_existing_runner_from_the_parent_to_the_left(self):
+        from engine import migrate_runner_from
+        # Child at 1,2, parent at 1,1 already sent a runner this season.
+        self.state["tiles"][0][0]["crop"] = {
+            "kind": "strawberry",
+            "stage": "growing",
+            "runner_season": 1,
+        }
+        self.state["tiles"][0][1]["crop"] = {
+            "kind": "strawberry",
+            "stage": "growing",
+            "planted_day": 26,
+        }
+        self.state.pop("migrated_runner_from", None)
+        self.assertTrue(migrate_runner_from(self.state))
+        self.assertEqual(self.state["tiles"][0][1]["crop"].get("runner_from"), [1, 1])
+        self.assertTrue(self.state.get("migrated_runner_from"))
+        # Idempotent.
+        self.assertFalse(migrate_runner_from(self.state))
+        self.assertEqual(self.state["tiles"][0][1]["crop"].get("runner_from"), [1, 1])
 
 
 

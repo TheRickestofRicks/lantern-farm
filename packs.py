@@ -142,7 +142,7 @@ def _pack_file(manifest: dict, rel: str) -> str | None:
 def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     """Return stacked layers for a sprite key, or None to use the default SVG.
 
-    Each layer is ``{"role": "ground"|"crop"|"weed", "file": "grounds/soil.png"}``.
+    Each layer is ``{"role": "ground"|"fertilizer"|"crop"|"vine"|"weed", "file": "grounds/soil.png"}``.
     Cabin tiles and any key missing a required layer fall back to the SVG.
     """
     if not manifest or manifest.get("id") in {None, "", "classic"}:
@@ -173,12 +173,22 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     if not gfile:
         return None
     layers.append({"role": "ground", "file": gfile})
+    fert = parsed.get("fertilizer")
+    if fert:
+        ffile = _pack_file(manifest, overlays.get(f"fertilizer_{fert}") or "")
+        if ffile:
+            layers.append({"role": "fertilizer", "file": ffile})
     ckey = crop_overlay_key(parsed)
     if ckey:
         cfile = _pack_file(manifest, overlays.get(ckey) or "")
         if not cfile:
             return None
         layers.append({"role": "crop", "file": cfile})
+    vine = parsed.get("vine")
+    if vine:
+        vfile = _pack_file(manifest, overlays.get(f"vine_{vine}") or "")
+        if vfile:
+            layers.append({"role": "vine", "file": vfile})
     wkey = weed_overlay_key(parsed)
     if wkey:
         wfile = _pack_file(manifest, overlays.get(wkey) or "")
