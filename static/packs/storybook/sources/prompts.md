@@ -1,4 +1,4 @@
-# Parchment pack — sources and prompts
+# Storybook pack — sources and prompts
 
 First painted graphics pack for Lantern Farm. Soft, cozy, top-down ink-and-watercolour tiles meant to sit cleanly in a square plot cell. Existing procedural SVG art remains the default; this pack is optional and switchable in the browser.
 
@@ -8,7 +8,8 @@ First painted graphics pack for Lantern Farm. Soft, cozy, top-down ink-and-water
 - Ground tiles are opaque (dry and wet untilled soil, dry and wet tilled soil).
 - Crop and weed overlays were generated on a flat vivid magenta/rose background, then chroma-keyed and despilled so they composite over the soil.
 - Everbearing withered and everbearing regrowing reuse the June-bearing withered and regrowing overlays (the stages look the same at tile size).
-- Cabin tiles stay on the default SVG art in this batch.
+- Cabin tiles are opaque painted scenes (clear, cloud, rain, storm, snow), always with a warm lantern glowing in the window.
+- When the weather is snow, ground tiles use snowy variants (untilled, wet untilled, tilled, and watered tilled). Crops and weeds still layer on top.
 - Rejected generations (too-regular furrows, a single tiny seed, a weed that read as a strawberry sprout, and early regrowing poses that matched a new sprout) were not used.
 
 ## Style brief (shared)
@@ -41,3 +42,24 @@ Top-down game tile, square 1:1, painted in a soft parchment ink-and-watercolour 
 ## Files
 
 Processed tiles live in `static/packs/parchment/grounds/` and `static/packs/parchment/overlays/`. Original 1024×1024 generations (including rejected takes) are kept next to this note under `sources/originals/` when shipped with the pack.
+
+## Cabin prompts
+
+Same log cabin in every weather, top-down farm tile, parchment ink-and-watercolour, no text, no frame, no people, no animals, no signature. Warm lantern glowing in the four-pane window in every version. Thin chimney smoke. The cabin sits on a little yard of storybook soil with grass tufts at the corners, filling the square comfortably.
+
+- **cabin** — Clear fair day, bare wooden shingle roof, warm golden-brown soil, no snow, no rain.
+- **cabin_cloud** — The same cabin on an overcast grey day, muted cool light, no rain or snow, lantern still warm.
+- **cabin_rain** — The same cabin in the rain: diagonal rain streaks, wet darker roof and soil, a few puddles, lantern glow on the wet steps.
+- **cabin_storm** — The same cabin in a heavy storm: darker wet soil, dense rain, a distant lightning flash, lantern glowing strongly. Keep a top-down yard (avoid a wide horizon if it fights the neighbouring soil tiles).
+- **cabin_snow** — The same cabin in the snow: a soft cap of snow on the roof, falling flakes, a snowy yard with tufts and stones poking through, lantern light on the steps.
+
+An early storm take with a strong sky-and-treeline horizon was replaced with a darker, rain-like top-down composition that still reads as a storm. A first watered-snow ground that looked too glossy and framed was redone in the softer pack style.
+
+## Snow ground prompts
+
+Same style and layout as the matching non-snow ground tiles, no footprints, no path, no extra plants, no text, no frame. Creamy snow with cool blue-violet shadows, earth and stones still showing through.
+
+- **soil_snow** — Untilled soil under a first snow; corner grass tufts and pebbles poke through.
+- **soil_wet_snow** — The same untilled layout, slushier and thinner snow, more dark damp earth showing.
+- **soil_tilled_snow** — Hand-tilled clods with snow settled in the hollows and darker earth on the raised clods.
+- **soil_watered_snow** — Tilled clods, wetter and darker, with thinner slushy snow in the hollows and a gentle damp sheen (not a glossy 3D render).

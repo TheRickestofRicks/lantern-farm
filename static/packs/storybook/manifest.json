@@ -7,7 +7,11 @@
     "soil": "grounds/soil.png",
     "soil_wet": "grounds/soil_wet.png",
     "soil_tilled": "grounds/soil_tilled.png",
-    "soil_watered": "grounds/soil_watered.png"
+    "soil_watered": "grounds/soil_watered.png",
+    "soil_snow": "grounds/soil_snow.png",
+    "soil_wet_snow": "grounds/soil_wet_snow.png",
+    "soil_tilled_snow": "grounds/soil_tilled_snow.png",
+    "soil_watered_snow": "grounds/soil_watered_snow.png"
   },
   "overlays": {
     "everbearing_dormant": "overlays/everbearing_dormant.png",
@@ -29,5 +33,12 @@
   "aliases": {
     "everbearing_withered": "strawberry_withered",
     "everbearing_regrowing": "strawberry_regrowing"
+  },
+  "cabins": {
+    "cabin": "cabins/cabin.png",
+    "cabin_cloud": "cabins/cabin_cloud.png",
+    "cabin_rain": "cabins/cabin_rain.png",
+    "cabin_storm": "cabins/cabin_storm.png",
+    "cabin_snow": "cabins/cabin_snow.png"
   }
 }

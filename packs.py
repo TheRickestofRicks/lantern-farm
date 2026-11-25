@@ -77,6 +77,7 @@ def public_packs() -> list[dict]:
             "description": man.get("description") or "",
             "grounds": man.get("grounds") or {},
             "overlays": man.get("overlays") or {},
+            "cabins": man.get("cabins") or {},
         })
         seen.add(man["id"])
     return packs
@@ -88,15 +89,21 @@ def ground_key_for(parsed: dict) -> str | None:
         return None
     if kind == "soil":
         if parsed.get("tilled") and parsed.get("watered"):
-            return "soil_watered"
-        if parsed.get("tilled"):
-            return "soil_tilled"
-        if parsed.get("watered"):
-            return "soil_wet"
-        return "soil"
-    if parsed.get("watered"):
-        return "soil_watered"
-    return "soil_tilled"
+            base = "soil_watered"
+        elif parsed.get("tilled"):
+            base = "soil_tilled"
+        elif parsed.get("watered"):
+            base = "soil_wet"
+        else:
+            base = "soil"
+    elif parsed.get("watered"):
+        base = "soil_watered"
+    else:
+        base = "soil_tilled"
+    if parsed.get("snow"):
+        return f"{base}_snow"
+    return base
+
 
 
 def crop_overlay_key(parsed: dict) -> str | None:
@@ -141,8 +148,18 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     if not manifest or manifest.get("id") in {None, "", "classic"}:
         return None
     parsed = parse_sprite_key(key)
-    if parsed.get("kind") in {"cabin", "unknown"}:
+    if parsed.get("kind") == "unknown":
         return None
+    if parsed.get("kind") == "cabin":
+        cabins = manifest.get("cabins") or {}
+        weather = parsed.get("weather") or "sun"
+        ckey = "cabin" if weather in {"sun", ""} else f"cabin_{weather}"
+        cfile = _pack_file(manifest, cabins.get(ckey) or "") or _pack_file(
+            manifest, cabins.get("cabin") or ""
+        )
+        if not cfile:
+            return None
+        return [{"role": "cabin", "file": cfile}]
     grounds = manifest.get("grounds") or {}
     overlays = manifest.get("overlays") or {}
     layers: list[dict] = []
@@ -150,6 +167,9 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     if not gkey:
         return None
     gfile = _pack_file(manifest, grounds.get(gkey) or "")
+    if not gfile and gkey.endswith("_snow"):
+        # Missing snowy ground still uses the pack's ordinary soil so crops can layer.
+        gfile = _pack_file(manifest, grounds.get(gkey[: -len("_snow")]) or "")
     if not gfile:
         return None
     layers.append({"role": "ground", "file": gfile})

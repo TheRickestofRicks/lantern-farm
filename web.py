@@ -922,14 +922,25 @@ PAGE = r"""<!DOCTYPE html>
     function parseSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
-        return {kind: "cabin"};
+        let weather = "sun";
+        if (key.indexOf("cabin_") === 0 && key.length > 6) {
+          const tail = key.slice(6);
+          if (tail === "rain" || tail === "snow" || tail === "storm" || tail === "cloud" || tail === "sun") {
+            weather = tail;
+          }
+        }
+        return {kind: "cabin", weather: weather};
       }
-      let weedy = false, weed = false;
+      let weedy = false, weed = false, snow = false;
       if (key.length >= 6 && key.slice(-6) === "_weedy") {
         weedy = true;
         key = key.slice(0, -6);
       } else if (key.length >= 5 && key.slice(-5) === "_weed") {
         weed = true;
+        key = key.slice(0, -5);
+      }
+      if (key.length >= 5 && key.slice(-5) === "_snow") {
+        snow = true;
         key = key.slice(0, -5);
       }
       const soilKeys = {
@@ -939,7 +950,7 @@ PAGE = r"""<!DOCTYPE html>
         soil_wet: {tilled: false, watered: true}
       };
       if (soilKeys[key]) {
-        const out = {kind: "soil", weed: weed, weedy: weedy};
+        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow};
         out.tilled = soilKeys[key].tilled;
         out.watered = soilKeys[key].watered;
         return out;
@@ -953,29 +964,44 @@ PAGE = r"""<!DOCTYPE html>
           watered: moist === "wet",
           tilled: true,
           weed: weed,
-          weedy: weedy
+          weedy: weedy,
+          snow: snow
         };
       }
-      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy};
-      return {kind: "unknown", raw: key};
+      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow};
+      return {kind: "unknown", raw: key, snow: snow};
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      let base;
       if (parsed.kind === "soil") {
-        if (parsed.tilled && parsed.watered) return "soil_watered";
-        if (parsed.tilled) return "soil_tilled";
-        if (parsed.watered) return "soil_wet";
-        return "soil";
+        if (parsed.tilled && parsed.watered) base = "soil_watered";
+        else if (parsed.tilled) base = "soil_tilled";
+        else if (parsed.watered) base = "soil_wet";
+        else base = "soil";
+      } else {
+        base = parsed.watered ? "soil_watered" : "soil_tilled";
       }
-      return parsed.watered ? "soil_watered" : "soil_tilled";
+      if (parsed.snow) return base + "_snow";
+      return base;
     }
     function layersForKey(key, pack) {
-      if (!pack || pack.id === "classic" || !pack.grounds) return null;
+      if (!pack || pack.id === "classic") return null;
       const parsed = parseSpriteKey(key);
-      if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      if (!parsed || parsed.kind === "unknown") return null;
+      if (parsed.kind === "cabin") {
+        const cabins = pack.cabins || {};
+        const w = parsed.weather || "sun";
+        const ckey = (w === "sun") ? "cabin" : ("cabin_" + w);
+        const file = cabins[ckey] || cabins.cabin;
+        if (!file) return null;
+        return ["/static/packs/" + pack.id + "/" + file];
+      }
+      if (!pack.grounds) return null;
       const layers = [];
       const gkey = groundKeyFor(parsed);
-      const ground = gkey && pack.grounds[gkey];
+      let ground = gkey && pack.grounds[gkey];
+      if (!ground && gkey && gkey.slice(-5) === "_snow") ground = pack.grounds[gkey.slice(0, -5)];
       if (!ground) return null;
       layers.push("/static/packs/" + pack.id + "/" + ground);
       if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {

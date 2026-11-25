@@ -26,6 +26,8 @@ def sprite_key(tile: dict, weather: str | None = None) -> str:
         key = "soil_tilled"
     else:
         key = "soil"
+    if (weather or "").strip().lower() == "snow":
+        key += "_snow"
     if tile.get("weedy"):
         key += "_weedy"
     elif tile.get("weed"):
@@ -45,12 +47,16 @@ def parse_sprite_key(key: str) -> dict:
         return {"kind": "cabin", "weather": weather}
     weedy = False
     weed = False
+    snow = False
     if key.endswith("_weedy"):
         weedy = True
         key = key[: -len("_weedy")]
     elif key.endswith("_weed"):
         weed = True
         key = key[: -len("_weed")]
+    if key.endswith("_snow"):
+        snow = True
+        key = key[: -len("_snow")]
     soil_keys = {
         "soil": {"tilled": False, "watered": False},
         "soil_tilled": {"tilled": True, "watered": False},
@@ -58,7 +64,7 @@ def parse_sprite_key(key: str) -> dict:
         "soil_wet": {"tilled": False, "watered": True},
     }
     if key in soil_keys:
-        return {"kind": "soil", "weed": weed, "weedy": weedy, **soil_keys[key]}
+        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, **soil_keys[key]}
     parts = key.split("_")
     if len(parts) >= 3 and parts[-1] in {"wet", "dry"}:
         moist = parts[-1]
@@ -71,10 +77,11 @@ def parse_sprite_key(key: str) -> dict:
             "tilled": True,
             "weed": weed,
             "weedy": weedy,
+            "snow": snow,
         }
     if weed or weedy:
-        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy}
-    return {"kind": "unknown", "raw": key}
+        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow}
+    return {"kind": "unknown", "raw": key, "snow": snow}
 
 
 # Warm, slightly dusk palette — lantern light on earth.
@@ -185,6 +192,45 @@ def _soil_layer(tilled: bool, watered: bool) -> str:
         parts.append(
             f'<path d="M44,104 q8,-6 16,0" stroke="{P["sheen"]}" stroke-width="1.4" '
             f'fill="none" opacity="0.45"/>'
+        )
+    return "\n".join(parts)
+
+
+def _snow_ground_overlay(tilled: bool) -> str:
+    """A soft snow blanket for Classic SVG tiles, with earth still showing through."""
+    patches = [
+        (40, 48, 22, 12, 0.72),
+        (90, 42, 26, 14, 0.65),
+        (128, 70, 18, 11, 0.6),
+        (28, 88, 24, 13, 0.7),
+        (80, 84, 30, 16, 0.55),
+        (118, 108, 22, 12, 0.68),
+        (52, 122, 26, 12, 0.62),
+        (96, 134, 20, 10, 0.58),
+        (18, 54, 12, 8, 0.5),
+        (140, 128, 14, 8, 0.55),
+    ]
+    if tilled:
+        # Sit the snow more in the hollows, leave clod tops browner.
+        patches = [
+            (36, 78, 28, 8, 0.7),
+            (86, 70, 32, 9, 0.62),
+            (124, 86, 24, 8, 0.66),
+            (48, 100, 30, 8, 0.6),
+            (100, 110, 28, 9, 0.68),
+            (30, 122, 22, 8, 0.58),
+            (78, 132, 26, 8, 0.64),
+            (130, 124, 18, 7, 0.55),
+        ]
+    parts = []
+    for x, y, rx, ry, op in patches:
+        parts.append(
+            f'<ellipse cx="{x}" cy="{y}" rx="{rx}" ry="{ry}" '
+            f'fill="#f2efe8" opacity="{op}"/>'
+        )
+        parts.append(
+            f'<ellipse cx="{x-4}" cy="{y-2}" rx="{int(rx*0.45)}" ry="{int(ry*0.45)}" '
+            f'fill="#ffffff" opacity="0.35"/>'
         )
     return "\n".join(parts)
 
@@ -570,6 +616,8 @@ def svg_for_key(key: str) -> str:
     tilled = bool(info.get("tilled"))
     watered = bool(info.get("watered"))
     layers = [_soil_layer(tilled, watered)]
+    if info.get("snow"):
+        layers.append(_snow_ground_overlay(tilled))
     if kind and kind != "soil" and info.get("stage"):
         layers.append(_crop_layer(kind, info["stage"]))
     if info.get("weedy") or info.get("weed"):

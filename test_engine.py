@@ -911,6 +911,40 @@ class SeasonalWeatherAndForecast(unittest.TestCase):
         self.assertEqual(parse_sprite_key("cabin_snow")["weather"], "snow")
 
 
+    def test_sprite_key_marks_snow_on_the_ground(self):
+        from sprites import sprite_key, svg_for_key, parse_sprite_key, is_safe_key
+        soil = {"type": "plot", "tilled": False, "watered": False}
+        self.assertEqual(sprite_key(soil), "soil")
+        self.assertEqual(sprite_key(soil, "rain"), "soil")
+        self.assertEqual(sprite_key(soil, "snow"), "soil_snow")
+        tilled = {"type": "plot", "tilled": True, "watered": False}
+        self.assertEqual(sprite_key(tilled, "snow"), "soil_tilled_snow")
+        watered = {"type": "plot", "tilled": True, "watered": True}
+        self.assertEqual(sprite_key(watered, "snow"), "soil_watered_snow")
+        wet = {"type": "plot", "tilled": False, "watered": True}
+        self.assertEqual(sprite_key(wet, "snow"), "soil_wet_snow")
+        crop = {
+            "type": "plot", "tilled": True, "watered": True,
+            "crop": {"kind": "strawberry", "stage": "mature"},
+        }
+        self.assertEqual(sprite_key(crop, "snow"), "strawberry_mature_wet_snow")
+        weedy = {"type": "plot", "tilled": True, "watered": False, "weedy": True}
+        self.assertEqual(sprite_key(weedy, "snow"), "soil_tilled_snow_weedy")
+        info = parse_sprite_key("strawberry_mature_wet_snow_weedy")
+        self.assertTrue(info["snow"])
+        self.assertTrue(info["weedy"])
+        self.assertEqual(info["kind"], "strawberry")
+        self.assertEqual(info["stage"], "mature")
+        snow_svg = svg_for_key("soil_snow")
+        plain = svg_for_key("soil")
+        self.assertIn("#f2efe8", snow_svg)
+        self.assertNotEqual(snow_svg, plain)
+        crop_svg = svg_for_key("strawberry_mature_wet_snow")
+        self.assertIn("#f2efe8", crop_svg)
+        self.assertTrue(is_safe_key("strawberry_mature_wet_snow_weedy"))
+        self.assertTrue(is_safe_key("soil_watered_snow"))
+
+
 class ConfigAndMCP(unittest.TestCase):
     def test_example_config_is_generic(self):
         from pathlib import Path
@@ -2095,11 +2129,31 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertIn("weedy", weedy[1]["file"])
         stacked = layers_for_key("strawberry_sprouting_dry_weed", man)
         self.assertEqual([layer["role"] for layer in stacked], ["ground", "crop", "weed"])
-        self.assertIsNone(layers_for_key("cabin", man))
-        self.assertIsNone(layers_for_key("cabin_rain", man))
+        cabin = layers_for_key("cabin", man)
+        self.assertEqual([layer["role"] for layer in cabin], ["cabin"])
+        self.assertTrue(cabin[0]["file"].endswith("cabin.png"))
+        rain = layers_for_key("cabin_rain", man)
+        self.assertTrue(rain[0]["file"].endswith("cabin_rain.png"))
+        snowy = layers_for_key("strawberry_mature_wet_snow", man)
+        self.assertEqual([layer["role"] for layer in snowy], ["ground", "crop"])
+        self.assertIn("soil_watered_snow", snowy[0]["file"])
+        self.assertIn("strawberry_mature", snowy[1]["file"])
+        self.assertTrue(layers_for_key("soil_snow", man)[0]["file"].endswith("soil_snow.png"))
+        self.assertTrue(layers_for_key("soil_tilled_snow", man)[0]["file"].endswith("soil_tilled_snow.png"))
         # Other crops still use the default SVG until a later pack batch.
         self.assertIsNone(layers_for_key("kabocha_sprouting_wet", man))
         self.assertIsNone(layers_for_key("soil", None))
+        # If a snowy ground is missing, the pack still layers crops on ordinary soil.
+        thin = {
+            "id": man["id"],
+            "grounds": {"soil_tilled": "grounds/soil_tilled.png", "soil_watered": "grounds/soil_watered.png"},
+            "overlays": dict(man["overlays"]),
+            "cabins": {},
+        }
+        fallback = layers_for_key("strawberry_sprouting_dry_snow", thin)
+        self.assertEqual(fallback[0]["file"], "grounds/soil_tilled.png")
+        self.assertIn("strawberry_sprouting", fallback[1]["file"])
+        self.assertIsNone(layers_for_key("cabin_storm", thin))
 
     def test_safe_pack_file_rejects_path_traversal(self):
         from packs import safe_pack_file
