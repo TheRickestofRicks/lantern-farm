@@ -14,5 +14,47 @@
     "min_new_per_day": 1,
     "max_new_per_day": 2,
     "eligible": "tilled_or_planted"
+  },
+  "weather": {
+    "wet": [
+      "rain",
+      "storm",
+      "snow"
+    ],
+    "forecast": {
+      "days": 7,
+      "near": 0.9,
+      "far": 0.5
+    },
+    "seasons": {
+      "spring": {
+        "sun": 25,
+        "cloud": 20,
+        "rain": 50,
+        "storm": 5,
+        "snow": 0
+      },
+      "summer": {
+        "sun": 55,
+        "cloud": 15,
+        "rain": 10,
+        "storm": 20,
+        "snow": 0
+      },
+      "autumn": {
+        "sun": 28,
+        "cloud": 28,
+        "rain": 30,
+        "storm": 10,
+        "snow": 4
+      },
+      "winter": {
+        "sun": 22,
+        "cloud": 20,
+        "rain": 8,
+        "storm": 0,
+        "snow": 50
+      }
+    }
   }
 }

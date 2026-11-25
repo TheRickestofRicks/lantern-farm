@@ -27,6 +27,7 @@ from engine import (
     migrate_state,
     normalize_player,
     session,
+    weather_forecast,
 )
 from hey_notify import maybe_notify_after_end_turn
 from sprites import is_safe_key, sprite_key, svg_for_key
@@ -159,6 +160,30 @@ PAGE = r"""<!DOCTYPE html>
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 0.7rem;
+    }
+    .forecast {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.35rem;
+      margin-top: 0.9rem;
+      padding-top: 0.8rem;
+      border-top: 1px solid var(--line);
+    }
+    .forecast-day {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.25;
+      padding: 0.35rem 0.15rem 0.4rem;
+      background: var(--panel);
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    .forecast-day .fw { color: var(--ink); font-weight: 600; display: block; margin-top: 0.1rem; }
+    .forecast-day .fd { font-size: 0.72rem; opacity: 0.85; }
+    .forecast-day svg { display: block; width: 28px; height: 28px; margin: 0 auto 0.15rem; }
+    @media (max-width: 800px) {
+      .forecast { grid-template-columns: repeat(4, 1fr); }
     }
     button.tile {
       appearance: none;
@@ -387,6 +412,7 @@ PAGE = r"""<!DOCTYPE html>
   <main>
     <section class="farm">
       <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
+      <div class="forecast" id="forecast" hidden></div>
       <p class="keys" id="keys">
         <kbd>1</kbd>–<kbd>9</kbd> select plot
         · <kbd>T</kbd> till
@@ -426,9 +452,11 @@ PAGE = r"""<!DOCTYPE html>
     __WEB_FOOTER__
   </footer>
   <script>
-    const weatherWord = {sun: "clear and sunny", rain: "rain", snow: "snow"};
+    const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
+    const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
     const PLAYERS = __PLAYERS_JSON__;
     const CABIN_SHORT = __CABIN_SHORT__;
+    const CABIN_BY_WEATHER = __CABIN_BY_WEATHER__;
     const DEFAULT_PLAYER = __DEFAULT_PLAYER__;
     const PLAYER_NAMES = Object.fromEntries(PLAYERS.map(function (p) { return [p.id, p.name]; }));
     const PLAYER = (new URLSearchParams(location.search).get("player") || DEFAULT_PLAYER).toLowerCase();
@@ -480,7 +508,9 @@ PAGE = r"""<!DOCTYPE html>
     function describeTile(tile, r, c) {
       if (!tile) return "Click a plot.";
       if (tile.type === "cabin") {
-        return tileName(r, c) + " — " + CABIN_SHORT;
+        const w = (lastData && lastData.state && lastData.state.weather) || "sun";
+        const byWeather = (typeof CABIN_BY_WEATHER !== "undefined") ? CABIN_BY_WEATHER[w] : "";
+        return tileName(r, c) + " — " + (byWeather || CABIN_SHORT);
       }
       const moist = tile.watered ? "watered today" : "dry today";
       const tilled = tile.tilled ? "tilled" : "untilled";
@@ -496,8 +526,38 @@ PAGE = r"""<!DOCTYPE html>
         ", " + crop.stage + ", " + moist + "." + weed;
     }
 
+    function forecastIcon(kind) {
+      const c = "#e8d8c0";
+      if (kind === "rain") {
+        return '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10 14h14a6 6 0 0 0-1-12 8 8 0 0 0-15 3 6 6 0 0 0 2 9z" fill="#9aa6b2"/><path d="M11 20 l2 6 M16 19 l2 7 M21 20 l2 6" stroke="#8eb4c8" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
+      }
+      if (kind === "storm") {
+        return '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 13h15a6 6 0 0 0-1-11 8 8 0 0 0-15 3 6 6 0 0 0 1 8z" fill="#6a7380"/><path d="M16 16 l-3 6 h4 l-3 7" fill="none" stroke="#efe4b8" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 20 l1.5 5 M22 19 l2 6" stroke="#8eb4c8" stroke-width="1.4" fill="none"/></svg>';
+      }
+      if (kind === "snow") {
+        return '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 6 v20 M8 10 l16 12 M8 22 l16-12" stroke="#eef2f6" stroke-width="1.6" fill="none" stroke-linecap="round"/><circle cx="16" cy="16" r="2" fill="#eef2f6"/></svg>';
+      }
+      if (kind === "cloud") {
+        return '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10 20h14a6 6 0 0 0-1-11 8 8 0 0 0-15 3 6 6 0 0 0 2 8z" fill="#8a8880"/></svg>';
+      }
+      return '<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="7" fill="#e8b86a"/><path d="M16 4 v4 M16 24 v4 M4 16 h4 M24 16 h4 M7 7 l3 3 M22 22 l3 3 M7 25 l3-3 M22 10 l3-3" stroke="#e8b86a" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>';
+    }
+    function renderForecast(data) {
+      const box = $("forecast");
+      if (!box) return;
+      const days = data.forecast || [];
+      if (!days.length) { box.hidden = true; box.innerHTML = ""; return; }
+      box.hidden = false;
+      box.innerHTML = days.map(function (item) {
+        const word = forecastWord[item.weather] || item.weather;
+        return '<div class="forecast-day">' + forecastIcon(item.weather) +
+          '<span class="fd">Day ' + item.day + '</span>' +
+          '<span class="fw">' + word + '</span></div>';
+      }).join("");
+    }
     function render(data) {
       lastData = data;
+      renderForecast(data);
       const s = data.state;
       const sky = weatherWord[s.weather] || s.weather;
       const capE = data.max_energy || 100;
@@ -1069,6 +1129,13 @@ def render_page() -> str:
         "__PLAYERS_JSON__": _json.dumps(players_public()),
         "__DEFAULT_PLAYER__": _json.dumps(web_p),
         "__CABIN_SHORT__": _json.dumps(flavor("cabin_short") or "the cabin, lantern lit in the window."),
+        "__CABIN_BY_WEATHER__": _json.dumps({
+            "sun": flavor("cabin_short") or "the cabin, lantern lit in the window.",
+            "cloud": flavor("cabin_short_cloud") or "the cabin under a grey sky, lantern lit in the window.",
+            "rain": flavor("cabin_short_rain") or "the cabin, rain drumming on the roof.",
+            "storm": flavor("cabin_short_storm") or "the cabin, a storm rattling the roof.",
+            "snow": flavor("cabin_short_snow") or "the cabin, snow on the roof, flakes in the air.",
+        }),
     }
     for key, val in replacements.items():
         html = html.replace(key, val)
@@ -1104,7 +1171,8 @@ def api_payload(
     viewer = _web_player(player)
     from config import starting_player
     current = normalize_player(state.get("current_player")) or starting_player()
-    sprites = [[sprite_key(tile) for tile in row] for row in state["tiles"]]
+    sky = state.get("weather") or "sun"
+    sprites = [[sprite_key(tile, sky) for tile in row] for row in state["tiles"]]
     return {
         "ok": ok,
         "message": message,
@@ -1118,6 +1186,7 @@ def api_payload(
         "players": state.get("players") or {},
         "max_energy": max_energy(rules),
         "your_turn": viewer == current,
+        "forecast": weather_forecast(state, crops, rules),
     }
 
 

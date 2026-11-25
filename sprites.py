@@ -5,9 +5,12 @@ from __future__ import annotations
 SIZE = 160
 
 
-def sprite_key(tile: dict) -> str:
+def sprite_key(tile: dict, weather: str | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     if not tile or tile.get("type") == "cabin":
+        w = (weather or "").strip().lower()
+        if w in {"rain", "snow", "storm", "cloud"}:
+            return f"cabin_{w}"
         return "cabin"
     watered = bool(tile.get("watered"))
     tilled = bool(tile.get("tilled"))
@@ -33,8 +36,13 @@ def sprite_key(tile: dict) -> str:
 def parse_sprite_key(key: str) -> dict:
     """Inverse of sprite_key, for the SVG generator."""
     key = (key or "").strip().lower()
-    if key == "cabin":
-        return {"kind": "cabin"}
+    if key == "cabin" or key.startswith("cabin_"):
+        weather = "sun"
+        if key.startswith("cabin_") and len(key) > 6:
+            tail = key[6:]
+            if tail in {"rain", "snow", "storm", "cloud", "sun"}:
+                weather = tail
+        return {"kind": "cabin", "weather": weather}
     weedy = False
     weed = False
     if key.endswith("_weedy"):
@@ -307,10 +315,91 @@ def _crop_layer(kind: str, stage: str) -> str:
     return _growing_leaves(x, y)
 
 
-def svg_cabin() -> str:
+def _cabin_sky(weather: str) -> tuple[str, str]:
+    """Ground and sky fills. Sunny keeps the original warm dusk colours."""
+    if weather == "rain":
+        return "#3a4550", "#4a5868"
+    if weather == "storm":
+        return "#2a303c", "#3a4454"
+    if weather == "snow":
+        return "#5a626c", "#8a93a0"
+    if weather == "cloud":
+        return "#45423c", "#5c5a54"
+    return "#4a3a2c", "#5c4a38"
+
+
+def _cabin_weather_overlay(weather: str) -> str:
+    """Rain streaks, snow on the roof and flakes, storm, or overcast clouds."""
+    if weather == "cloud":
+        return """
+  <ellipse cx="48" cy="28" rx="22" ry="10" fill="#7a7870" opacity="0.7"/>
+  <ellipse cx="66" cy="24" rx="18" ry="9" fill="#8a8880" opacity="0.65"/>
+  <ellipse cx="30" cy="26" rx="12" ry="7" fill="#6e6c66" opacity="0.55"/>
+"""
+    if weather in {"rain", "storm"}:
+        heavy = weather == "storm"
+        opacity = "0.55" if heavy else "0.4"
+        width = "1.6" if heavy else "1.2"
+        color = "#c8d8e8" if heavy else "#b4c4d4"
+        # Diagonal streaks, some in front of the cabin.
+        streaks = []
+        coords = [
+            (12, 8, 28, 48), (32, 2, 50, 46), (54, 6, 72, 50),
+            (76, 0, 94, 44), (98, 8, 116, 52), (122, 4, 140, 48),
+            (148, 10, 158, 40), (20, 50, 38, 92), (60, 54, 78, 98),
+            (100, 48, 118, 94), (130, 56, 148, 100), (8, 88, 24, 128),
+            (44, 96, 60, 136), (88, 100, 106, 142), (126, 108, 144, 148),
+        ]
+        if heavy:
+            coords += [
+                (18, 14, 36, 58), (70, 10, 88, 54), (110, 16, 128, 62),
+                (40, 70, 56, 112), (150, 70, 158, 110),
+            ]
+        for x1, y1, x2, y2 in coords:
+            streaks.append(
+                f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+                f'stroke="{color}" stroke-width="{width}" opacity="{opacity}" '
+                f'stroke-linecap="round"/>'
+            )
+        lightning = ""
+        if heavy:
+            lightning = (
+                '<path d="M92,8 L84,28 L90,28 L80,50" fill="none" '
+                'stroke="#efe4b8" stroke-width="1.8" opacity="0.55" '
+                'stroke-linejoin="round" stroke-linecap="round"/>'
+            )
+        return "\n  " + lightning + "\n  " + "\n  ".join(streaks) + "\n"
+    if weather == "snow":
+        # A soft cap along the roof ridge, plus falling flakes.
+        cap = (
+            '<path d="M30,60 L80,24 L130,60 L124,58 L80,30 L36,58 Z" '
+            'fill="#f2efe8" opacity="0.92"/>'
+            '<ellipse cx="80" cy="30" rx="10" ry="5" fill="#f7f4ee"/>'
+            '<rect x="107" y="32" width="14" height="6" fill="#f2efe8" opacity="0.9"/>'
+        )
+        flakes = []
+        spots = [
+            (18, 16, 2.2), (40, 10, 1.6), (58, 22, 2.0), (92, 8, 1.8),
+            (114, 18, 2.1), (138, 12, 1.7), (150, 28, 1.5), (24, 48, 1.4),
+            (48, 40, 1.8), (128, 44, 1.6), (18, 80, 1.5), (146, 72, 1.7),
+            (36, 108, 1.6), (70, 100, 1.3), (118, 112, 1.8), (152, 100, 1.4),
+            (10, 130, 1.5), (88, 128, 1.6), (140, 138, 1.4), (54, 148, 1.3),
+        ]
+        for x, y, r in spots:
+            flakes.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#f4f1ea" opacity="0.9"/>')
+        return "\n  " + cap + "\n  " + "\n  ".join(flakes) + "\n"
+    return ""
+
+
+def svg_cabin(weather: str | None = None) -> str:
+    weather = (weather or "sun").strip().lower()
+    if weather not in {"rain", "snow", "storm", "cloud", "sun"}:
+        weather = "sun"
+    ground, sky = _cabin_sky(weather)
+    overlay = _cabin_weather_overlay(weather)
     body = f"""
-  <rect width="{SIZE}" height="{SIZE}" fill="#4a3a2c"/>
-  <rect width="{SIZE}" height="70" fill="#5c4a38"/>
+  <rect width="{SIZE}" height="{SIZE}" fill="{ground}"/>
+  <rect width="{SIZE}" height="70" fill="{sky}"/>
   <ellipse cx="80" cy="130" rx="78" ry="28" fill="{P["soil_dark"]}"/>
   <rect x="0" y="118" width="160" height="42" fill="{P["soil"]}"/>
   <path d="M0,118 Q40,110 80,116 Q120,122 160,112 L160,130 L0,130 Z" fill="{P["tilled"]}"/>
@@ -340,6 +429,7 @@ def svg_cabin() -> str:
   <path d="M103,80 v3" stroke="{P["cabin_trim"]}" stroke-width="1"/>
   <path d="M99,83 l8,0 l1,6 l-10,0 z" fill="#e8a020" stroke="#6a3a10" stroke-width="0.7"/>
   <circle cx="103" cy="87" r="2" fill="{P["glow_soft"]}"/>
+  {overlay}
 """
     return _svg(body)
 
@@ -394,7 +484,7 @@ def svg_for_key(key: str) -> str:
     info = parse_sprite_key(key)
     kind = info.get("kind")
     if kind == "cabin":
-        return svg_cabin()
+        return svg_cabin(info.get("weather") or "sun")
     if kind == "unknown":
         return svg_unknown(info.get("raw", key))
     tilled = bool(info.get("tilled"))

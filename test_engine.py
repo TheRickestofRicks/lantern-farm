@@ -50,6 +50,12 @@ from engine import (
     till,
     water,
     weather_for_day,
+    weather_forecast,
+    forecast_weather,
+    forecast_accuracy,
+    find_weather_seed,
+    ensure_weather_seed,
+    is_wet_weather,
     weed_hash,
     new_weed_count_for_day,
 )
@@ -66,31 +72,44 @@ def no_weed_rules():
 class WeatherDeterminism(unittest.TestCase):
     def setUp(self):
         self.crops = load_crops()
+        self.rules = load_rules()
 
-    def test_weather_is_a_function_of_day(self):
+    def test_weather_is_a_function_of_seed_and_day(self):
+        seed = 42
         for day in range(1, 120):
-            a = weather_for_day(day, self.crops)
-            b = weather_for_day(day, self.crops)
+            a = weather_for_day(day, self.crops, self.rules, seed=seed)
+            b = weather_for_day(day, self.crops, self.rules, seed=seed)
             self.assertEqual(a, b)
-            self.assertIn(a, {"sun", "rain", "snow"})
+            self.assertIn(a, {"sun", "cloud", "rain", "storm", "snow"})
 
-    def test_day_one_is_sunny(self):
-        self.assertEqual(weather_for_day(1, self.crops), "sun")
+    def test_fresh_farm_starts_sunny_on_day_one(self):
+        state = fresh_state(self.crops)
+        self.assertEqual(state["weather"], "sun")
+        self.assertEqual(
+            weather_for_day(1, self.crops, self.rules, seed=state["weather_seed"]),
+            "sun",
+        )
 
-    def test_known_rain_days(self):
-        # Days 3, 5, 10, 14 of spring are rain.
-        self.assertEqual(weather_for_day(3, self.crops), "rain")
-        self.assertEqual(weather_for_day(5, self.crops), "rain")
-        self.assertEqual(weather_for_day(10, self.crops), "rain")
-        self.assertEqual(weather_for_day(14, self.crops), "rain")
-        self.assertEqual(weather_for_day(1, self.crops), "sun")
-        self.assertEqual(weather_for_day(2, self.crops), "sun")
+    def test_a_chosen_seed_is_reproducible(self):
+        seed = find_weather_seed({1: "sun", 2: "sun", 3: "rain"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(1, self.crops, self.rules, seed=seed), "sun")
+        self.assertEqual(weather_for_day(2, self.crops, self.rules, seed=seed), "sun")
+        self.assertEqual(weather_for_day(3, self.crops, self.rules, seed=seed), "rain")
+        again = find_weather_seed({1: "sun", 2: "sun", 3: "rain"}, self.rules, self.crops)
+        self.assertEqual(again, seed)
 
-    def test_winter_wet_days_are_snow(self):
-        # 14 days per season: winter starts on day 43.
+    def test_winter_can_snow_and_summer_can_storm(self):
         self.assertEqual(season_for_day(43, self.crops), "winter")
-        self.assertEqual(weather_for_day(43, self.crops), "sun")
-        self.assertEqual(weather_for_day(45, self.crops), "snow")  # day 3 of winter
+        self.assertEqual(season_for_day(15, self.crops), "summer")
+        snow_seed = find_weather_seed({43: "snow"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(43, self.crops, self.rules, seed=snow_seed), "snow")
+        storm_seed = find_weather_seed({15: "storm"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(15, self.crops, self.rules, seed=storm_seed), "storm")
+        self.assertTrue(is_wet_weather("snow"))
+        self.assertTrue(is_wet_weather("storm"))
+        self.assertTrue(is_wet_weather("rain"))
+        self.assertFalse(is_wet_weather("sun"))
+        self.assertFalse(is_wet_weather("cloud"))
 
     def test_season_cycle(self):
         self.assertEqual(season_for_day(1, self.crops), "spring")
@@ -104,7 +123,11 @@ class WeatherDeterminism(unittest.TestCase):
 class GrowthRules(unittest.TestCase):
     def setUp(self):
         self.crops = load_crops()
-        self.state = fresh_state(self.crops)
+        self.rules = load_rules()
+        self.weather_seed = find_weather_seed(
+            {1: "sun", 2: "sun", 3: "rain"}, self.rules, self.crops
+        )
+        self.state = fresh_state(self.crops, weather_seed=self.weather_seed, rules=self.rules)
 
     def _plot(self):
         # top-left is free farmland
@@ -149,8 +172,8 @@ class GrowthRules(unittest.TestCase):
         limit = int(self.crops["wither_after_dry_days"])
         # Use only sunny days: 1 and 2 are sun, so two sleeps stay dry.
         self.assertGreaterEqual(limit, 2)
-        self.assertEqual(weather_for_day(1, self.crops), "sun")
-        self.assertEqual(weather_for_day(2, self.crops), "sun")
+        self.assertEqual(weather_for_day(1, self.crops, self.rules, seed=self.weather_seed), "sun")
+        self.assertEqual(weather_for_day(2, self.crops, self.rules, seed=self.weather_seed), "sun")
         ok, _ = sleep(self.state, self.crops, no_weed_rules())
         self.assertTrue(ok)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
@@ -269,7 +292,7 @@ class GrowthRules(unittest.TestCase):
         # Jump to the last day of spring with a living turnip.
         state["day"] = 14
         state["season"] = season_for_day(14, self.crops)
-        state["weather"] = weather_for_day(14, self.crops)
+        state["weather"] = weather_for_day(14, self.crops, self.rules, seed=self.weather_seed)
         self.assertEqual(state["season"], "spring")
         ok, _ = till(state, self.crops, 1, 1)
         self.assertTrue(ok)
@@ -679,6 +702,128 @@ class GentleWeeds(unittest.TestCase):
 
 
 
+
+class SeasonalWeatherAndForecast(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+
+    def test_snow_waters_plots_like_rain(self):
+        # Day 43 is the first day of winter, when snow is possible.
+        seed = find_weather_seed({42: "sun", 43: "snow"}, self.rules, self.crops)
+        state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+        state["day"] = 42
+        state["season"] = "autumn"
+        state["weather"] = "sun"
+        r, c = 1, 1
+        till(state, self.crops, r, c)
+        state["inventory"]["carrot_seed"] = 1
+        ok, msg = plant(state, self.crops, r, c, "carrot")
+        self.assertTrue(ok, msg)
+        # Jumping the calendar must not keep a wet flag from day 1.
+        state["tiles"][0][0]["watered"] = False
+        # No watering. Sleep to a snowy winter dawn.
+        ok, msg = sleep(state, self.crops, no_weed_rules())
+        self.assertTrue(ok, msg)
+        self.assertEqual(state["day"], 43)
+        self.assertEqual(state["season"], "winter")
+        self.assertEqual(state["weather"], "snow")
+        self.assertTrue(state["tiles"][0][0]["watered"])
+        self.assertIn("snow", msg.lower())
+        crop = state["tiles"][0][0]["crop"]
+        self.assertNotEqual(crop["stage"], "withered")
+        # The snow morning counts as water into the next evening.
+        ok, msg = sleep(state, self.crops, no_weed_rules())
+        self.assertTrue(ok, msg)
+        crop = state["tiles"][0][0]["crop"]
+        self.assertEqual(crop["days_grown"], 1)
+        self.assertNotEqual(crop["stage"], "withered")
+
+    def test_migrate_keeps_todays_weather(self):
+        state = fresh_state(self.crops)
+        state["day"] = 13
+        state["season"] = "spring"
+        state["weather"] = "sun"
+        state.pop("weather_seed", None)
+        changed = migrate_state(state, self.rules)
+        self.assertTrue(changed)
+        self.assertEqual(state["weather"], "sun")
+        self.assertEqual(state["day"], 13)
+        self.assertIn("weather_seed", state)
+        self.assertEqual(
+            weather_for_day(13, self.crops, self.rules, seed=state["weather_seed"]),
+            "sun",
+        )
+        # A second migrate must not change the seed or the weather.
+        seed = state["weather_seed"]
+        self.assertFalse(ensure_weather_seed(state, self.rules, self.crops))
+        self.assertEqual(state["weather_seed"], seed)
+        self.assertEqual(state["weather"], "sun")
+
+    def test_forecast_is_deterministic_and_sharpens_as_the_day_approaches(self):
+        seed = 7
+        made = 10
+        first = [forecast_weather(made + k, made, seed, self.crops, self.rules) for k in range(1, 8)]
+        again = [forecast_weather(made + k, made, seed, self.crops, self.rules) for k in range(1, 8)]
+        self.assertEqual(first, again)
+        self.assertEqual(round(forecast_accuracy(1, self.rules), 2), 0.90)
+        self.assertEqual(round(forecast_accuracy(7, self.rules), 2), 0.50)
+        # Over many seeds, day+1 is right more often than day+7.
+        near = far = 0
+        samples = 800
+        for s in range(samples):
+            actual1 = weather_for_day(made + 1, self.crops, self.rules, seed=s)
+            actual7 = weather_for_day(made + 7, self.crops, self.rules, seed=s)
+            if forecast_weather(made + 1, made, s, self.crops, self.rules) == actual1:
+                near += 1
+            if forecast_weather(made + 7, made, s, self.crops, self.rules) == actual7:
+                far += 1
+        self.assertGreater(near / samples, 0.80)
+        self.assertLess(near / samples, 0.98)
+        self.assertGreater(far / samples, 0.38)
+        self.assertLess(far / samples, 0.62)
+        self.assertGreater(near, far)
+
+    def test_forecast_for_a_day_can_change_when_remade_later(self):
+        # Find a case where the prediction for a target day changes as we approach it.
+        changed = False
+        target = 20
+        for seed in range(4000):
+            early = forecast_weather(target, target - 7, seed, self.crops, self.rules)
+            late = forecast_weather(target, target - 1, seed, self.crops, self.rules)
+            if early != late:
+                changed = True
+                break
+        self.assertTrue(changed)
+
+    def test_weather_forecast_helper_has_seven_days(self):
+        state = fresh_state(self.crops)
+        days = weather_forecast(state, self.crops, self.rules)
+        self.assertEqual(len(days), 7)
+        self.assertEqual(days[0]["day"], state["day"] + 1)
+        self.assertEqual(days[-1]["day"], state["day"] + 7)
+        self.assertEqual(days[0]["lead"], 1)
+
+    def test_cabin_sprite_keys_follow_the_weather(self):
+        from sprites import sprite_key, svg_for_key, parse_sprite_key
+        tile = {"type": "cabin"}
+        self.assertEqual(sprite_key(tile), "cabin")
+        self.assertEqual(sprite_key(tile, "sun"), "cabin")
+        self.assertEqual(sprite_key(tile, "rain"), "cabin_rain")
+        self.assertEqual(sprite_key(tile, "snow"), "cabin_snow")
+        self.assertEqual(sprite_key(tile, "storm"), "cabin_storm")
+        self.assertEqual(sprite_key(tile, "cloud"), "cabin_cloud")
+        rain = svg_for_key("cabin_rain")
+        snow = svg_for_key("cabin_snow")
+        clear = svg_for_key("cabin")
+        self.assertIn("<line", rain)
+        self.assertIn("<circle", snow)
+        self.assertNotEqual(rain, clear)
+        self.assertNotEqual(snow, clear)
+        self.assertEqual(parse_sprite_key("cabin_rain")["weather"], "rain")
+        self.assertEqual(parse_sprite_key("cabin_snow")["weather"], "snow")
+
+
 class ConfigAndMCP(unittest.TestCase):
     def test_example_config_is_generic(self):
         from pathlib import Path
@@ -772,7 +917,7 @@ class ConfigAndMCP(unittest.TestCase):
         self.assertIn("tools", init["result"]["capabilities"])
         listed = mcp_server.handle_rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = [t["name"] for t in listed["result"]["tools"]]
-        self.assertEqual(names, ["farm_look", "farm_do", "farm_end_turn", "farm_rules"])
+        self.assertEqual(names, ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_rules"])
         p1 = starting_player()
         called = mcp_server.handle_rpc({
             "jsonrpc": "2.0",
@@ -782,7 +927,17 @@ class ConfigAndMCP(unittest.TestCase):
         })
         text = called["result"]["content"][0]["text"]
         self.assertIn("Day 1", text)
+        self.assertIn("Forecast", text)
         self.assertFalse(called["result"]["isError"])
+        forecast = mcp_server.handle_rpc({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "farm_forecast", "arguments": {}},
+        })
+        ftext = forecast["result"]["content"][0]["text"]
+        self.assertIn("Forecast", ftext)
+        self.assertFalse(forecast["result"]["isError"])
         # notifications have no response
         self.assertIsNone(mcp_server.handle_rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 

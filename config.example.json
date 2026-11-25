@@ -43,7 +43,17 @@
     "new_farm": "A new farm is ready \u2014 day 1, spring, {starter}'s turn.",
     "note_placeholder": "Note for {other} (optional)",
     "text_view_summary": "Text view (the same one the other player reads)",
-    "web_footer": "The pictures come from the same JSON state as the text view. This page plays as {web_player}. {cli_player} uses the command line. When someone acts from the CLI, this page updates on its own. Ending your turn hands the farm to the other player; the day advances when you both have ended your turn."
+    "web_footer": "The pictures come from the same JSON state as the text view. This page plays as {web_player}. {cli_player} uses the command line. When someone acts from the CLI, this page updates on its own. Ending your turn hands the farm to the other player; the day advances when you both have ended your turn.",
+    "storm": "A storm rolls over the farm. Every plot is watered.",
+    "cloud": "The sky is overcast. The soil stays as you left it.",
+    "cabin_rain": "the cabin. Rain drums on the roof. A warm lantern glows in the window.",
+    "cabin_snow": "the cabin. Snow rests on the roof, and flakes drift past the lantern.",
+    "cabin_storm": "the cabin. A storm rattles the shingles; rain drums on the roof.",
+    "cabin_cloud": "the cabin, under a grey sky. A warm lantern glows in the window.",
+    "cabin_short_rain": "the cabin, rain drumming on the roof.",
+    "cabin_short_snow": "the cabin, snow on the roof, flakes in the air.",
+    "cabin_short_storm": "the cabin, a storm rattling the roof.",
+    "cabin_short_cloud": "the cabin under a grey sky, lantern lit in the window."
   },
   "bind": {
     "port": 8790,

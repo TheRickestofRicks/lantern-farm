@@ -39,6 +39,7 @@ from engine import (
     max_energy,
     parse_player,
     session,
+    weather_forecast,
 )
 from hey_notify import maybe_notify_after_end_turn
 from config import display_name, players_public, title
@@ -193,12 +194,25 @@ def farm_rules() -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
+
+def farm_forecast(player: str | None = None, path: Path | None = None) -> str:
+    """Next 7 days, the same forecast shown in look. Player is optional."""
+    dest = path or _STATE_PATH
+    from describe import forecast_lines
+    from engine import load_crops, session as _session
+    with _session(write=False, path=dest) as (state, crops):
+        # Optional player only so turn context is not required to peek at the sky.
+        lines = forecast_lines(state, crops)
+        if not lines:
+            return "No forecast is available."
+        return "\n".join(lines) + "\n"
+
 TOOL_SPECS = [
     {
         "name": "farm_look",
         "description": (
             "Describe the farm for a player: day, weather, gold, whose turn, "
-            "energy, inventory, every tile, legal actions, and the recent log. "
+            "energy, inventory, every tile, a 7-day forecast, legal actions, and the recent log. "
             "Same text as `python3 cli.py look`."
         ),
         "inputSchema": {
@@ -253,6 +267,21 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "farm_forecast",
+        "description": (
+            "The 7-day weather forecast for the farm, as of today. "
+            "It is not always accurate, and it can change as days approach. "
+            "The same text appears in farm_look."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "player": {"type": "string", "description": "Optional player id"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "farm_rules",
         "description": "Return energy costs, weed rules, crop prices, and the configured players.",
         "inputSchema": {
@@ -279,6 +308,8 @@ def call_tool(name: str, arguments: dict | None) -> tuple[str, bool]:
                 None if note is None else str(note),
             )
             return message, not ok
+        if name == "farm_forecast":
+            return farm_forecast(args.get("player")), False
         if name == "farm_rules":
             return farm_rules(), False
     except Exception:

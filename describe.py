@@ -24,14 +24,25 @@ from engine import (
     player_slot,
     position_name,
     stage_label,
+    weather_forecast,
     wither_after,
 )
 from sprites import sprite_key
 
 WEATHER_WORDS = {
     "sun": "clear and sunny",
+    "cloud": "overcast",
     "rain": "rain (every plot is watered this morning)",
+    "storm": "a storm (every plot is watered this morning)",
     "snow": "snow (the soil is wet beneath it)",
+}
+
+FORECAST_WORDS = {
+    "sun": "clear",
+    "cloud": "overcast",
+    "rain": "rain",
+    "storm": "storm",
+    "snow": "snow",
 }
 
 INVENTORY_ORDER = [
@@ -127,10 +138,11 @@ def ascii_map(state: dict) -> str:
 def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     tile = get_tile(state, row, col)
     here = position_name(row, col)
-    key = sprite_key(tile)
+    weather = str(state.get("weather") or "sun")
+    key = sprite_key(tile, weather)
     if tile.get("type") == "cabin":
         from config import flavor
-        cabin = flavor("cabin") or "the cabin. A warm lantern glows in the window."
+        cabin = flavor(f"cabin_{weather}") or flavor("cabin") or "the cabin. A warm lantern glows in the window."
         return (
             f"  {here} — {cabin} "
             f"(sprite: {key})"
@@ -212,6 +224,19 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
     return lines
 
 
+
+def forecast_lines(state: dict, crops: dict | None = None) -> list[str]:
+    days = weather_forecast(state, crops)
+    if not days:
+        return []
+    lines = ["Forecast (next 7 days):"]
+    for item in days:
+        word = FORECAST_WORDS.get(item["weather"], item["weather"])
+        season = str(item.get("season") or "")
+        lines.append(f"  Day {item['day']}, {season} — {word}")
+    return lines
+
+
 def describe_state(
     state: dict,
     crops: dict | None = None,
@@ -223,6 +248,9 @@ def describe_state(
     viewer = normalize_player(viewer)
 
     lines = turn_header_lines(state, crops, viewer)
+    forecast = forecast_lines(state, crops)
+    if forecast:
+        lines += [""] + forecast
     lines += [
         "",
         "Inventory:",

@@ -122,6 +122,7 @@ Stop it with `kill "$(cat web.pid)"`.
 - `farm_do(player, command)` — one command (`till 1 1`, `plant 2 2 kabocha`, …)
 - `farm_end_turn(player, note?)` — end that player's turn, optional note
 - `farm_rules()` — energy costs, weed rules, crops, and configured players
+- `farm_forecast()` — the 7-day forecast (also included in `farm_look`)
 
 It uses the same engine, the same `state.json`, and the same turn and energy
 rules as the CLI and the web page. A tool call that is not that player's turn
@@ -180,10 +181,20 @@ configured.
 ## Rules (deterministic)
 
 - Seasons last 14 days, in order: spring, summer, autumn, winter, then spring again.
-- Weather is a function of the day number, not a roll of the dice. Days 3, 5,
-  10, and 14 of each season are wet (rain, or snow in winter). All other days
-  are sunny. Day 1 is sunny.
-- Rain and snow water every soil tile at dawn.
+- Weather is a function of a seed stored in `state.json` and the day number,
+  not a roll of the dice. Each load of the same save produces the same weather.
+  Probabilities live in `rules.json` under `weather.seasons`: spring is rainy,
+  summer is mostly sunny with storms, autumn is mixed, and winter is snowy.
+  A new farm starts on a sunny day 1. Possible skies are clear, overcast,
+  rain, storm, and snow.
+- Rain, storms, and snow water every soil tile at dawn. Overcast does not.
+- The cabin tile shows the weather (`cabin_rain`, `cabin_snow`, `cabin_storm`,
+  `cabin_cloud`); a clear day keeps the original cabin sprite.
+- A 7-day forecast appears in the text `look`, on the web page, and via the
+  `farm_forecast` MCP tool (also included in `farm_look`). Tomorrow is about
+  90% right, falling to about 50% at day +7. The forecast is re-derived each
+  day from the seed and the day it was made, so it can change as days approach.
+  The actual weather always comes from the true seed.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
 - A crop **withers after 2 dry days**, or the morning the season turns against it.
 - You must till before you plant. Harvest a mature crop to put it in your pack.
@@ -208,6 +219,13 @@ turnip seed, on the starting player's turn at 100 energy.
 
 Stages: seed → sprouting → growing → mature. A just-planted kabocha is
 "day 0 of 7, seed". After three watered days it is "day 3 of 7, sprouting".
+
+
+## Roadmap
+
+- **Shop as a window.** The shop is currently a side-panel list. When there
+  are many seeds and items, it should open as a modal window instead of
+  living on the side panel. (Not built yet.)
 
 ## Files
 

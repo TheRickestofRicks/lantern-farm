@@ -37,7 +37,6 @@ POSITION_NAMES = {
     (3, 3): "bottom-right",
 }
 
-WET_WEATHER = frozenset({"rain", "snow"})
 
 
 def load_crops() -> dict:
@@ -177,15 +176,191 @@ def day_in_season(day: int, crops: dict | None = None) -> int:
     return ((int(day) - 1) % n) + 1
 
 
-def weather_for_day(day: int, crops: dict | None = None) -> str:
-    """Deterministic weather from the day number. No RNG is used."""
-    season = season_for_day(day, crops)
-    d = day_in_season(day, crops)
-    # Days 3, 5, 10, and 14 of every 14-day season are wet.
-    wet = d in {3, 5, 10, 14}
-    if not wet:
+WEATHER_KINDS = ("sun", "cloud", "rain", "storm", "snow")
+WET_WEATHER = frozenset({"rain", "storm", "snow"})
+DRY_WEATHER = frozenset({"sun", "cloud"})
+
+
+def weather_rules(rules: dict | None = None) -> dict:
+    rules = rules or load_rules()
+    raw = rules.get("weather") or {}
+    seasons = dict(raw.get("seasons") or {})
+    wet = raw.get("wet") or list(WET_WEATHER)
+    forecast = dict(raw.get("forecast") or {})
+    return {"seasons": seasons, "wet": list(wet), "forecast": forecast}
+
+
+def weather_mix(seed: int, day: int, salt: int = 0) -> int:
+    """Stable mix of the farm's weather seed, a day, and a salt. No RNG."""
+    n = (
+        (int(seed) * 747796405)
+        ^ (int(day) * 73856093)
+        ^ (int(salt) * 1664525)
+        ^ 0x9E3779B9
+    ) & 0xFFFFFFFF
+    n = ((n ^ (n >> 16)) * 0x7FEB352D) & 0xFFFFFFFF
+    n = ((n ^ (n >> 15)) * 0x846CA68B) & 0xFFFFFFFF
+    return n ^ (n >> 16)
+
+
+def season_weather_weights(season: str, rules: dict | None = None) -> dict[str, int]:
+    cfg = weather_rules(rules)
+    raw = cfg["seasons"].get(season) or cfg["seasons"].get("spring") or {}
+    out: dict[str, int] = {}
+    for kind in WEATHER_KINDS:
+        try:
+            weight = int(raw.get(kind, 0))
+        except (TypeError, ValueError):
+            weight = 0
+        if weight > 0:
+            out[kind] = weight
+    return out or {"sun": 1}
+
+
+def _pick_weighted(weights: dict[str, int], roll: int) -> str:
+    items = list(weights.items())
+    total = sum(w for _k, w in items)
+    if total <= 0:
         return "sun"
-    return "snow" if season == "winter" else "rain"
+    r = int(roll) % total
+    acc = 0
+    for kind, weight in items:
+        acc += weight
+        if r < acc:
+            return kind
+    return items[-1][0]
+
+
+def weather_for_day(
+    day: int,
+    crops: dict | None = None,
+    rules: dict | None = None,
+    seed: int | None = None,
+    state: dict | None = None,
+) -> str:
+    """Deterministic weather from the farm seed and the day number. No RNG is used."""
+    if seed is None and state is not None:
+        raw = state.get("weather_seed")
+        if raw is not None and raw != "":
+            seed = int(raw)
+    if seed is None:
+        seed = 0
+    rules = rules or load_rules()
+    season = season_for_day(day, crops)
+    weights = season_weather_weights(season, rules)
+    return _pick_weighted(weights, weather_mix(int(seed), int(day), salt=1))
+
+
+def find_weather_seed(
+    required: dict[int, str],
+    rules: dict | None = None,
+    crops: dict | None = None,
+    start: int = 0,
+    limit: int = 2_000_000,
+) -> int:
+    """First seed in [start, start+limit) that produces the required day→weather map."""
+    rules = rules or load_rules()
+    want = {int(d): str(w) for d, w in required.items()}
+    for seed in range(int(start), int(start) + int(limit)):
+        if all(weather_for_day(day, crops, rules, seed=seed) == kind for day, kind in want.items()):
+            return seed
+    # Extremely unlikely with the default tables; keep a defined fallback.
+    return int(start)
+
+
+def ensure_weather_seed(state: dict, rules: dict | None = None, crops: dict | None = None) -> bool:
+    """Add weather_seed if missing, without changing today's already-set weather."""
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    if state.get("weather_seed") is not None and str(state.get("weather_seed")) != "":
+        try:
+            state["weather_seed"] = int(state["weather_seed"])
+        except (TypeError, ValueError):
+            state["weather_seed"] = 0
+            return True
+        return False
+    day = int(state.get("day") or 1)
+    current = str(state.get("weather") or "sun")
+    if current not in WEATHER_KINDS:
+        current = "sun"
+    state["weather_seed"] = find_weather_seed({day: current}, rules, crops)
+    return True
+
+
+def forecast_length(rules: dict | None = None) -> int:
+    cfg = weather_rules(rules).get("forecast") or {}
+    try:
+        n = int(cfg.get("days", 7))
+    except (TypeError, ValueError):
+        n = 7
+    return max(1, n)
+
+
+def forecast_accuracy(lead: int, rules: dict | None = None) -> float:
+    """Chance the forecast made today is right for a day `lead` days ahead."""
+    cfg = weather_rules(rules).get("forecast") or {}
+    try:
+        near = float(cfg.get("near", 0.90))
+        far = float(cfg.get("far", 0.50))
+    except (TypeError, ValueError):
+        near, far = 0.90, 0.50
+    n = forecast_length(rules)
+    lead = int(lead)
+    if lead <= 1:
+        return near
+    if lead >= n:
+        return far
+    return near + (far - near) * (lead - 1) / (n - 1)
+
+
+def forecast_weather(
+    target_day: int,
+    made_on: int,
+    seed: int,
+    crops: dict | None = None,
+    rules: dict | None = None,
+) -> str:
+    """Predicted weather for target_day, as forecast on made_on (deterministic)."""
+    rules = rules or load_rules()
+    actual = weather_for_day(target_day, crops, rules, seed=seed)
+    lead = int(target_day) - int(made_on)
+    if lead <= 0:
+        return actual
+    acc = forecast_accuracy(lead, rules)
+    # Compare in 1/10000ths so this stays integer and stable.
+    threshold = int(round(acc * 10000))
+    roll = weather_mix(int(seed), int(made_on), salt=int(target_day) * 0x27d4eb2d) % 10000
+    if roll < threshold:
+        return actual
+    season = season_for_day(target_day, crops)
+    weights = dict(season_weather_weights(season, rules))
+    weights.pop(actual, None)
+    if not weights:
+        return actual
+    return _pick_weighted(weights, weather_mix(int(seed), int(made_on), salt=int(target_day) * 0x165667B1))
+
+
+def weather_forecast(state: dict, crops: dict | None = None, rules: dict | None = None, days: int | None = None) -> list[dict]:
+    """Next-N-day forecast, re-derived from the seed and the day it is made."""
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    ensure_weather_seed(state, rules, crops)
+    seed = int(state["weather_seed"])
+    made_on = int(state.get("day") or 1)
+    n = int(days) if days is not None else forecast_length(rules)
+    out = []
+    for lead in range(1, n + 1):
+        target = made_on + lead
+        predicted = forecast_weather(target, made_on, seed, crops, rules)
+        out.append(
+            {
+                "day": target,
+                "lead": lead,
+                "season": season_for_day(target, crops),
+                "weather": predicted,
+            }
+        )
+    return out
 
 
 def is_wet_weather(weather: str) -> bool:
@@ -258,8 +433,9 @@ def log_append(state: dict, text: str, player: str | None = None) -> None:
         state["log"] = state["log"][-MAX_LOG:]
 
 
-def fresh_state(crops: dict | None = None) -> dict:
+def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rules: dict | None = None) -> dict:
     crops = crops or load_crops()
+    rules = rules or load_rules()
     inventory = {key: int(val) for key, val in crops.get("starting_inventory", {}).items()}
     for kind in crops.get("crops", {}):
         inventory.setdefault(f"{kind}_seed", 0)
@@ -294,11 +470,15 @@ def fresh_state(crops: dict | None = None) -> dict:
                 )
         tiles.append(row)
     day = 1
-    weather = weather_for_day(day, crops)
+    if weather_seed is None:
+        weather_seed = find_weather_seed({1: "sun"}, rules, crops)
+    weather_seed = int(weather_seed)
+    weather = weather_for_day(day, crops, rules, seed=weather_seed)
     state = {
         "day": day,
         "season": season_for_day(day, crops),
         "weather": weather,
+        "weather_seed": weather_seed,
         "gold": int(crops.get("starting_gold", 80)),
         "inventory": inventory,
         "tiles": tiles,
@@ -332,8 +512,12 @@ def weather_arrive_message(weather: str) -> str:
     from config import flavor
     if weather == "rain":
         return flavor("rain") or "Rain falls over the farm. Every plot is watered."
+    if weather == "storm":
+        return flavor("storm") or "A storm rolls over the farm. Every plot is watered."
     if weather == "snow":
         return flavor("snow") or "Snow settles on the farm. The soil is wet beneath it."
+    if weather == "cloud":
+        return flavor("cloud") or "The sky is overcast. The soil stays as you left it."
     return flavor("clear") or "A clear day dawns over the farm."
 
 
@@ -424,6 +608,8 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
     changed = migrate_tile_fields(state)
     if "last_note" not in state:
         state["last_note"] = None
+        changed = True
+    if ensure_weather_seed(state, rules, None):
         changed = True
     if state.get("players") and state.get("current_player"):
         # Fill any missing slots without resetting mid-turn energy.
@@ -868,7 +1054,10 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
     notes = _apply_evening_growth(state, crops, rules)
     state["day"] = int(state["day"]) + 1
     state["season"] = season_for_day(state["day"], crops)
-    state["weather"] = weather_for_day(state["day"], crops)
+    ensure_weather_seed(state, rules, crops)
+    state["weather"] = weather_for_day(
+        state["day"], crops, rules, seed=int(state["weather_seed"])
+    )
 
     for r, c, tile in iter_tiles(state):
         crop = tile.get("crop")
@@ -894,7 +1083,9 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
     total = days_per_season(crops)
     sky = {
         "sun": "a clear, sunny morning",
+        "cloud": "an overcast morning",
         "rain": "a rainy morning",
+        "storm": "a stormy morning",
         "snow": "a snowy morning",
     }.get(state["weather"], state["weather"])
     header = f"Day {d} dawns, {season} (day {within} of {total}), {sky}."
