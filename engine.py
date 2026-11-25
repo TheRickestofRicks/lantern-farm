@@ -119,7 +119,7 @@ def step_energy(rules: dict | None = None) -> int:
     costs = rules.get("action_energy") or {}
     if "move" in costs:
         return int(costs["move"])
-    return int(rules.get("move_energy", 10))
+    return int(rules.get("move_energy", 5))
 
 
 def snacks_per_turn(rules: dict | None = None) -> int:
@@ -271,8 +271,8 @@ def parse_end_turn_command(command: str) -> tuple[bool, str]:
 
 def days_per_season(crops: dict | None) -> int:
     if not crops:
-        return 14
-    return int(crops.get("days_per_season", 14))
+        return 15
+    return int(crops.get("days_per_season", 15))
 
 
 def wither_after(crops: dict) -> int:
@@ -510,6 +510,8 @@ def stage_for(days_grown: int, info: dict, crop: dict | None = None) -> str:
 def stage_label(info: dict, stage_id: str) -> str:
     if stage_id == "regrowing":
         return "regrowing"
+    if stage_id == "dormant":
+        return "dormant"
     for stage in info.get("stages", []):
         if stage["id"] == stage_id:
             return stage.get("label", stage_id)
@@ -530,8 +532,88 @@ def crop_in_shop(info: dict) -> bool:
     return info.get("available", True) is not False
 
 
-def shop_kinds(crops: dict) -> list[str]:
-    return [kind for kind, info in (crops.get("crops") or {}).items() if crop_in_shop(info)]
+def crop_in_season(info: dict, season: str | None) -> bool:
+    if not info:
+        return False
+    if not season:
+        return True
+    return season in (info.get("seasons") or [])
+
+
+def crop_for_sale(info: dict, season: str | None = None) -> bool:
+    return crop_in_shop(info) and crop_in_season(info, season)
+
+
+def shop_kinds(crops: dict, season: str | None = None) -> list[str]:
+    return [
+        kind
+        for kind, info in (crops.get("crops") or {}).items()
+        if crop_for_sale(info, season)
+    ]
+
+
+def is_perennial(info: dict | None) -> bool:
+    if not info:
+        return False
+    return bool(info.get("perennial")) or int(info.get("lifespan_seasons") or 0) > 0
+
+
+def lifespan_seasons(info: dict | None) -> int:
+    return int((info or {}).get("lifespan_seasons") or 0)
+
+
+def season_index(day: int, crops: dict | None = None) -> int:
+    n = days_per_season(crops)
+    return (max(1, int(day)) - 1) // n
+
+
+def crop_season_age(crop: dict, day: int, crops: dict | None = None) -> int:
+    planted = int(crop.get("planted_day") or day)
+    return season_index(day, crops) - season_index(planted, crops) + 1
+
+
+def crop_is_dormant(crop: dict | None, info: dict | None, season: str | None) -> bool:
+    if not crop or not info or crop.get("stage") == "withered":
+        return False
+    if crop.get("stage") == "dormant":
+        return True
+    if is_perennial(info) and season not in (info.get("seasons") or []):
+        return True
+    return False
+
+
+def in_fruiting_window(state: dict, info: dict, crops: dict | None = None) -> bool:
+    season = state.get("season")
+    fruiting = info.get("fruiting_seasons") or info.get("seasons") or []
+    if season not in fruiting:
+        return False
+    if season == "summer":
+        early = int(info.get("fruiting_early_summer_days") or 5)
+        return day_in_season(int(state["day"]), crops) <= early
+    return True
+
+
+def crop_can_fruit(crop: dict, info: dict, state: dict, crops: dict | None = None) -> bool:
+    if not is_perennial(info):
+        return True
+    if info.get("fruiting_after_dormancy", True) and not crop.get("overwintered"):
+        return False
+    return in_fruiting_window(state, info, crops)
+
+
+def runner_chance_pct(info: dict) -> int:
+    ch = (info or {}).get("runner_chance")
+    if not ch:
+        return 0
+    return int(round(float(ch) * 100))
+
+
+def runner_roll(day: int, row: int, col: int, seed: int, chance_pct: int) -> bool:
+    """Deterministic 0–99 roll; True if the runner takes root this day."""
+    if chance_pct <= 0:
+        return False
+    n = weed_hash(int(day), int(row), int(col), salt=int(seed) ^ 4242)
+    return (n % 100) < int(chance_pct)
 
 
 def crop_cycle_days(info: dict, crop: dict | None = None) -> int:
@@ -632,6 +714,7 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
     state = {
         "day": day,
         "season": season_for_day(day, crops),
+        "days_per_season": days_per_season(crops),
         "weather": weather,
         "weather_seed": weather_seed,
         "gold": int(crops.get("starting_gold", 80)),
@@ -781,11 +864,83 @@ def migrate_tile_fields(state: dict) -> bool:
     return changed
 
 
+
+LEGACY_DAYS_PER_SEASON = 14
+LEGACY_GROW_DAYS = {"kabocha": 7, "turnip": 4, "carrot": 5, "strawberry": 5}
+
+
+def remap_calendar_day(day, old_n: int, new_n: int):
+    """Map a day from one season length to another, keeping season and day-in-season."""
+    try:
+        day = int(day)
+    except (TypeError, ValueError):
+        return day
+    if day < 1 or old_n == new_n or old_n <= 0 or new_n <= 0:
+        return day
+    idx = (day - 1) // old_n
+    into = (day - 1) % old_n + 1
+    into = min(into, new_n)
+    return idx * new_n + into
+
+
+def migrate_calendar(state: dict, crops: dict | None = None) -> bool:
+    """Remap day numbers when days_per_season changes. Idempotent. Never kills living plants."""
+    crops = crops or load_crops()
+    new_n = days_per_season(crops)
+    raw = state.get("days_per_season")
+    if raw is None:
+        old_n = LEGACY_DAYS_PER_SEASON
+    else:
+        old_n = int(raw)
+    if old_n == new_n:
+        if state.get("days_per_season") != new_n:
+            state["days_per_season"] = new_n
+            return True
+        return False
+    state["day"] = remap_calendar_day(state.get("day") or 1, old_n, new_n)
+    state["season"] = season_for_day(int(state["day"]), crops)
+    note = state.get("last_note")
+    if isinstance(note, dict) and "day" in note:
+        note["day"] = remap_calendar_day(note["day"], old_n, new_n)
+    for entry in state.get("log") or []:
+        if isinstance(entry, dict) and "day" in entry:
+            entry["day"] = remap_calendar_day(entry["day"], old_n, new_n)
+    for r, c, tile in iter_tiles(state):
+        weed = tile.get("weed")
+        if isinstance(weed, dict) and "appeared_day" in weed:
+            weed["appeared_day"] = remap_calendar_day(weed["appeared_day"], old_n, new_n)
+        crop = tile.get("crop")
+        if not crop:
+            continue
+        if "planted_day" in crop:
+            crop["planted_day"] = remap_calendar_day(crop["planted_day"], old_n, new_n)
+        if crop.get("stage") == "withered":
+            continue
+        kind = crop.get("kind")
+        info = crop_info(crops, kind) or {}
+        old_g = int(LEGACY_GROW_DAYS.get(kind, grow_days(info) if info else 0) or 0)
+        new_g = grow_days(info) if info else old_g
+        if old_g and new_g:
+            remaining = max(0, old_g - int(crop.get("days_grown") or 0))
+            crop["days_grown"] = max(0, new_g - remaining)
+            if crop["days_grown"] >= new_g:
+                crop["days_grown"] = new_g
+                crop["stage"] = "mature"
+            elif info:
+                crop["stage"] = stage_for(crop["days_grown"], info, crop)
+    state["days_per_season"] = new_n
+    # Keep today's weather; only the day number and season label were remapped.
+    return True
+
+
+
 def migrate_state(state: dict, rules: dict | None = None) -> bool:
     """Add turn/energy/weed fields to older saves. Returns True if the state changed."""
     rules = rules or load_rules()
     changed = migrate_tile_fields(state)
     if ensure_inventory_keys(state):
+        changed = True
+    if migrate_calendar(state, load_crops()):
         changed = True
     if "last_note" not in state:
         state["last_note"] = None
@@ -931,6 +1086,12 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
         return False, f"That's the cabin ({here}). You can't till the porch."
     crop = tile.get("crop")
     if crop and crop.get("stage") != "withered":
+        info = crop_info(crops, crop.get("kind")) or {}
+        if crop_is_dormant(crop, info, state.get("season")):
+            return False, (
+                f"A dormant {crop['kind']} is still living at {here}. "
+                "You can't till the bed while it rests."
+            )
         return False, f"A {crop['kind']} is growing at {here}. Harvest or wait before tilling."
     cleared = ""
     if crop and crop.get("stage") == "withered":
@@ -991,10 +1152,13 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     here = position_name(r, c)
     if tile["type"] == "cabin":
         return False, f"That's the cabin ({here}). The porch doesn't need watering."
+    crop = tile.get("crop")
+    info = crop_info(crops, crop["kind"]) if crop and crop.get("kind") else {}
+    if crop and crop_is_dormant(crop, info, state.get("season")):
+        return False, f"The {crop['kind']} at {here} is dormant and doesn't need water."
     if tile.get("watered"):
         return False, f"{here[0].upper() + here[1:]} is already watered today."
     tile["watered"] = True
-    crop = tile.get("crop")
     if crop and crop.get("stage") != "withered":
         msg = f"{who(player, 'water', 'waters')} the {crop['kind']} at {here}."
     else:
@@ -1019,6 +1183,13 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         msg = f"{who(player, 'clear', 'clears')} the withered plant at {here}."
         log_append(state, msg, player)
         return True, msg
+    kind_peek = crop.get("kind")
+    peek_info = crop_info(crops, kind_peek) if kind_peek else {}
+    if (
+        crop.get("stage") != "mature"
+        and crop_is_dormant(crop, peek_info, state.get("season"))
+    ):
+        return False, f"The {kind_peek} at {here} is dormant and resting until spring."
     if crop.get("stage") != "mature":
         info = crop_info(crops, crop["kind"]) or {}
         needed = crop_cycle_days(info, crop) if info else "?"
@@ -1030,15 +1201,22 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
     state["inventory"][kind] = int(state["inventory"].get(kind, 0)) + 1
-    if regrow_days(info) > 0:
+    if regrow_days(info) > 0 or is_perennial(info):
         crop["harvests"] = int(crop.get("harvests") or 0) + 1
         crop["days_grown"] = 0
-        crop["stage"] = "regrowing"
-        again = regrow_days(info)
-        msg = (
-            f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
-            f"It will fruit again in {again} watered day(s)."
-        )
+        if is_perennial(info) and state.get("season") not in (info.get("seasons") or []):
+            crop["stage"] = "dormant"
+            msg = (
+                f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
+                "It will rest until spring."
+            )
+        else:
+            crop["stage"] = "regrowing"
+            again = regrow_days(info) or grow_days(info)
+            msg = (
+                f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
+                f"It will fruit again in {again} watered day(s) if it is still in season."
+            )
         log_append(state, msg, player)
         return True, msg
     tile["crop"] = None
@@ -1062,11 +1240,15 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     kind = normalize_kind(str(kind))
     info = crop_info(crops, kind)
     if not info:
-        known = ", ".join(shop_kinds(crops)) or "nothing right now"
+        known = ", ".join(shop_kinds(crops, state.get("season"))) or "nothing right now"
         return False, f"Unknown seed {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
-        known = ", ".join(shop_kinds(crops)) or "nothing right now"
+        known = ", ".join(shop_kinds(crops, state.get("season"))) or "nothing right now"
         return False, f"The shop isn't selling {kind} seeds yet. It sells: {known}."
+    if not crop_in_season(info, state.get("season")):
+        season = state.get("season") or "this season"
+        known = ", ".join(shop_kinds(crops, season)) or "nothing right now"
+        return False, f"The shop isn't selling {kind} seeds this {season}. It sells: {known}."
     count, err = _parse_count(n)
     if err:
         return False, err
@@ -1220,6 +1402,114 @@ def pluck(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     return True, msg
 
 
+
+def _apply_season_to_crop(state: dict, crops: dict, crop: dict, row: int, col: int) -> list[str]:
+    """Die, go dormant, wake, or wither when the season changes at dawn."""
+    notes: list[str] = []
+    info = crop_info(crops, crop.get("kind"))
+    if not info:
+        return notes
+    here = position_name(row, col)
+    season = state.get("season")
+    day = int(state["day"])
+    kind = crop["kind"]
+    if is_perennial(info):
+        life = lifespan_seasons(info)
+        if life and crop_season_age(crop, day, crops) > life:
+            crop["stage"] = "withered"
+            notes.append(f"The {kind} at {here} lived out its two years.")
+            return notes
+        growing_seasons = info.get("seasons") or []
+        if season not in growing_seasons:
+            crop["overwintered"] = True
+            if crop.get("stage") != "dormant":
+                if crop.get("stage") == "mature":
+                    notes.append(
+                        f"The {kind} at {here} is going dormant, but a berry is still ready to harvest."
+                    )
+                else:
+                    crop["stage"] = "dormant"
+                    notes.append(f"The {kind} at {here} has gone dormant for {season}.")
+            return notes
+        if crop.get("stage") == "dormant":
+            crop["overwintered"] = True
+            if crop_can_fruit(crop, info, state, crops) and not crop.get("fruiting_started"):
+                crop["days_grown"] = 0
+                crop["fruiting_started"] = True
+                crop["stage"] = "regrowing"
+            else:
+                crop["stage"] = stage_for(int(crop.get("days_grown") or 0), info, crop)
+                if crop["stage"] == "mature" and not crop_can_fruit(crop, info, state, crops):
+                    crop["stage"] = "growing"
+            notes.append(f"The {kind} at {here} has woken for {season}.")
+        return notes
+    if season not in (info.get("seasons") or []):
+        crop["stage"] = "withered"
+        notes.append(f"The {kind} at {here} withered in the {season} air.")
+    return notes
+
+
+def _apply_runners(state: dict, crops: dict) -> list[str]:
+    """Active perennials may send one runner a season into an adjacent tilled empty plot."""
+    notes: list[str] = []
+    day = int(state["day"])
+    season = state.get("season")
+    season_i = season_index(day, crops)
+    seed = int(state.get("weather_seed") or 0)
+    parents = []
+    for r, c, tile in iter_tiles(state):
+        crop = tile.get("crop")
+        if not crop or crop.get("stage") == "withered":
+            continue
+        info = crop_info(crops, crop.get("kind"))
+        if not info or runner_chance_pct(info) <= 0:
+            continue
+        if crop_is_dormant(crop, info, season):
+            continue
+        if season not in (info.get("seasons") or []):
+            continue
+        if int(crop.get("runner_season") if crop.get("runner_season") is not None else -1) == season_i:
+            continue
+        parents.append((r, c, crop, info))
+    for r, c, crop, info in parents:
+        if not runner_roll(day, r, c, seed, runner_chance_pct(info)):
+            continue
+        dest = _pick_runner_plot(state, r, c, day, seed)
+        if not dest:
+            continue
+        rr, cc = dest
+        tile = get_tile(state, rr, cc)
+        tile["crop"] = {
+            "kind": crop["kind"],
+            "planted_day": day,
+            "days_grown": 0,
+            "stage": "seed",
+            "dry_days": 0,
+        }
+        crop["runner_season"] = season_i
+        notes.append(
+            f"A {crop['kind']} runner took root at {position_name(rr, cc)} "
+            f"from the plant at {position_name(r, c)}."
+        )
+    return notes
+
+
+def _pick_runner_plot(state: dict, row: int, col: int, day: int, seed: int):
+    candidates = []
+    for dr, dc in ((-1, 0), (0, 1), (1, 0), (0, -1)):
+        rr, cc = row + dr, col + dc
+        if not in_bounds(rr, cc):
+            continue
+        tile = get_tile(state, rr, cc)
+        if tile.get("type") != "soil" or not tile.get("tilled") or tile.get("crop"):
+            continue
+        candidates.append((rr, cc))
+    if not candidates:
+        return None
+    n = weed_hash(int(day), int(row), int(col), salt=int(seed) ^ 9091)
+    return candidates[n % len(candidates)]
+
+
 def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -> list[str]:
     notes = []
     limit = wither_after(crops)
@@ -1233,9 +1523,32 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
         here = position_name(r, c)
         kind = crop["kind"]
         info = crop_info(crops, kind)
+        if crop_is_dormant(crop, info, state.get("season")):
+            crop["dry_days"] = 0
+            tile["watered"] = False
+            continue
         if tile.get("watered"):
             crop["dry_days"] = 0
-            if crop.get("stage") != "mature" and info:
+            can_grow = bool(info) and crop.get("stage") != "mature"
+            if is_perennial(info) and not crop_can_fruit(crop, info, state, crops):
+                can_grow = False
+                # First-year plants still put on leaves, but never fruit yet.
+                if crop.get("stage") not in {"mature", "withered"}:
+                    established = int(crop.get("days_established") or 0)
+                    if tile.get("weedy"):
+                        ticks = int(tile.get("weedy_ticks") or 0)
+                        if ticks % 2 == 1:
+                            tile["weedy_ticks"] = ticks + 1
+                        else:
+                            crop["days_established"] = established + 1
+                            tile["weedy_ticks"] = ticks + 1
+                    else:
+                        crop["days_established"] = established + 1
+                    leaf_days = min(int(crop.get("days_established") or 0), max(0, grow_days(info) - 1))
+                    leaf = stage_for(leaf_days, info, crop)
+                    if leaf != "mature":
+                        crop["stage"] = leaf
+            if can_grow and info:
                 skip_growth = False
                 if tile.get("weedy"):
                     ticks = int(tile.get("weedy_ticks") or 0)
@@ -1289,18 +1602,14 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
         if not crop or crop.get("stage") == "withered":
             continue
         info = crop_info(crops, crop["kind"])
-        if info and state["season"] not in info["seasons"]:
-            crop["stage"] = "withered"
-            notes.append(
-                f"The {crop['kind']} at {position_name(r, c)} "
-                f"withered in the {state['season']} air."
-            )
+        notes.extend(_apply_season_to_crop(state, crops, crop, r, c))
 
     if is_wet_weather(state["weather"]):
         dawn_water(state)
         notes.append(weather_arrive_message(state["weather"]))
 
     notes.extend(sprout_and_age_weeds(state, rules))
+    notes.extend(_apply_runners(state, crops))
 
     season = state["season"]
     d = state["day"]
@@ -1523,7 +1832,9 @@ def legal_actions(
                     ) > 0:
                         actions.append(f"plant {r} {c} {kind}")
         if not tile.get("watered"):
-            if energy >= energy_cost("water", rules):
+            info = crop_info(crops, crop["kind"]) if crop and crop.get("kind") else {}
+            dormant = crop_is_dormant(crop, info, state.get("season")) if crop else False
+            if (not dormant) and energy >= energy_cost("water", rules):
                 actions.append(f"water {r} {c}")
         if crop and crop.get("stage") == "mature":
             actions.append(f"harvest {r} {c}")
@@ -1532,7 +1843,7 @@ def legal_actions(
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
     for kind, info in crops.get("crops", {}).items():
-        if crop_in_shop(info):
+        if crop_for_sale(info, state.get("season")):
             price = int(info["seed_price"])
             if int(state["gold"]) >= price:
                 actions.append(f"buy {kind} 1")

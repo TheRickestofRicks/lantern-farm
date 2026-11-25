@@ -124,12 +124,12 @@ class WeatherDeterminism(unittest.TestCase):
         self.assertEqual(again, seed)
 
     def test_winter_can_snow_and_summer_can_storm(self):
-        self.assertEqual(season_for_day(43, self.crops), "winter")
-        self.assertEqual(season_for_day(15, self.crops), "summer")
-        snow_seed = find_weather_seed({43: "snow"}, self.rules, self.crops)
-        self.assertEqual(weather_for_day(43, self.crops, self.rules, seed=snow_seed), "snow")
-        storm_seed = find_weather_seed({15: "storm"}, self.rules, self.crops)
-        self.assertEqual(weather_for_day(15, self.crops, self.rules, seed=storm_seed), "storm")
+        self.assertEqual(season_for_day(46, self.crops), "winter")
+        self.assertEqual(season_for_day(16, self.crops), "summer")
+        snow_seed = find_weather_seed({46: "snow"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(46, self.crops, self.rules, seed=snow_seed), "snow")
+        storm_seed = find_weather_seed({16: "storm"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(16, self.crops, self.rules, seed=storm_seed), "storm")
         self.assertTrue(is_wet_weather("snow"))
         self.assertTrue(is_wet_weather("storm"))
         self.assertTrue(is_wet_weather("rain"))
@@ -138,11 +138,11 @@ class WeatherDeterminism(unittest.TestCase):
 
     def test_season_cycle(self):
         self.assertEqual(season_for_day(1, self.crops), "spring")
-        self.assertEqual(season_for_day(14, self.crops), "spring")
-        self.assertEqual(season_for_day(15, self.crops), "summer")
-        self.assertEqual(season_for_day(29, self.crops), "autumn")
-        self.assertEqual(season_for_day(43, self.crops), "winter")
-        self.assertEqual(season_for_day(57, self.crops), "spring")
+        self.assertEqual(season_for_day(15, self.crops), "spring")
+        self.assertEqual(season_for_day(16, self.crops), "summer")
+        self.assertEqual(season_for_day(31, self.crops), "autumn")
+        self.assertEqual(season_for_day(46, self.crops), "winter")
+        self.assertEqual(season_for_day(61, self.crops), "spring")
 
 
 class GrowthRules(unittest.TestCase):
@@ -294,8 +294,8 @@ class GrowthRules(unittest.TestCase):
         self.assertIn("till", msg.lower())
 
     def test_harvest_mature_adds_inventory(self):
-        r, c = self._planted("turnip")  # 4 days
-        for _ in range(4):
+        r, c = self._planted("turnip")  # 9 days
+        for _ in range(9):
             # If a morning is already wet, water() may legitimately fail.
             water(self.state, self.crops, r, c)
             ok, msg = sleep(self.state, self.crops, no_weed_rules())
@@ -319,18 +319,18 @@ class GrowthRules(unittest.TestCase):
         ok, msg = sell(self.state, self.crops, "carrot", 1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["inventory"]["carrot"], 0)
-        self.assertEqual(self.state["gold"], gold - 30 + 30)
+        self.assertEqual(self.state["gold"], gold - 30 + 32)
         ok, msg = buy(self.state, self.crops, "carrot", 1)
         self.assertFalse(ok, msg)
         self.assertIn("isn't selling", msg)
 
     def test_out_of_season_withers_on_season_change(self):
-        # Turnips do not grow in summer (day 15).
+        # Turnips do not grow in summer (day 16).
         state = fresh_state(self.crops)
         # Jump to the last day of spring with a living turnip.
-        state["day"] = 14
-        state["season"] = season_for_day(14, self.crops)
-        state["weather"] = weather_for_day(14, self.crops, self.rules, seed=self.weather_seed)
+        state["day"] = 15
+        state["season"] = season_for_day(15, self.crops)
+        state["weather"] = weather_for_day(15, self.crops, self.rules, seed=self.weather_seed)
         self.assertEqual(state["season"], "spring")
         ok, _ = till(state, self.crops, 1, 1)
         self.assertTrue(ok)
@@ -341,7 +341,7 @@ class GrowthRules(unittest.TestCase):
         water(state, self.crops, 1, 1)
         ok, msg = sleep(state, self.crops, no_weed_rules())
         self.assertTrue(ok, msg)
-        self.assertEqual(state["day"], 15)
+        self.assertEqual(state["day"], 16)
         self.assertEqual(state["season"], "summer")
         crop = state["tiles"][0][0]["crop"]
         self.assertEqual(crop["stage"], "withered")
@@ -423,9 +423,9 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(energy_cost("sell", self.rules), 0)
         self.assertEqual(energy_cost("end_turn", self.rules), 0)
         self.assertEqual(energy_cost("pluck", self.rules), 5)
-        self.assertEqual(energy_cost("move", self.rules), 10)
+        self.assertEqual(energy_cost("move", self.rules), 5)
         self.assertEqual(energy_cost("eat", self.rules), 0)
-        self.assertEqual(step_energy(self.rules), 10)
+        self.assertEqual(step_energy(self.rules), 5)
         self.assertEqual(snacks_per_turn(self.rules), 2)
         self.assertEqual(pass_out_energy(self.rules), 50)
         custom = copy.deepcopy(self.rules)
@@ -465,7 +465,7 @@ class TurnsAndEnergy(unittest.TestCase):
         give_seeds(self.state, "turnip", 1)
         ok, _ = plant(self.state, self.crops, 1, 1, "turnip")
         self.assertTrue(ok)
-        for _ in range(4):
+        for _ in range(9):
             water(self.state, self.crops, 1, 1)
             ok, msg = sleep(self.state, self.crops, no_weed_rules())
             self.assertTrue(ok, msg)
@@ -484,7 +484,7 @@ class TurnsAndEnergy(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "buy strawberry 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
-        self.assertEqual(self.state["gold"], gold + 20 - 15)
+        self.assertEqual(self.state["gold"], gold + 22 - 15)
 
     def test_wrong_player_is_refused(self):
         ok, msg = do_action(self.state, self.crops, "till 1 1", player=P2)
@@ -770,10 +770,10 @@ class SeasonalWeatherAndForecast(unittest.TestCase):
         self.rules = load_rules()
 
     def test_snow_waters_plots_like_rain(self):
-        # Day 43 is the first day of winter, when snow is possible.
-        seed = find_weather_seed({42: "sun", 43: "snow"}, self.rules, self.crops)
+        # Day 46 is the first day of winter, when snow is possible.
+        seed = find_weather_seed({45: "sun", 46: "snow"}, self.rules, self.crops)
         state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
-        state["day"] = 42
+        state["day"] = 45
         state["season"] = "autumn"
         state["weather"] = "sun"
         r, c = 1, 1
@@ -786,7 +786,7 @@ class SeasonalWeatherAndForecast(unittest.TestCase):
         # No watering. Sleep to a snowy winter dawn.
         ok, msg = sleep(state, self.crops, no_weed_rules())
         self.assertTrue(ok, msg)
-        self.assertEqual(state["day"], 43)
+        self.assertEqual(state["day"], 46)
         self.assertEqual(state["season"], "winter")
         self.assertEqual(state["weather"], "snow")
         self.assertTrue(state["tiles"][0][0]["watered"])
@@ -953,7 +953,7 @@ class ConfigAndMCP(unittest.TestCase):
         rules = json.loads(mcp_server.farm_rules())
         self.assertEqual(rules["action_energy"]["pluck"], 5)
         self.assertEqual(rules["action_energy"]["till"], 10)
-        self.assertEqual(rules["action_energy"]["move"], 10)
+        self.assertEqual(rules["action_energy"]["move"], 5)
         self.assertEqual(rules["snacks_per_turn"], 2)
         self.assertEqual(rules["pass_out_energy"], 50)
         self.assertEqual(rules["max_energy"], 100)
@@ -1295,23 +1295,23 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(player_where(self.state, P1), (1, 1))
         # cabin (1,3) to (1,1) is two steps.
-        self.assertEqual(self.state["players"][P1]["energy"], 80)
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
         ok, msg = do_action(self.state, self.crops, "till", player=P1)
         self.assertTrue(ok, msg)
         self.assertTrue(self.state["tiles"][0][0]["tilled"])
 
     def test_diagonal_step_costs_the_same_as_cardinal(self):
         # Cabin 1,3 to center 2,2 is one diagonal step.
-        self.assertEqual(path_cost((1, 3), (2, 2), self.rules), 10)
-        self.assertEqual(path_cost((1, 3), (1, 1), self.rules), 20)
+        self.assertEqual(path_cost((1, 3), (2, 2), self.rules), 5)
+        self.assertEqual(path_cost((1, 3), (1, 1), self.rules), 10)
         ok, msg = do_action(self.state, self.crops, "move to 2 2", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(player_where(self.state, P1), (2, 2))
-        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
         before = self.state["players"][P1]["energy"]
         ok, msg = do_action(self.state, self.crops, "move down", player=P1)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["players"][P1]["energy"], before - 10)
+        self.assertEqual(self.state["players"][P1]["energy"], before - 5)
         # Not enough energy: no partial move.
         self.state["players"][P1]["energy"] = 5
         here = player_where(self.state, P1)
@@ -1353,7 +1353,8 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
 
     def test_eat_restores_energy_and_is_capped_at_two_snacks(self):
         self.assertEqual(eat_energy_for(self.crops, "carrot"), 10)
-        self.assertEqual(eat_energy_for(self.crops, "turnip"), 15)
+        self.assertEqual(eat_energy_for(self.crops, "turnip"), 12)
+        self.assertEqual(eat_energy_for(self.crops, "strawberry"), 30)
         self.assertEqual(eat_energy_for(self.crops, "kabocha"), 25)
         self.state["inventory"]["carrot"] = 3
         self.state["players"][P1]["energy"] = 20
@@ -1373,7 +1374,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         gold = self.state["gold"]
         ok, msg = do_action(self.state, self.crops, "sell carrot 1", player=P1)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["gold"], gold + 30)
+        self.assertEqual(self.state["gold"], gold + 32)
         self.assertEqual(self.state["inventory"]["carrot"], 0)
 
     def test_eat_will_not_exceed_max_energy(self):
@@ -1441,57 +1442,171 @@ class SpringCropsAndShop(unittest.TestCase):
             ok, msg = sleep(self.state, self.crops, self.rules)
             self.assertTrue(ok, msg)
 
-    def test_strawberry_regrows_after_harvest(self):
+    def test_strawberry_does_not_fruit_in_its_first_season(self):
         r, c = 1, 1
         till(self.state, self.crops, r, c)
         ok, msg = plant(self.state, self.crops, r, c, "strawberry")
         self.assertTrue(ok, msg)
-        crop = self.state["tiles"][r - 1][c - 1]["crop"]
-        self.assertEqual(crop["stage"], "seed")
-        self._grow_days(r, c, 5)
-        crop = self.state["tiles"][r - 1][c - 1]["crop"]
-        self.assertEqual(crop["stage"], "mature")
-        before = int(self.state["inventory"]["strawberry"])
-        ok, msg = harvest(self.state, self.crops, r, c)
-        self.assertTrue(ok, msg)
-        self.assertIn("fruit again", msg)
-        self.assertEqual(self.state["inventory"]["strawberry"], before + 1)
+        self._grow_days(r, c, 14)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertIsNotNone(crop)
-        self.assertEqual(crop["kind"], "strawberry")
-        self.assertEqual(crop["stage"], "regrowing")
-        self.assertEqual(crop["days_grown"], 0)
-        self.assertEqual(crop["harvests"], 1)
-        self._grow_days(r, c, 2)
-        crop = self.state["tiles"][r - 1][c - 1]["crop"]
-        self.assertEqual(crop["stage"], "mature")
-        ok, msg = harvest(self.state, self.crops, r, c)
-        self.assertTrue(ok, msg)
-        self.assertEqual(self.state["inventory"]["strawberry"], before + 2)
-        crop = self.state["tiles"][r - 1][c - 1]["crop"]
-        self.assertEqual(crop["stage"], "regrowing")
-        self.assertEqual(crop["harvests"], 2)
+        self.assertNotEqual(crop["stage"], "mature")
+        self.assertNotEqual(crop["stage"], "withered")
+        self.assertFalse(crop.get("overwintered"))
 
-    def test_strawberry_withers_when_summer_arrives(self):
+    def test_strawberry_goes_dormant_in_autumn_and_fruits_the_next_spring(self):
         r, c = 1, 1
         till(self.state, self.crops, r, c)
         ok, msg = plant(self.state, self.crops, r, c, "strawberry")
         self.assertTrue(ok, msg)
-        self._grow_days(r, c, 5)
-        self.assertEqual(self.state["tiles"][r - 1][c - 1]["crop"]["stage"], "mature")
-        harvest(self.state, self.crops, r, c)
-        # Jump to the last evening of spring, then one more sleep into summer.
-        self.state["day"] = 14
-        self.state["season"] = "spring"
+        self._grow_days(r, c, 3)
+        # Last day of summer into autumn.
+        self.state["day"] = 30
+        self.state["season"] = "summer"
         water(self.state, self.crops, r, c)
         ok, msg = sleep(self.state, self.crops, self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["season"], "summer")
+        self.assertEqual(self.state["season"], "autumn")
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "dormant")
+        self.assertTrue(crop.get("overwintered"))
+        self.assertIn("dormant", msg.lower())
+        # Watering is refused; tilling is blocked.
+        ok, msg = water(self.state, self.crops, r, c)
+        self.assertFalse(ok)
+        self.assertIn("dormant", msg.lower())
+        ok, msg = till(self.state, self.crops, r, c)
+        self.assertFalse(ok)
+        # Through winter, still dormant, then it wakes in spring and can fruit.
+        self.state["day"] = 60
+        self.state["season"] = "winter"
+        ok, msg = sleep(self.state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["season"], "spring")
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertNotEqual(crop["stage"], "dormant")
+        self.assertNotEqual(crop["stage"], "withered")
+        self.assertIn("woken", msg.lower())
+        self._grow_days(r, c, 7)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "mature")
+        ok, msg = harvest(self.state, self.crops, r, c)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["inventory"]["strawberry"], 1)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "regrowing")
+        self._grow_days(r, c, 7)
+        self.assertEqual(self.state["tiles"][r - 1][c - 1]["crop"]["stage"], "mature")
+
+    def test_strawberry_dies_after_eight_seasons(self):
+        r, c = 1, 1
+        till(self.state, self.crops, r, c)
+        plant(self.state, self.crops, r, c, "strawberry")
+        # Planted on day 1 (season 0). The 9th season starts on day 121.
+        self.state["day"] = 120
+        self.state["season"] = "winter"
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        crop["overwintered"] = True
+        crop["stage"] = "dormant"
+        ok, msg = sleep(self.state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["day"], 121)
+        self.assertEqual(self.state["season"], "spring")
         self.assertEqual(self.state["tiles"][r - 1][c - 1]["crop"]["stage"], "withered")
+        self.assertIn("two years", msg.lower())
+
+    def test_strawberry_runner_is_capped_at_one_per_season(self):
+        from engine import _apply_runners
+        r, c = 2, 2
+        till(self.state, self.crops, r, c)
+        plant(self.state, self.crops, r, c, "strawberry")
+        till(self.state, self.crops, 1, 2)
+        till(self.state, self.crops, 2, 1)
+        till(self.state, self.crops, 2, 3)
+        till(self.state, self.crops, 3, 2)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        info = dict(self.crops["crops"]["strawberry"])
+        info["runner_chance"] = 1.0
+        # Force the roll by temporarily setting chance on the live info used by crop_info.
+        self.crops["crops"]["strawberry"]["runner_chance"] = 1.0
+        notes = _apply_runners(self.state, self.crops)
+        self.assertTrue(any("runner" in n.lower() for n in notes), notes)
+        children = [
+            (rr, cc)
+            for rr in range(1, 4)
+            for cc in range(1, 4)
+            if (rr, cc) != (r, c)
+            and (self.state["tiles"][rr - 1][cc - 1].get("crop") or {}).get("kind") == "strawberry"
+        ]
+        self.assertEqual(len(children), 1)
+        notes2 = _apply_runners(self.state, self.crops)
+        self.assertFalse(any("runner" in n.lower() for n in notes2))
+        children2 = [
+            (rr, cc)
+            for rr in range(1, 4)
+            for cc in range(1, 4)
+            if (rr, cc) != (r, c)
+            and (self.state["tiles"][rr - 1][cc - 1].get("crop") or {}).get("kind") == "strawberry"
+        ]
+        self.assertEqual(len(children2), 1)
+        self.crops["crops"]["strawberry"]["runner_chance"] = 0.10
+
+    def test_shop_sells_strawberry_in_summer_but_not_autumn(self):
+        from engine import shop_kinds, legal_actions, buy
+        self.state["day"] = 17
+        self.state["season"] = "summer"
+        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry"])
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("buy strawberry 1", actions)
+        ok, msg = buy(self.state, self.crops, "strawberry", 1)
+        self.assertTrue(ok, msg)
+        self.state["day"] = 31
+        self.state["season"] = "autumn"
+        self.assertEqual(shop_kinds(self.crops, "autumn"), [])
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn("buy strawberry 1", actions)
+        ok, msg = buy(self.state, self.crops, "strawberry", 1)
+        self.assertFalse(ok, msg)
+        self.assertIn("autumn", msg.lower())
+
+    def test_calendar_migrate_remaps_day_and_keeps_remaining_growth(self):
+        from engine import migrate_calendar, remap_calendar_day
+        self.assertEqual(remap_calendar_day(16, 14, 15), 17)
+        self.assertEqual(remap_calendar_day(14, 14, 15), 14)
+        self.assertEqual(remap_calendar_day(15, 14, 15), 16)
+        self.assertEqual(remap_calendar_day(28, 14, 15), 29)
+        state = fresh_state(self.crops, rules=self.rules)
+        # Simulate a 14-day-calendar save: summer day 2, kabocha watered once (6 days left).
+        state["days_per_season"] = 14
+        state["day"] = 16
+        state["season"] = "summer"
+        state["gold"] = 162
+        till(state, self.crops, 1, 2)
+        give_seeds(state, "kabocha", 1)
+        plant(state, self.crops, 1, 2, "kabocha")
+        crop = state["tiles"][0][1]["crop"]
+        crop["planted_day"] = 15
+        crop["days_grown"] = 1
+        crop["stage"] = "seed"
+        weather = state["weather"]
+        changed = migrate_calendar(state, self.crops)
+        self.assertTrue(changed)
+        self.assertEqual(state["day"], 17)
+        self.assertEqual(state["season"], "summer")
+        self.assertEqual(state["days_per_season"], 15)
+        self.assertEqual(state["weather"], weather)
+        self.assertEqual(state["gold"], 162)
+        crop = state["tiles"][0][1]["crop"]
+        self.assertEqual(crop["planted_day"], 16)
+        # 6 watered days still remain (17 - 6 = 11).
+        self.assertEqual(crop["days_grown"], 11)
+        self.assertNotEqual(crop["stage"], "withered")
+        # Idempotent.
+        self.assertFalse(migrate_calendar(state, self.crops))
 
     def test_strawberry_sprites_cover_each_stage(self):
         from sprites import svg_for_key
-        for stage in ("seed", "sprouting", "growing", "mature", "regrowing", "withered"):
+        for stage in ("seed", "sprouting", "growing", "mature", "regrowing", "dormant", "withered"):
             svg = svg_for_key(f"strawberry_{stage}_dry")
             self.assertIn("<svg", svg)
             self.assertNotIn("unknown", svg.lower())

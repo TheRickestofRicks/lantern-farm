@@ -126,5 +126,6 @@
       "snacks_eaten": 0
     }
   },
-  "current_player": "player1"
+  "current_player": "player1",
+  "days_per_season": 15
 }

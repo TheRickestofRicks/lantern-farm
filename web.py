@@ -242,31 +242,41 @@ PAGE = r"""<!DOCTYPE html>
         var(--bg);
       color: var(--ink);
       font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
       min-height: 100vh;
+      min-height: 100dvh;
+      max-height: 100vh;
+      max-height: 100dvh;
     }
     header {
-      padding: 1.2rem 1.5rem 0.4rem;
+      flex: 0 0 auto;
+      padding: 0.65rem 1.2rem 0.3rem;
       display: flex;
       flex-wrap: wrap;
-      gap: 0.6rem 1.4rem;
+      gap: 0.4rem 1.2rem;
       align-items: baseline;
       justify-content: space-between;
     }
     h1 {
       margin: 0;
       font-weight: 600;
-      font-size: 1.8rem;
+      font-size: 1.45rem;
       letter-spacing: 0.04em;
       color: var(--gold2);
       text-shadow: 0 0 18px rgba(255, 180, 70, 0.35);
     }
-    h1 span { font-size: 1.1rem; }
+    h1 span { font-size: 1rem; }
     .status {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.8rem 1.2rem;
+      gap: 0.5rem 1rem;
       color: var(--muted);
-      font-size: 1.05rem;
+      font-size: 0.98rem;
     }
     .status b { color: var(--ink); font-weight: 600; }
     .gold { color: var(--gold); }
@@ -274,33 +284,48 @@ PAGE = r"""<!DOCTYPE html>
     .ended { opacity: 0.7; font-size: 0.95em; }
     .playing-as { width: 100%; color: var(--muted); font-size: 0.95rem; }
     main {
+      flex: 1 1 auto;
+      min-height: 0;
       display: grid;
-      grid-template-columns: minmax(320px, 1fr) minmax(280px, 360px);
-      gap: 1.4rem;
-      padding: 0.8rem 1.5rem 2rem;
-      align-items: start;
-    }
-    @media (max-width: 800px) {
-      main { grid-template-columns: 1fr; }
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 32vw);
+      gap: 1rem;
+      padding: 0.4rem 1.2rem 0.5rem;
+      align-items: stretch;
+      overflow: hidden;
     }
     .farm {
       background: var(--bg2);
       border: 1px solid var(--line);
       border-radius: 18px;
-      padding: 1rem;
+      padding: 0.7rem;
       box-shadow: 0 12px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,220,160,0.08);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .farm-map {
+      flex: 1 1 auto;
+      min-height: 0;
+      container-type: size;
+      display: grid;
+      place-items: center;
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 0.7rem;
+      gap: clamp(0.25rem, 1.6cqi, 0.7rem);
+      width: min(100cqw, 100cqh);
+      height: min(100cqw, 100cqh);
+      aspect-ratio: 1;
     }
     .forecast {
+      flex: 0 0 auto;
       display: grid;
       grid-template-columns: repeat(7, 1fr);
-      gap: 0.35rem;
-      margin-top: 0.9rem;
-      padding-top: 0.8rem;
+      gap: 0.3rem;
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
       border-top: 1px solid var(--line);
     }
     .forecast-day {
@@ -318,6 +343,27 @@ PAGE = r"""<!DOCTYPE html>
     .forecast-day svg { display: block; width: 28px; height: 28px; margin: 0 auto 0.15rem; }
     @media (max-width: 800px) {
       .forecast { grid-template-columns: repeat(4, 1fr); }
+    }
+    @media (max-height: 800px) {
+      header { padding: 0.4rem 1rem 0.15rem; }
+      h1 { font-size: 1.22rem; }
+      .status { font-size: 0.88rem; gap: 0.35rem 0.8rem; }
+      .forecast-day { font-size: 0.68rem; padding: 0.2rem 0.08rem 0.25rem; }
+      .forecast-day svg { width: 22px; height: 22px; }
+      .keys { font-size: 0.74rem; margin-top: 0.4rem; line-height: 1.45; }
+      footer { padding: 0.2rem 1rem 0.35rem; font-size: 0.75rem; }
+    }
+    @media (max-width: 800px) {
+      html, body { overflow: auto; height: auto; max-height: none; }
+      main {
+        grid-template-columns: 1fr;
+        overflow: visible;
+        height: auto;
+      }
+      .farm-map {
+        min-height: min(70vw, 70vh);
+        height: min(70vw, 70vh);
+      }
     }
     button.tile {
       appearance: none;
@@ -391,8 +437,11 @@ PAGE = r"""<!DOCTYPE html>
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 18px;
-      padding: 1rem 1.1rem 1.2rem;
+      padding: 0.85rem 1rem 1rem;
       box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
     }
     .panel h2 {
       margin: 0 0 0.5rem;
@@ -465,7 +514,7 @@ PAGE = r"""<!DOCTYPE html>
       padding: 0.8rem;
       border-radius: 10px;
       overflow: auto;
-      max-height: 24rem;
+      max-height: 12rem;
     }
     .log {
       list-style: none;
@@ -478,15 +527,17 @@ PAGE = r"""<!DOCTYPE html>
     }
     .log li { margin: 0 0 0.3rem; }
     footer {
-      padding: 0 1.5rem 1.5rem;
+      flex: 0 0 auto;
+      padding: 0.25rem 1.2rem 0.45rem;
       color: #8a7a66;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
     }
     .keys {
-      margin-top: 0.85rem;
+      flex: 0 0 auto;
+      margin-top: 0.5rem;
       color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.65;
+      font-size: 0.78rem;
+      line-height: 1.5;
     }
     kbd {
       display: inline-block;
@@ -569,6 +620,93 @@ PAGE = r"""<!DOCTYPE html>
       color: var(--gold);
       font-weight: 600;
     }
+    .shop-launch { margin: 0 0 0.8rem; }
+    .shop-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: grid;
+      place-items: center;
+      padding: 1.2rem;
+    }
+    .shop-modal[hidden] { display: none !important; }
+    .shop-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(12, 8, 6, 0.72);
+    }
+    .shop-dialog {
+      position: relative;
+      z-index: 1;
+      width: min(52rem, 100%);
+      max-height: min(86dvh, 860px);
+      overflow: auto;
+      overscroll-behavior: contain;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+      padding: 1rem 1.15rem 1.2rem;
+    }
+    .shop-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.8rem;
+      margin-bottom: 0.4rem;
+    }
+    .shop-head h2 { margin: 0; }
+    .shop-empty {
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 0.7rem 0 1rem;
+    }
+    .shop-section-title {
+      margin: 1rem 0 0.2rem;
+      font-size: 0.92rem;
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .shop-card {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 0.7rem 1rem;
+      padding: 0.85rem 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .shop-card:last-child { border-bottom: 0; }
+    .shop-card img {
+      width: 88px;
+      height: 88px;
+      object-fit: cover;
+      border-radius: 12px;
+      background: var(--soil);
+      border: 1px solid var(--line);
+    }
+    .shop-card b { color: var(--ink); font-size: 1.05rem; }
+    .shop-card .desc { margin: 0.25rem 0 0.4rem; color: var(--ink); line-height: 1.4; }
+    .shop-meta { font-size: 0.88rem; line-height: 1.45; }
+    .shop-qty {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.45rem;
+    }
+    .shop-qty input[type="number"] {
+      width: 3.4rem;
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #140f0c;
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 0.3rem 0.4rem;
+      border-radius: 8px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -578,7 +716,9 @@ PAGE = r"""<!DOCTYPE html>
   </header>
   <main>
     <section class="farm">
-      <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
+      <div class="farm-map">
+        <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
+      </div>
       <div class="forecast" id="forecast" hidden></div>
       <p class="keys" id="keys">
         <kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> walk
@@ -588,15 +728,19 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>P</kbd> plant
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
+        &middot; <kbd>S</kbd> shop
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
         &middot; <kbd>Enter</kbd> in the note box ends the turn
         &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
-        &middot; <kbd>Esc</kbd> deselect
+        &middot; <kbd>Esc</kbd> closes the shop or deselects
       </p>
     </section>
     <aside class="panel">
       <div class="toast" id="toast"></div>
       <div class="inv" id="inv"></div>
+      <div class="shop-launch">
+        <button class="btn primary" id="open-shop" type="button">Shop <kbd>S</kbd></button>
+      </div>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div class="actions" id="tile-actions"></div>
@@ -607,8 +751,6 @@ PAGE = r"""<!DOCTYPE html>
       </div>
       <div class="sleep-outlook" id="sleep-outlook"></div>
       <div class="confirm-end" id="end-confirm" hidden>End your turn? Press <kbd>E</kbd> or <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel. A note in the box will be sent too.</div>
-      <h2 style="margin-top:1.1rem">Shop</h2>
-      <div id="shop"></div>
       <h2 style="margin-top:1.1rem">Log</h2>
       <ul class="log" id="log"></ul>
       <details>
@@ -620,6 +762,16 @@ PAGE = r"""<!DOCTYPE html>
   <footer>
     __WEB_FOOTER__
   </footer>
+  <div id="shop-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="shop-backdrop"></div>
+    <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="shop-title">
+      <div class="shop-head">
+        <h2 id="shop-title">Shop</h2>
+        <button type="button" class="btn" id="shop-close">Close</button>
+      </div>
+      <div id="shop" class="shop-body"></div>
+    </div>
+  </div>
   <script>
     const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
     const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
@@ -641,6 +793,8 @@ PAGE = r"""<!DOCTYPE html>
     let lastData = null;
     let plantPick = null; /* {kinds, index} while choosing a seed */
     let endConfirm = false;
+    let shopOpen = false;
+    const shopQty = {};
 
     function $(id) { return document.getElementById(id); }
 
@@ -736,6 +890,9 @@ PAGE = r"""<!DOCTYPE html>
       if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + weed;
       if (crop.stage === "withered") {
         return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + weed;
+      }
+      if (crop.stage === "dormant") {
+        return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + weed;
       }
       const info = (lastData && lastData.crops && lastData.crops[crop.kind]) || {};
       const needed = (crop.harvests && info.regrow_days) ? info.regrow_days : info.grow_days;
@@ -1028,47 +1185,110 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
 
-    function renderShop(data) {
-      const shop = $("shop");
-      shop.innerHTML = "";
-      const crops = data.crops || {};
+    function openShop() {
+      shopOpen = true;
+      const modal = $("shop-modal");
+      if (modal) modal.hidden = false;
+      if (lastData) renderShop(lastData);
+    }
+    function closeShop() {
+      shopOpen = false;
+      const modal = $("shop-modal");
+      if (modal) modal.hidden = true;
+    }
+
+    function seasonLabel(list) {
+      return (list || []).join(", ") || "unknown season";
+    }
+
+    function shopEmptyMessage(season) {
+      const name = cap(season || "this season");
+      return "Nothing in season yet. " + name + " seeds arrive in a later update.";
+    }
+
+    function appendShopCard(shop, data, kind, info, opts) {
       const inv = data.state.inventory || {};
       const gold = data.state.gold;
-      for (const [kind, info] of Object.entries(crops)) {
-        const seeds = inv[kind + "_seed"] || 0;
-        const fruit = inv[kind] || 0;
-        const inShop = info.available !== false;
-        if (!inShop && seeds < 1 && fruit < 1) continue;
-        const row = document.createElement("div");
-        row.className = "shop-item";
-        const eat = info.eat_energy;
-        const cycle = info.regrow_days
-          ? (info.grow_days + " days, then every " + info.regrow_days)
-          : (info.grow_days + " days");
-        row.innerHTML = "<div><b>" + cap(kind) + "</b><br>" +
-          cycle + " · seeds " + seeds + " · crop " + fruit +
-          "<br>" + (inShop ? ("buy " + info.seed_price + "G · ") : "later crop · ") +
-          "sell " + info.sell_price + "G" +
-          (eat ? " · eat +" + eat + " energy" : "") +
-          " · " + (info.seasons || []).join(", ") + "</div>";
-        const btns = document.createElement("div");
-        btns.className = "shop-row";
-        if (inShop) {
-          const buy = document.createElement("button");
-          buy.type = "button";
-          buy.className = "btn";
-          buy.textContent = "Buy seed";
-          buy.disabled = gold < info.seed_price || !data.your_turn;
-          buy.addEventListener("click", function () { actCmd("buy " + kind + " 1"); });
-          btns.appendChild(buy);
+      const seeds = inv[kind + "_seed"] || 0;
+      const fruit = inv[kind] || 0;
+      const eat = info.eat_energy;
+      const card = document.createElement("div");
+      card.className = "shop-card";
+      const img = document.createElement("img");
+      img.src = "/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg";
+      img.alt = cap(kind);
+      card.appendChild(img);
+      const body = document.createElement("div");
+      let cycle = info.regrow_days
+        ? (info.grow_days + " days, then every " + info.regrow_days + " days")
+        : (info.grow_days + " days");
+      if (info.perennial) {
+        cycle += " · perennial, fruits after first winter, dormant in autumn and winter, lives "
+          + (info.lifespan_seasons || 8) + " seasons";
+        if (info.fruiting_early_summer_days) {
+          cycle += ", through spring into early summer";
         }
+      }
+      const desc = info.description || "";
+      body.innerHTML = "<b>" + cap(kind) + "</b>" +
+        (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
+        '<div class="meta shop-meta">' + seasonLabel(info.seasons) +
+        " · " + cycle +
+        " · seeds " + info.seed_price + "G · sell " + info.sell_price + "G" +
+        (eat ? " · eat +" + eat + " energy" : "") +
+        " · pack: " + seeds + " seed" + (seeds === 1 ? "" : "s") +
+        ", " + fruit + " " + kind + (fruit === 1 ? "" : "s") +
+        "</div>";
+      const row = document.createElement("div");
+      row.className = "shop-qty";
+      if (opts.buy) {
+        if (shopQty[kind] == null) shopQty[kind] = 1;
+        const minus = document.createElement("button");
+        minus.type = "button";
+        minus.className = "btn";
+        minus.textContent = "−";
+        const qty = document.createElement("input");
+        qty.type = "number";
+        qty.min = "1";
+        qty.max = "99";
+        qty.value = String(shopQty[kind]);
+        qty.setAttribute("aria-label", "Quantity of " + kind + " seeds");
+        const plus = document.createElement("button");
+        plus.type = "button";
+        plus.className = "btn";
+        plus.textContent = "+";
+        function readQty() {
+          let n = parseInt(qty.value, 10);
+          if (!(n > 0)) n = 1;
+          if (n > 99) n = 99;
+          shopQty[kind] = n;
+          qty.value = String(n);
+          return n;
+        }
+        minus.addEventListener("click", function () { qty.value = String(Math.max(1, readQty() - 1)); readQty(); });
+        plus.addEventListener("click", function () { qty.value = String(Math.min(99, readQty() + 1)); readQty(); });
+        qty.addEventListener("change", readQty);
+        const buy = document.createElement("button");
+        buy.type = "button";
+        buy.className = "btn primary";
+        buy.textContent = "Buy";
+        buy.disabled = gold < info.seed_price || !data.your_turn;
+        buy.addEventListener("click", function () {
+          actCmd("buy " + kind + " " + readQty());
+        });
+        row.appendChild(minus);
+        row.appendChild(qty);
+        row.appendChild(plus);
+        row.appendChild(buy);
+      }
+      if (opts.sell) {
         const sell = document.createElement("button");
         sell.type = "button";
         sell.className = "btn";
-        sell.textContent = "Sell";
+        sell.textContent = "Sell 1";
         sell.disabled = fruit < 1 || !data.your_turn;
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
-        btns.appendChild(sell);
+        row.appendChild(sell);
         if (eat) {
           const eatBtn = document.createElement("button");
           eatBtn.type = "button";
@@ -1076,10 +1296,51 @@ PAGE = r"""<!DOCTYPE html>
           eatBtn.textContent = "Eat (+" + eat + ")";
           eatBtn.disabled = fruit < 1 || !data.your_turn;
           eatBtn.addEventListener("click", function () { actCmd("eat " + kind); });
-          btns.appendChild(eatBtn);
+          row.appendChild(eatBtn);
         }
-        row.appendChild(btns);
-        shop.appendChild(row);
+      }
+      body.appendChild(row);
+      card.appendChild(body);
+      shop.appendChild(card);
+    }
+
+    function renderShop(data) {
+      const shop = $("shop");
+      if (!shop) return;
+      shop.innerHTML = "";
+      const crops = data.crops || {};
+      const inv = data.state.inventory || {};
+      const season = (data.state && data.state.season) || "";
+      const forSale = [];
+      const sellables = [];
+      for (const [kind, info] of Object.entries(crops)) {
+        const fruit = inv[kind] || 0;
+        const inSeason = info.available !== false && (info.seasons || []).indexOf(season) !== -1;
+        if (inSeason) forSale.push([kind, info]);
+        if (fruit > 0) sellables.push([kind, info]);
+      }
+      if (!forSale.length) {
+        const empty = document.createElement("p");
+        empty.className = "shop-empty";
+        empty.textContent = shopEmptyMessage(season);
+        shop.appendChild(empty);
+      } else {
+        const title = document.createElement("div");
+        title.className = "shop-section-title";
+        title.textContent = "Seeds in season";
+        shop.appendChild(title);
+        forSale.forEach(function (pair) {
+          appendShopCard(shop, data, pair[0], pair[1], {buy: true, sell: false});
+        });
+      }
+      if (sellables.length) {
+        const title = document.createElement("div");
+        title.className = "shop-section-title";
+        title.textContent = "From the pack";
+        shop.appendChild(title);
+        sellables.forEach(function (pair) {
+          appendShopCard(shop, data, pair[0], pair[1], {buy: false, sell: true});
+        });
       }
     }
 
@@ -1340,6 +1601,10 @@ PAGE = r"""<!DOCTYPE html>
 
       if (key === "Escape") {
         ev.preventDefault();
+        if (shopOpen) {
+          closeShop();
+          return;
+        }
         if (endConfirm || plantPick) {
           endConfirm = false;
           plantPick = null;
@@ -1394,6 +1659,12 @@ PAGE = r"""<!DOCTYPE html>
       }
 
       const letter = (key && key.length === 1) ? key.toLowerCase() : "";
+      if (letter === "s") {
+        ev.preventDefault();
+        openShop();
+        return;
+      }
+      if (shopOpen) return;
       if (letter === "t") {
         ev.preventDefault();
         endConfirm = false;
@@ -1441,6 +1712,12 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     document.addEventListener("keydown", onKey);
+    const openBtn = $("open-shop");
+    if (openBtn) openBtn.addEventListener("click", function () { openShop(); });
+    const closeBtn = $("shop-close");
+    if (closeBtn) closeBtn.addEventListener("click", function () { closeShop(); });
+    const backdrop = $("shop-backdrop");
+    if (backdrop) backdrop.addEventListener("click", function () { closeShop(); });
     poll();
     pollTimer = setInterval(poll, 1500);
   </script>
@@ -1528,6 +1805,11 @@ def _crop_catalog(crops: dict) -> dict:
             "regrow_days": int(info.get("regrow_days") or 0),
             "available": info.get("available", True) is not False,
             "seasons": list(info["seasons"]),
+            "description": info.get("description") or "",
+            "sprite": f"{kind}_mature_dry",
+            "perennial": bool(info.get("perennial")),
+            "lifespan_seasons": int(info.get("lifespan_seasons") or 0),
+            "fruiting_early_summer_days": int(info.get("fruiting_early_summer_days") or 0),
             "eat_energy": info.get("eat_energy", info.get("raw_energy")),
         }
     return out

@@ -169,6 +169,9 @@ def farm_rules() -> str:
                 "sell_price": int(info.get("sell_price", 0)),
                 "available": info.get("available", True) is not False,
                 "seasons": list(info.get("seasons") or []),
+                "description": info.get("description") or "",
+                "perennial": bool(info.get("perennial")),
+                "lifespan_seasons": int(info.get("lifespan_seasons") or 0),
                 "eat_energy": info.get("eat_energy", info.get("raw_energy")),
             }
         )
@@ -196,10 +199,10 @@ def farm_rules() -> str:
             "The same engine and state.json as the CLI and web page.",
             "You can only act on your own turn.",
             "You can only till, plant, water, harvest, or pluck the tile you are standing on.",
-            "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 10 energy, diagonals included.",
+            "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 5 energy, diagonals included.",
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
             "Eat a harvested crop with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the crop instead of selling it.",
-            "The shop currently sells spring crops only (strawberry). Strawberries fruit in 5 days, then again every 2 watered days until spring ends. Later crops stay in the pack if you already grew them.",
+            "The shop sells strawberries in spring and summer. Strawberries are perennial: they establish the first year, fruit every 7 days through spring into early summer after their first winter, go dormant in autumn and winter, and live two years. In seasons with nothing to sell, the shop is empty for now. Later crops stay in the pack if you already grew them.",
             "The day advances when every player has ended their turn.",
         ],
     }

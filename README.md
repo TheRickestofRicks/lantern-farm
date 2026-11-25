@@ -30,14 +30,14 @@ row 3 farmland  farmland  farmland
 
 Two players, configured in `config.local.json`. After a night in the cabin you
 wake with **100 energy**. Till, plant, and water cost **10** each; each step
-(including a diagonal) also costs **10**. Harvest, buy, sell, and eat are free.
+(including a diagonal) costs **5**. Harvest, buy, sell, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 
 - Each player has an avatar on the map. You can only till, plant, water,
   harvest, or pluck the tile you are standing on.
 - Move with `move up/down/left/right`, `move to <row> <col>` (the shortest
-  path is charged in 10-energy steps), or `go cabin`.
+  path is charged in 5-energy steps), or `go cabin`.
 - The web page plays as the player named by the private farm link (or cookie).
 - The CLI plays as the configured CLI player by default (`--player` to override).
 - You can only act on your turn. If it isn't, the game says whose turn it is.
@@ -48,8 +48,8 @@ editing the engine.
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.
 - Eat a harvested crop from the pack with `eat <crop>` (up to two snacks a
-  turn). A strawberry restores 10. Later crops still snack if you have them
-  (carrot 10, turnip 15, kabocha 25). Eating spends the crop instead of
+  turn). A strawberry restores 30. Later crops still snack if you have them
+  (carrot 10, turnip 12, kabocha 25). Eating spends the crop instead of
   selling it.
 - If `notify` is set in `config.local.json`, a short ping is sent on the
   configured handoff (for example when player 1 ends and it becomes player
@@ -92,7 +92,7 @@ python3 web.py
 Then open http://127.0.0.1:8790. The server always binds localhost. If
 `config.local.json` lists `bind.extra_hosts`, or if a tailnet IPv4 is
 available on the machine, it binds those too. Click a tile for its actions.
-Use **End turn** and the shop from the side panel. The page polls the JSON
+Use **End turn** from the side panel, and open the shop with the Shop button or `S`. The page polls the JSON
 state, so if someone acts from the CLI, the pictures update on their own.
 
 The web page is locked to the same machine (or an allowed host). Requests must
@@ -106,14 +106,14 @@ text.
 
 Keyboard (the page ignores keys while you are typing in an input):
 
-- Arrow keys walk one step (10 energy)
+- Arrow keys walk one step (5 energy)
 - `1`–`9` walk to that plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9; 3 is the cabin)
 - `T` till, `W` water, `H` harvest, `Q` pluck a weed on the tile you are standing on
 - `P` plant on the current tile: if the pack has one seed type, plant it; otherwise a small
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
 - `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
-- `Esc` deselects (or cancels a picker / confirm)
+- `S` opens the shop window; `Esc` closes it (or deselects / cancels a picker or confirm)
 
 You can leave a short note (up to 280 characters) when you end your turn.
 On the web page, type it next to End Turn. In the CLI:
@@ -204,7 +204,7 @@ configured.
 
 ## Rules (deterministic)
 
-- Seasons last 14 days, in order: spring, summer, autumn, winter, then spring again.
+- Seasons last 15 days (one game season is one real season; about 6 real days per game day), in order: spring, summer, autumn, winter, then spring again.
 - Weather is a function of a seed stored in `state.json` and the day number,
   not a roll of the dice. Each load of the same save produces the same weather.
   Probabilities live in `rules.json` under `weather.seasons`: spring is rainy,
@@ -232,43 +232,58 @@ configured.
 
 ## Crops
 
-Content is added season by season. Spring is first: the shop sells strawberries
-only. Turnip, carrot, and kabocha stay in `crops.json` as later content
-(`"available": false`). Existing plants already in the ground keep growing and
-can be harvested; harvested later crops stay in the pack and can still be sold
-or eaten. Seeds you already own can still be planted in season.
+Content is added season by season. The shop currently sells strawberries in
+spring and summer. In autumn and winter the shop has nothing to sell yet —
+later seeds for those seasons arrive in a later update. Turnip, carrot, and
+kabocha stay in `crops.json` as later content (`"available": false`). Existing
+plants already in the ground keep growing and can be harvested; harvested later
+crops stay in the pack and can still be sold or eaten. Seeds you already own
+can still be planted in season.
 
-| Crop       | Days                         | Seed | Sell | Eat | Seasons                    | Shop   |
-|------------|------------------------------|------|------|-----|----------------------------|--------|
-| strawberry | 5, then every 2 (regrows)    | 15G  | 12G  | 10  | spring                     | yes    |
-| kabocha    | 7                            | 20G  | 50G  | 25  | spring, summer, autumn     | later  |
-| turnip     | 4                            | 8G   | 20G  | 15  | spring, autumn             | later  |
-| carrot     | 5                            | 12G  | 30G  | 10  | spring, autumn, winter     | later  |
+The shop opens as a window (button or `S`, `Esc` to close). Each item shows
+its picture, a short description, season, grow and regrow time, prices, snack
+energy, and buy or sell controls.
 
-A strawberry seed costs 15G, between a carrot (12G) and a kabocha (20G). The
-plant fruits after 5 watered days (the same wait as a carrot), then a berry
-every 2 watered days until spring ends. Each berry sells for 12G and snacks
-for +10 energy. A day-1 planting tended through a 14-day spring yields five
-berries (days 6, 8, 10, 12, and 14) for 60G — 45G profit, better than one
-kabocha (30G profit) if you keep watering, but the plant withers when summer
-arrives, and each berry is cheaper than a one-shot crop because you get
-several from one seed. Planting late in spring may only get one harvest.
+Crop times follow real life, scaled so one 15-day game season is about one
+real season (~90 days, or ~6 real days per game day).
+
+| Crop       | Days                                      | Seed | Sell | Eat | Seasons                          | Shop   |
+|------------|-------------------------------------------|------|------|-----|----------------------------------|--------|
+| strawberry | 7, then every 7 in its fruiting window    | 15G  | 25G  | 30  | spring, summer (dormant fall/winter) | yes |
+| kabocha    | 17                                        | 20G  | 50G  | 25  | spring, summer (frost in autumn) | later  |
+| turnip     | 9                                         | 8G   | 22G  | 12  | spring, autumn                   | later  |
+| carrot     | 12                                        | 12G  | 32G  | 10  | spring, summer, autumn, winter   | later  |
+
+Strawberries are a perennial "power fruit," grown more for fun than for gold.
+Like real June-bearing plants, the first season is for roots and runners —
+they will not fruit until the spring after their first winter. Then they fruit
+every 7 watered days through spring into early summer (the first 5 days of
+summer), go dormant in autumn and winter (they need no water and do not
+wither), and live two years (8 seasons) before they die. Each day while they
+are active they have a 10% deterministic chance to send a runner into an
+orthogonally adjacent tilled, empty plot, at most once per plant per season:
+about a 3-in-4 chance of a new plant each growing season if there is space,
+without filling the farm in a week. A berry sells for 25G and snacks for +30
+energy (more than a kabocha). Two pickings in the fruiting year are not a
+fortune; the joy is the patch, the snack, and the runners.
+
+Kabocha takes 17 game days (~100 real days): plant in spring, harvest in late
+summer. Autumn frost kills it. Carrots take 12 days and can finish a spring
+planting in summer; they don't mind the cold. Turnips take 9 days and prefer
+the cool of spring or autumn.
 
 A new farm starts on day 1 of spring with 80G and two strawberry seeds, both
 players in the cabin, on the starting player's turn at 100 energy.
 `eat <crop>` restores the Eat energy from a harvested crop in the pack (up to
 two snacks a turn) and spends that crop instead of selling it.
 
-Stages: seed → sprouting → growing → mature (strawberries also have a
-regrowing stage after each harvest). A just-planted strawberry is
-"day 0 of 5, seed". After three watered days it is "day 3 of 5, growing".
+Stages: seed → sprouting → growing → mature (strawberries also have
+regrowing, and a dormant rest in the off-season).
 
 
 ## Roadmap
 
-- **Shop as a window.** The shop is currently a side-panel list. When there
-  are many seeds and items, it should open as a modal window instead of
-  living on the side panel. (Not built yet.)
+- More seasonal shop stock, when later crops are ready to return.
 
 ## Files
 

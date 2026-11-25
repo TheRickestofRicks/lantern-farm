@@ -14,6 +14,8 @@ from engine import (
     display_name,
     get_tile,
     crop_cycle_days,
+    crop_is_dormant,
+    is_perennial,
     grow_days,
     regrow_days,
     known_players,
@@ -104,7 +106,9 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
             "seed": "seed",
             "sprouting": "sprout",
             "growing": "grow",
+            "regrowing": "regrow",
             "mature": "READY",
+            "dormant": "rest",
             "withered": "wilt",
         }.get(stage, stage[:5])
         mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
@@ -197,6 +201,19 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"A withered {kind} (planted on day {crop.get('planted_day', '?')}, "
             f"grew {crop.get('days_grown', 0)} day(s) before it died, "
             f"{crop.get('dry_days', 0)} dry day(s)).{who_bit}{weed_bit} (sprite: {key})"
+        )
+    if info and (stage == "dormant" or (crop_is_dormant(crop, info, state.get("season")) and stage != "mature")):
+        return (
+            f"  {here} — {tilled} soil, {moist}. "
+            f"A dormant {kind}, resting until spring. It needs no water."
+            f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
+        )
+    if info and is_perennial(info) and not crop.get("overwintered") and not crop.get("fruiting_started"):
+        label_est = stage_label(info, stage) if info else stage
+        return (
+            f"  {here} — {tilled} soil, {moist}. "
+            f"{kind}, establishing ({label_est}); it will fruit after its first winter, {moist}."
+            f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = crop_cycle_days(info, crop) if info else "?"
     grown = crop.get("days_grown", 0)
@@ -358,13 +375,16 @@ def describe_state(
         "The sprite key on each tile is the same one the image view uses. "
         "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
         "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "
-        "each step costs 10 energy, diagonals included. "
+        "each step costs 5 energy, diagonals included. "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
         "Eat a harvested crop from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
-        "The shop currently sells spring crops (strawberry). Strawberries fruit in 5 days, "
-        "then again every 2 watered days until spring ends. Later crops stay in the pack "
-        "if you already grew them. "
+        "The shop sells strawberries in spring and summer. Strawberries are a perennial: "
+        "they establish in their first year, fruit every 7 days through spring into early summer "
+        "after their first winter, go dormant (no water, they do not wither) in autumn and winter, "
+        "and live two years. Runners may take root in a neighbouring tilled empty plot. "
+        "In seasons with nothing to sell, the shop is empty for now. "
+        "Later crops stay in the pack if you already grew them. "
         "Till, plant, and water cost energy (see rules.json); harvest, buy, sell, and eat are free. "
         "The day advances when both players have ended their turn."
     )

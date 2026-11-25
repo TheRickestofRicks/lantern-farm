@@ -321,10 +321,31 @@ def _strawberry_cluster(x: int, y: int, ripe: bool = True, scale: float = 1.0) -
     )
 
 
+def _dormant_plant(x: int, y: int, kind: str) -> str:
+    """A living plant tucked in for autumn and winter — no fruit, muted leaves."""
+    leaf = P.get("wither") or "#8a7a54"
+    leaf_d = P.get("wither_d") or "#5a4a30"
+    stem = P.get("stem") or "#3a5a28"
+    if kind == "strawberry":
+        return (
+            f'<path d="M{x},{y+14} C{x-1},{y+2} {x-1},{y-8} {x},{y-14}" '
+            f'stroke="{stem}" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
+            f'<ellipse cx="{x-9}" cy="{y-4}" rx="8" ry="4.5" fill="{leaf_d}" '
+            f'transform="rotate(-28 {x-9} {y-4})"/>'
+            f'<ellipse cx="{x+9}" cy="{y-6}" rx="8" ry="4.5" fill="{leaf}" '
+            f'transform="rotate(24 {x+9} {y-6})"/>'
+            f'<ellipse cx="{x}" cy="{y-12}" rx="6" ry="3.5" fill="{leaf_d}" '
+            f'opacity="0.85"/>'
+        )
+    return _withered_plant(x, y)
+
+
 def _crop_layer(kind: str, stage: str) -> str:
     x, y = 80, 100
     if stage == "withered":
         return _withered_plant(x, y)
+    if stage == "dormant":
+        return _dormant_plant(x, y, kind)
     if stage == "seed":
         return _draw_seed(x, y)
     if stage in {"sprouting", "regrowing"}:
