@@ -72,7 +72,7 @@
     "strawberry_jam": {
       "name": "strawberry jam",
       "berries": 3,
-      "eat_energy": 50,
+      "eat_energy": 40,
       "sell_price": 90,
       "description": "Three berries simmered into a jar of jam. A hearty snack, or a little more gold than the fruit alone."
     },
@@ -81,7 +81,7 @@
       "ingredients": {
         "kabocha": 1
       },
-      "eat_energy": 45,
+      "eat_energy": 55,
       "sell_price": 70,
       "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone."
     },
@@ -91,7 +91,7 @@
         "carrot": 1,
         "turnip": 1
       },
-      "eat_energy": 40,
+      "eat_energy": 50,
       "sell_price": 70,
       "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw."
     }

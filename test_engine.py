@@ -2506,7 +2506,9 @@ class PackChestAndCraft(unittest.TestCase):
         self.state["players"][P1]["energy"] = 20
         ok, msg = do_action(self.state, self.crops, "eat kabocha_soup", player=P1)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["players"][P1]["energy"], 65)
+        self.assertEqual(self.state["players"][P1]["energy"], 75)
+        self.assertIn("kabocha soup", msg)
+        self.assertNotIn("kabocha_soup", msg)
 
     def test_packs_survive_a_day_turn(self):
         from inventory import pack_has
@@ -2843,6 +2845,76 @@ class CraftPricesAndNames(unittest.TestCase):
         self.assertNotIn("watering_can", msg)
         ok, msg = do_action(self.state, self.crops, "drop watering can", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+
+
+
+
+class CraftedFoodSellAndEat(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_jam_is_a_modest_snack_and_soups_restore_more(self):
+        from inventory import item_eat_energy
+        jam = item_eat_energy("strawberry_jam", self.crops, self.rules)
+        soup = item_eat_energy("kabocha_soup", self.crops, self.rules)
+        stew = item_eat_energy("root_stew", self.crops, self.rules)
+        berry = int((self.crops["crops"]["strawberry"]).get("eat_energy") or 0)
+        kabocha = int((self.crops["crops"]["kabocha"]).get("eat_energy") or 0)
+        self.assertGreater(jam, berry)
+        self.assertGreater(soup, jam)
+        self.assertGreater(stew, jam)
+        self.assertGreater(soup, kabocha)
+
+    def test_eat_and_sell_accept_spaced_names_and_use_them_in_messages(self):
+        from inventory import pack_has, add_to_pack
+        give_item(self.state, "strawberry_jam", 2, player=P1)
+        self.state["players"][P1]["energy"] = 20
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "eat strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("strawberry jam", msg)
+        self.assertNotIn("strawberry_jam", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 60)
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "sell strawberry jam 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("strawberry jam", msg)
+        self.assertNotIn("strawberry_jam", msg)
+        self.assertEqual(int(self.state["gold"]), gold + 90)
+        self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+
+    def test_eat_from_the_chest_at_the_cabin_consumes_one(self):
+        from inventory import add_to_chest, add_to_pack, pack_has, stack_count, chest_of
+        add_to_chest(self.state, "strawberry_jam", 2, self.rules)
+        add_to_pack(self.state, P1, "strawberry_jam", 1, self.rules)
+        self.state["players"][P1]["energy"] = 20
+        ok, msg = do_action(self.state, self.crops, "eat strawberry jam chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "strawberry_jam"), 1)
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 60)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "eat strawberry jam chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+        # Eating from the pack still works in the field.
+        ok, msg = do_action(self.state, self.crops, "eat strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+
+    def test_legal_actions_offer_eat_and_sell_for_crafted_food(self):
+        from inventory import add_to_chest
+        give_item(self.state, "strawberry_jam", 1, player=P1)
+        add_to_chest(self.state, "kabocha_soup", 1, self.rules)
+        self.state["players"][P1]["energy"] = 20
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("eat strawberry_jam", actions)
+        self.assertIn("sell strawberry_jam 1", actions)
+        self.assertIn("eat kabocha_soup chest", actions)
+        self.assertIn("sell kabocha_soup 1", actions)
 
 
 

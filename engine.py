@@ -2850,9 +2850,25 @@ def do_move_command(
     return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
 
 
-def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) -> tuple[bool, str]:
-    """Eat a snack from the pack. Free, capped per turn, restores energy."""
-    from inventory import item_eat_energy, normalize_item, pack_has, take_available, item_name
+def eat(
+    state: dict,
+    crops: dict,
+    kind,
+    player: str,
+    rules: dict | None = None,
+    *,
+    from_chest: bool = False,
+) -> tuple[bool, str]:
+    """Eat a snack from the pack, or from the chest when at the cabin."""
+    from inventory import (
+        item_eat_energy,
+        normalize_item,
+        pack_has,
+        take_available,
+        item_label,
+        chest_of,
+        stack_count,
+    )
 
     rules = rules or load_rules()
     raw_kind = (kind or "").strip().lower()
@@ -2861,12 +2877,19 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
     item = normalize_item(kind) or normalize_kind(kind)
     restore = item_eat_energy(item, crops, rules)
     if restore is None:
+        label = item_label(item, crops, rules) if item else str(kind)
         if crop_info(crops, item):
-            return False, f"{item} isn't edible raw."
+            return False, f"{label} isn't edible raw."
         return False, f"Unknown snack '{kind}'. Try carrot, turnip, kabocha, or a crafted food."
     kind = item
-    if not pack_has(state, player, kind, 1, rules):
-        return False, f"No {item_name(kind, 1, crops, rules)[2:]} in the backpack."
+    label = item_label(kind, crops, rules)
+    if from_chest:
+        if not is_player_in_cabin(state, player):
+            return False, "Eat from the chest at the cabin."
+        if stack_count(chest_of(state, rules), kind) < 1:
+            return False, f"No {label} in the chest."
+    elif not pack_has(state, player, kind, 1, rules):
+        return False, f"No {label} in the backpack."
     slot = player_slot(state, player)
     eaten = int(slot.get("snacks_eaten") or 0)
     cap_snacks = snacks_per_turn(rules)
@@ -2877,16 +2900,25 @@ def eat(state: dict, crops: dict, kind, player: str, rules: dict | None = None) 
     if energy >= cap_e:
         return False, f"{display_name(player)} is already at full energy. Sell it or save it."
     gained = min(restore, cap_e - energy)
-    taken = take_available(state, kind, 1, player, pack_only=True, rules=rules)
+    taken = take_available(
+        state,
+        kind,
+        1,
+        player,
+        pack_only=not from_chest,
+        chest_only=from_chest,
+        rules=rules,
+    )
     if taken < 1:
-        return False, f"No {kind} in the backpack."
+        where = "chest" if from_chest else "backpack"
+        return False, f"No {label} in the {where}."
     slot["energy"] = energy + gained
     slot["snacks_eaten"] = eaten + 1
     left = cap_snacks - (eaten + 1)
     snack_bit = "No snacks left this turn." if left <= 0 else f"{left} snack(s) left this turn."
     return (
         True,
-        f"{display_name(player)} eats a {kind} and recovers {gained} energy "
+        f"{display_name(player)} eats {label} and recovers {gained} energy "
         f"({slot['energy']}/{cap_e}). {snack_bit}",
     )
 
@@ -3226,17 +3258,29 @@ def legal_actions(
             if ok_rec and energy >= energy_cost("craft", rules):
                 actions.append(f"craft {rec_id}")
     if actor:
-        for slot in pack_of(state, actor, rules):
-            if not slot:
-                continue
-            item = slot.get("item")
-            if (
-                item
-                and item_eat_energy(item, crops, rules) is not None
-                and int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
-                and energy < max_energy(rules)
-            ):
-                actions.append(f"eat {item}")
+        can_snack = (
+            int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
+            and energy < max_energy(rules)
+        )
+        if can_snack:
+            for slot in pack_of(state, actor, rules):
+                if not slot:
+                    continue
+                item = slot.get("item")
+                if item and item_eat_energy(item, crops, rules) is not None:
+                    actions.append(f"eat {item}")
+            if is_player_in_cabin(state, actor):
+                from inventory import is_recipe_item
+                for slot in chest_of(state, rules):
+                    if not slot:
+                        continue
+                    item = slot.get("item")
+                    if (
+                        item
+                        and is_recipe_item(item, rules)
+                        and item_eat_energy(item, crops, rules) is not None
+                    ):
+                        actions.append(f"eat {item} chest")
     actions.append("end turn")
     return actions
 
@@ -3283,9 +3327,17 @@ def do_action(
         return do_move_command(state, actor, verb, args, rules)
 
     if verb == "eat":
-        if len(args) != 1:
-            return False, "Usage: eat <crop>   example: eat carrot"
-        return eat(state, crops, args[0], actor, rules)
+        parts = list(args)
+        from_chest = False
+        if len(parts) >= 2 and parts[-2].lower() == "from" and parts[-1].lower() == "chest":
+            from_chest = True
+            parts = parts[:-2]
+        elif parts and parts[-1].lower() == "chest":
+            from_chest = True
+            parts = parts[:-1]
+        if not parts:
+            return False, "Usage: eat <food>   example: eat strawberry jam"
+        return eat(state, crops, " ".join(parts), actor, rules, from_chest=from_chest)
 
     if verb in {"take", "drop", "put", "stow", "craft"}:
         if verb in {"put", "stow"}:
@@ -3388,9 +3440,11 @@ def do_action(
             return False, "Usage: buy <kind> <count>   example: buy kabocha 2"
         ok, msg = buy(state, crops, args[0], args[1], actor)
     elif verb == "sell":
-        if len(args) != 2:
-            return False, "Usage: sell <kind> <count>   example: sell kabocha 1"
-        ok, msg = sell(state, crops, args[0], args[1], actor)
+        from inventory import parse_item_and_count
+        item, count, err = parse_item_and_count(args)
+        if err or not item:
+            return False, err or "Usage: sell <item> <count>   example: sell strawberry jam 1"
+        ok, msg = sell(state, crops, item, count, actor)
     elif verb == "pluck":
         ok, msg = pluck(state, crops, r, c, actor)
     elif verb == "fertilize":

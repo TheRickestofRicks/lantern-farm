@@ -1861,6 +1861,11 @@ PAGE = r"""<!DOCTYPE html>
       return (players[PLAYER] || {}).pack || [];
     }
 
+    function recipeInfo(item, data) {
+      const recs = (data && data.recipes) || {};
+      return recs[item] || null;
+    }
+
     function appendItemCard(parent, slot, opts) {
       opts = opts || {};
       if (!slot || !slot.item) return;
@@ -1877,29 +1882,38 @@ PAGE = r"""<!DOCTYPE html>
       body.appendChild(title);
       const btns = document.createElement("div");
       btns.className = "item-actions";
-      const can = !!opts.canAct;
-      function addBtn(label, cmd) {
+      const cabinTurn = !!opts.canAct;
+      const yourTurn = !!opts.yourTurn;
+      function addBtn(label, cmd, enabled) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn";
         btn.textContent = label;
-        btn.disabled = !can;
+        btn.disabled = !enabled;
         btn.addEventListener("click", function () { actCmd(cmd); });
         btns.appendChild(btn);
       }
       if (opts.take) {
-        if (count <= 1) addBtn("Take", "take " + slot.item + " 1");
+        if (count <= 1) addBtn("Take", "take " + slot.item + " 1", cabinTurn);
         else {
-          addBtn("Take 1", "take " + slot.item + " 1");
-          addBtn("Take all", "take " + slot.item + " all");
+          addBtn("Take 1", "take " + slot.item + " 1", cabinTurn);
+          addBtn("Take all", "take " + slot.item + " all", cabinTurn);
         }
       }
       if (opts.drop) {
-        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1");
+        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1", cabinTurn);
         else {
-          addBtn("Drop 1", "drop " + slot.item + " 1");
-          addBtn("Drop all", "drop " + slot.item + " all");
+          addBtn("Drop 1", "drop " + slot.item + " 1", cabinTurn);
+          addBtn("Drop all", "drop " + slot.item + " all", cabinTurn);
         }
+      }
+      const rec = recipeInfo(slot.item, opts.data);
+      if (rec && rec.sell_price) {
+        addBtn("Sell 1 (" + rec.sell_price + "G)", "sell " + slot.item + " 1", cabinTurn);
+      }
+      if (rec && rec.eat_energy) {
+        const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
+        addBtn("Eat (+" + rec.eat_energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
       }
       if (btns.childNodes.length) body.appendChild(btns);
       row.appendChild(body);
@@ -1929,7 +1943,7 @@ PAGE = r"""<!DOCTYPE html>
       el.appendChild(meta);
       const canAct = !!(data.your_turn && data.in_cabin);
       held.forEach(function (slot) {
-        appendItemCard(el, slot, {drop: true, canAct: canAct});
+        appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
     }
 
@@ -2007,7 +2021,7 @@ PAGE = r"""<!DOCTYPE html>
         }
         const canAct = !!(data.your_turn && data.in_cabin);
         chest.forEach(function (slot) {
-          appendItemCard(shop, slot, {take: true, canAct: canAct});
+          appendItemCard(shop, slot, {take: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
         });
         const pack = packSlotsOf(data);
         const held = pack.filter(function (s) { return s && s.item; });
@@ -2017,7 +2031,7 @@ PAGE = r"""<!DOCTYPE html>
           dropTitle.textContent = "Backpack";
           shop.appendChild(dropTitle);
           held.forEach(function (slot) {
-            appendItemCard(shop, slot, {drop: true, canAct: canAct});
+            appendItemCard(shop, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
           });
         }
         const craftTitle = document.createElement("div");
@@ -2564,6 +2578,29 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
     return out
 
 
+def _recipe_catalog(rules: dict | None = None) -> dict:
+    """Crafted foods the UI can sell or eat from a backpack or chest row."""
+    from inventory import recipes
+    out = {}
+    for item, rec in recipes(rules).items():
+        sell = rec.get("sell_price")
+        eat = rec.get("eat_energy")
+        try:
+            sell = int(sell) if sell is not None else None
+        except (TypeError, ValueError):
+            sell = None
+        try:
+            eat = int(eat) if eat is not None else None
+        except (TypeError, ValueError):
+            eat = None
+        out[item] = {
+            "name": rec.get("name") or item.replace("_", " "),
+            "sell_price": sell,
+            "eat_energy": eat,
+        }
+    return out
+
+
 def _fertilizer_catalog(rules: dict | None = None) -> dict:
     from inventory import FERTILIZERS, FERTILIZER_SHOP_SEASONS, fertilizer_info
     out = {}
@@ -2651,6 +2688,7 @@ def api_payload(
         "chest": state.get("chest") or [],
         "fertilizers": _fertilizer_catalog(rules),
         "item_names": _item_name_catalog(crops, rules),
+        "recipes": _recipe_catalog(rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
     }

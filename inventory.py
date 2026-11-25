@@ -31,21 +31,21 @@ DEFAULT_RECIPES = {
         "name": "strawberry jam",
         "berries": 3,
         "ingredients": {},
-        "eat_energy": 50,
+        "eat_energy": 40,
         "sell_price": 90,
         "description": "Three berries simmered down to a jar of jam. A hearty snack, or a little more gold than the fruit alone.",
     },
     "kabocha_soup": {
         "name": "kabocha soup",
         "ingredients": {"kabocha": 1},
-        "eat_energy": 45,
+        "eat_energy": 55,
         "sell_price": 70,
         "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone.",
     },
     "root_stew": {
         "name": "root stew",
         "ingredients": {"carrot": 1, "turnip": 1},
-        "eat_energy": 40,
+        "eat_energy": 50,
         "sell_price": 70,
         "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw.",
     },
@@ -282,6 +282,12 @@ def normalize_item(raw: str | None) -> str | None:
     if fert:
         return fert
     return None
+
+
+def item_label(item: str, crops: dict | None = None, rules: dict | None = None) -> str:
+    """Singular display name with spaces and no leading count."""
+    text = item_name(item, 1, crops, rules)
+    return text[2:] if text.startswith("1 ") else text
 
 
 def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict | None = None) -> str:
@@ -615,13 +621,14 @@ def take_available(
     player: str | None = None,
     *,
     pack_only: bool = False,
+    chest_only: bool = False,
     rules: dict | None = None,
 ) -> int:
     """Remove items, pack first then chest. Returns how many were taken."""
     if n <= 0:
         return 0
     taken = 0
-    if player:
+    if player and not chest_only:
         taken += remove_from_pack(state, player, item, n, rules)
     if taken < n and not pack_only:
         taken += remove_from_chest(state, item, n - taken, rules)
