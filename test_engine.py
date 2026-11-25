@@ -71,6 +71,8 @@ from engine import (
     sleep,
     sprout_and_age_weeds,
     till,
+    till_hold_left,
+    till_hold_phrase,
     water,
     weather_for_day,
     weather_forecast,
@@ -2235,6 +2237,91 @@ class ArtPackAndPage(unittest.TestCase):
             else:
                 self.assertLess(br, 0.005, f"{name} is a single clump in the lower-left")
 
+
+
+class TillHold(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        self.state["weather"] = "sun"
+        # Clear any morning watering from a wet day-1 seed.
+        for _r, _c, tile in (
+            (r, c, self.state["tiles"][r][c])
+            for r in range(3)
+            for c in range(3)
+        ):
+            tile["watered"] = False
+
+    def _dry_evening(self):
+        from engine import _apply_evening_growth
+        notes = _apply_evening_growth(self.state, self.crops, self.rules)
+        self.state["day"] = int(self.state["day"]) + 1
+        self.state["weather"] = "sun"
+        return notes
+
+    def test_empty_tilled_bed_reverts_after_five_dry_days(self):
+        ok, msg = till(self.state, self.crops, 1, 1)
+        self.assertTrue(ok, msg)
+        tile = self.state["tiles"][0][0]
+        self.assertTrue(tile["tilled"])
+        self.assertEqual(till_hold_left(tile), 5)
+        self.assertIn("5 days left", till_hold_phrase(tile))
+        for night in range(1, 5):
+            notes = self._dry_evening()
+            tile = self.state["tiles"][0][0]
+            self.assertTrue(tile["tilled"], f"still tilled after night {night}: {notes}")
+            self.assertEqual(till_hold_left(tile), 5 - night)
+        notes = self._dry_evening()
+        tile = self.state["tiles"][0][0]
+        self.assertFalse(tile["tilled"])
+        self.assertIsNone(till_hold_left(tile))
+        self.assertTrue(any("gone untilled" in n for n in notes))
+
+    def test_watering_resets_the_countdown(self):
+        till(self.state, self.crops, 1, 1)
+        self._dry_evening()
+        self._dry_evening()
+        tile = self.state["tiles"][0][0]
+        self.assertEqual(till_hold_left(tile), 3)
+        ok, msg = water(self.state, self.crops, 1, 1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(till_hold_left(tile), 5)
+        self._dry_evening()
+        self.assertTrue(self.state["tiles"][0][0]["tilled"])
+        self.assertEqual(till_hold_left(self.state["tiles"][0][0]), 5)
+
+    def test_a_wet_dawn_resets_the_countdown(self):
+        from engine import dawn_water
+        till(self.state, self.crops, 1, 1)
+        self._dry_evening()
+        self.assertEqual(till_hold_left(self.state["tiles"][0][0]), 4)
+        self.state["weather"] = "rain"
+        dawn_water(self.state, self.rules)
+        tile = self.state["tiles"][0][0]
+        self.assertTrue(tile["watered"])
+        self.assertEqual(till_hold_left(tile), 5)
+
+    def test_a_planted_bed_does_not_revert(self):
+        till(self.state, self.crops, 1, 1)
+        self.state["inventory"]["carrot_seed"] = 1
+        ok, msg = plant(self.state, self.crops, 1, 1, "carrot")
+        self.assertTrue(ok, msg)
+        self.assertIsNone(till_hold_left(self.state["tiles"][0][0]))
+        for _ in range(5):
+            self.state["tiles"][0][0]["watered"] = False
+            water(self.state, self.crops, 1, 1)
+            self._dry_evening()
+        tile = self.state["tiles"][0][0]
+        self.assertTrue(tile["tilled"])
+        self.assertIsNotNone(tile.get("crop"))
+        self.assertIsNone(till_hold_left(tile))
+
+    def test_look_text_names_the_days_left(self):
+        from describe import describe_tile
+        till(self.state, self.crops, 1, 1)
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("5 days left until it reverts if left unwatered", line)
 
 
 if __name__ == "__main__":

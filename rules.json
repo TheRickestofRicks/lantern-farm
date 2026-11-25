@@ -60,5 +60,6 @@
     }
   },
   "snacks_per_turn": 2,
-  "pass_out_energy": 50
+  "pass_out_energy": 50,
+  "till_hold_days": 5
 }

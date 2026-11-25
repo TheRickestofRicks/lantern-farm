@@ -1191,9 +1191,19 @@ PAGE = r"""<!DOCTYPE html>
       let weed = "";
       if (tile.weedy) weed = " A small weed has crept in. The plot is weedy; the crop grows at half speed.";
       else if (tile.weed) weed = " A small weed has crept in.";
-      if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + weed;
+      let hold = "";
+      if (tile.tilled && (tile.untilled_in != null) && !crop) {
+        const n = Number(tile.untilled_in);
+        if (n <= 0) hold = " It will go untilled at nightfall if it stays empty.";
+        else hold = " " + n + (n === 1 ? " day" : " days") + " left until it reverts if left unwatered.";
+      } else if (tile.tilled && (tile.untilled_in != null) && crop && crop.stage === "withered") {
+        const n = Number(tile.untilled_in);
+        if (n <= 0) hold = " It will go untilled at nightfall if it stays empty.";
+        else hold = " " + n + (n === 1 ? " day" : " days") + " left until it reverts if left unwatered.";
+      }
+      if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + hold + weed;
       if (crop.stage === "withered") {
-        return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + weed;
+        return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + hold + weed;
       }
       if (crop.stage === "dormant") {
         return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + weed;

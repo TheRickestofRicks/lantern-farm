@@ -41,6 +41,7 @@ from engine import (
     position_name,
     sleep_outlook,
     stage_label,
+    till_hold_phrase,
     weather_forecast,
     wither_after,
 )
@@ -216,7 +217,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         weed_bit = " A small weed has crept in."
     crop = tile.get("crop")
     if not crop:
-        return f"  {here} — {tilled} soil, {moist}. Empty.{who_bit}{weed_bit} (sprite: {key})"
+        return f"  {here} — {tilled} soil, {moist}. Empty.{till_hold_phrase(tile)}{who_bit}{weed_bit} (sprite: {key})"
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
     stage = crop.get("stage", "seed")
@@ -225,7 +226,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"  {here} — {tilled} soil, {moist}. "
             f"A withered {kind} (planted on day {crop.get('planted_day', '?')}, "
             f"grew {crop.get('days_grown', 0)} day(s) before it died, "
-            f"{crop.get('dry_days', 0)} dry day(s)).{who_bit}{weed_bit} (sprite: {key})"
+            f"{crop.get('dry_days', 0)} dry day(s)).{till_hold_phrase(tile)}{who_bit}{weed_bit} (sprite: {key})"
         )
     if info and (stage == "dormant" or (crop_is_dormant(crop, info, state.get("season")) and stage != "mature")):
         return (

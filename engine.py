@@ -1238,10 +1238,88 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
     return state
 
 
-def dawn_water(state: dict) -> None:
+
+def till_hold_days(rules: dict | None = None) -> int:
+    """Days an empty tilled bed stays open without water before it reverts."""
+    rules = rules or load_rules()
+    try:
+        n = int(rules.get("till_hold_days") or 5)
+    except (TypeError, ValueError):
+        n = 5
+    return max(1, n)
+
+
+def tile_is_living_plant(tile: dict) -> bool:
+    crop = tile.get("crop")
+    return bool(crop and crop.get("stage") not in (None, "withered"))
+
+
+def reset_till_hold(tile: dict, rules: dict | None = None) -> None:
+    if tile.get("type") == "cabin":
+        tile.pop("untilled_in", None)
+        return
+    tile["untilled_in"] = till_hold_days(rules)
+
+
+def clear_till_hold(tile: dict) -> None:
+    tile.pop("untilled_in", None)
+
+
+def till_hold_left(tile: dict, rules: dict | None = None) -> int | None:
+    """Days left before an empty tilled bed reverts, or None if it does not apply."""
+    if tile.get("type") == "cabin" or not tile.get("tilled"):
+        return None
+    if tile_is_living_plant(tile):
+        return None
+    raw = tile.get("untilled_in")
+    if raw is None:
+        return till_hold_days(rules)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return till_hold_days(rules)
+
+
+def till_hold_phrase(tile: dict, rules: dict | None = None) -> str:
+    left = till_hold_left(tile, rules)
+    if left is None:
+        return ""
+    if left <= 0:
+        return " It will go untilled at nightfall if it stays empty."
+    day_word = "day" if left == 1 else "days"
+    return f" {left} {day_word} left until it reverts if left unwatered."
+
+
+def tick_till_hold(state: dict, tile: dict, row: int, col: int, notes: list, rules: dict | None = None) -> None:
+    """Evening tick for an empty (or withered) tilled bed. Watering resets; five dry days revert."""
+    if tile.get("type") != "soil" or not tile.get("tilled"):
+        tile.pop("untilled_in", None)
+        return
+    if tile_is_living_plant(tile):
+        tile.pop("untilled_in", None)
+        return
+    hold = till_hold_days(rules)
+    if tile.get("watered"):
+        tile["untilled_in"] = hold
+        return
+    left = till_hold_left(tile, rules)
+    if left is None:
+        left = hold
+    left -= 1
+    if left <= 0:
+        tile["tilled"] = False
+        tile.pop("untilled_in", None)
+        notes.append(f"The soil at {position_name(row, col)} has gone untilled after sitting empty.")
+    else:
+        tile["untilled_in"] = left
+
+
+def dawn_water(state: dict, rules: dict | None = None) -> None:
     for _r, _c, tile in iter_tiles(state):
         if tile["type"] == "soil":
             tile["watered"] = True
+            if tile.get("tilled") and not tile_is_living_plant(tile):
+                reset_till_hold(tile, rules)
 
 
 def __flavor_intro() -> str:
@@ -1363,6 +1441,17 @@ def migrate_tile_fields(state: dict) -> bool:
             changed = True
         if "weedy_ticks" not in tile:
             tile["weedy_ticks"] = 0
+            changed = True
+        if tile.get("type") == "soil" and tile.get("tilled"):
+            if tile_is_living_plant(tile):
+                if "untilled_in" in tile:
+                    tile.pop("untilled_in", None)
+                    changed = True
+            elif "untilled_in" not in tile:
+                reset_till_hold(tile)
+                changed = True
+        elif "untilled_in" in tile and not tile.get("tilled"):
+            tile.pop("untilled_in", None)
             changed = True
     return changed
 
@@ -1613,6 +1702,7 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
     if tile.get("tilled") and not cleared:
         return False, f"{here[0].upper() + here[1:]} is already tilled."
     tile["tilled"] = True
+    reset_till_hold(tile)
     msg = f"{who(player, 'till', 'tills')} the soil at {here}.{cleared}"
     log_append(state, msg, player)
     return True, msg
@@ -1656,6 +1746,7 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
         "stage": initial_stage(info),
         "dry_days": 0,
     }
+    clear_till_hold(tile)
     msg = f"{who(player, 'plant', 'plants')} {a_or_an(name)} {name} {noun} at {here}."
     log_append(state, msg, player)
     return True, msg
@@ -1676,6 +1767,8 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     if tile.get("watered"):
         return False, f"{here[0].upper() + here[1:]} is already watered today."
     tile["watered"] = True
+    if not tile_is_living_plant(tile):
+        reset_till_hold(tile)
     if crop and crop.get("stage") != "withered":
         msg = f"{who(player, 'water', 'waters')} the {crop['kind']} at {here}."
     else:
@@ -1697,6 +1790,8 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         return False, f"Nothing is planted at {here}."
     if crop.get("stage") == "withered":
         tile["crop"] = None
+        if tile.get("tilled"):
+            reset_till_hold(tile)
         msg = f"{who(player, 'clear', 'clears')} the withered plant at {here}."
         log_append(state, msg, player)
         return True, msg
@@ -1737,7 +1832,11 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         log_append(state, msg, player)
         return True, msg
     tile["crop"] = None
-    # The bed stays tilled; today's water remains.
+    # The bed stays tilled; today's water remains. Till-hold starts (or resets if watered).
+    if tile.get("watered"):
+        reset_till_hold(tile)
+    else:
+        reset_till_hold(tile)
     msg = f"{who(player, 'harvest', 'harvests')} a {kind} at {here}."
     log_append(state, msg, player)
     return True, msg
@@ -2035,9 +2134,12 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
         if tile["type"] != "soil":
             continue
         crop = tile.get("crop")
-        if not crop or crop.get("stage") == "withered":
+        living = bool(crop and crop.get("stage") != "withered")
+        if not living:
+            tick_till_hold(state, tile, r, c, notes, rules)
             tile["watered"] = False
             continue
+        clear_till_hold(tile)
         here = position_name(r, c)
         kind = crop["kind"]
         info = crop_info(crops, kind)
