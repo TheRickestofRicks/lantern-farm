@@ -1,0 +1,18 @@
+{
+  "max_energy": 100,
+  "action_energy": {
+    "till": 10,
+    "plant": 10,
+    "water": 10,
+    "harvest": 0,
+    "buy": 0,
+    "sell": 0,
+    "end_turn": 0,
+    "pluck": 5
+  },
+  "weeds": {
+    "min_new_per_day": 1,
+    "max_new_per_day": 2,
+    "eligible": "tilled_or_planted"
+  }
+}

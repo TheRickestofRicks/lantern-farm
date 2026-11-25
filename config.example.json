@@ -1,0 +1,52 @@
+{
+  "title": "Lantern Farm",
+  "place": "the valley",
+  "players": [
+    {
+      "id": "player1",
+      "name": "Player 1"
+    },
+    {
+      "id": "player2",
+      "name": "Player 2"
+    }
+  ],
+  "starting_player": "player1",
+  "defaults": {
+    "web_player": "player1",
+    "cli_player": "player2"
+  },
+  "notify": null,
+  "theme": {
+    "css_vars": {
+      "bg": "#1a1410",
+      "bg2": "#241c16",
+      "panel": "#2a2118",
+      "ink": "#f3e6d0",
+      "muted": "#c4b49a",
+      "gold": "#e8b86a",
+      "gold2": "#ffcc66",
+      "line": "#4a3a28",
+      "soil": "#3a2a1c",
+      "ok": "#b6d07a",
+      "bad": "#e09070"
+    }
+  },
+  "flavor": {
+    "intro_log": "A small farm. The cabin lantern in the top-right is already lit.",
+    "rain": "Rain falls over the farm. Every plot is watered.",
+    "snow": "Snow settles on the farm. The soil is wet beneath it.",
+    "clear": "A clear day dawns over the farm.",
+    "cabin": "the cabin. A warm lantern glows in the window.",
+    "cabin_short": "the cabin, lantern lit in the window.",
+    "title_line": "Lantern Farm  \ud83c\udfee",
+    "new_farm": "A new farm is ready \u2014 day 1, spring, {starter}'s turn.",
+    "note_placeholder": "Note for {other} (optional)",
+    "text_view_summary": "Text view (the same one the other player reads)",
+    "web_footer": "The pictures come from the same JSON state as the text view. This page plays as {web_player}. {cli_player} uses the command line. When someone acts from the CLI, this page updates on its own. Ending your turn hands the farm to the other player; the day advances when you both have ended your turn."
+  },
+  "bind": {
+    "port": 8790,
+    "extra_hosts": []
+  }
+}

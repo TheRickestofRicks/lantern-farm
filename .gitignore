@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.state.lock
+state.json.tmp
+web.log
+web.pid
+.DS_Store
+backups/
+config.local.json
+mcp.env
+.env
+state.json
+local/

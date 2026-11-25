@@ -1,0 +1,54 @@
+{
+  "starting_gold": 80,
+  "days_per_season": 14,
+  "wither_after_dry_days": 2,
+  "starting_inventory": {
+    "kabocha_seed": 2,
+    "turnip_seed": 1,
+    "carrot_seed": 0,
+    "kabocha": 0,
+    "turnip": 0,
+    "carrot": 0
+  },
+  "crops": {
+    "kabocha": {
+      "name": "kabocha",
+      "grow_days": 7,
+      "seed_price": 20,
+      "sell_price": 50,
+      "seasons": ["spring", "summer", "autumn"],
+      "stages": [
+        {"id": "seed", "at": 0, "label": "seed"},
+        {"id": "sprouting", "at": 2, "label": "sprouting"},
+        {"id": "growing", "at": 4, "label": "growing"},
+        {"id": "mature", "at": 7, "label": "mature"}
+      ]
+    },
+    "turnip": {
+      "name": "turnip",
+      "grow_days": 4,
+      "seed_price": 8,
+      "sell_price": 20,
+      "seasons": ["spring", "autumn"],
+      "stages": [
+        {"id": "seed", "at": 0, "label": "seed"},
+        {"id": "sprouting", "at": 1, "label": "sprouting"},
+        {"id": "growing", "at": 2, "label": "growing"},
+        {"id": "mature", "at": 4, "label": "mature"}
+      ]
+    },
+    "carrot": {
+      "name": "carrot",
+      "grow_days": 5,
+      "seed_price": 12,
+      "sell_price": 30,
+      "seasons": ["spring", "autumn", "winter"],
+      "stages": [
+        {"id": "seed", "at": 0, "label": "seed"},
+        {"id": "sprouting", "at": 1, "label": "sprouting"},
+        {"id": "growing", "at": 3, "label": "growing"},
+        {"id": "mature", "at": 5, "label": "mature"}
+      ]
+    }
+  }
+}

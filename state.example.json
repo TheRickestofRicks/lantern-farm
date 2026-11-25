@@ -1,0 +1,121 @@
+{
+  "day": 1,
+  "season": "spring",
+  "weather": "sun",
+  "gold": 80,
+  "inventory": {
+    "kabocha_seed": 2,
+    "turnip_seed": 1,
+    "carrot_seed": 0,
+    "kabocha": 0,
+    "turnip": 0,
+    "carrot": 0
+  },
+  "tiles": [
+    [
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "cabin",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      }
+    ],
+    [
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      }
+    ],
+    [
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      },
+      {
+        "type": "soil",
+        "tilled": false,
+        "watered": false,
+        "crop": null,
+        "weed": null,
+        "weedy": false,
+        "weedy_ticks": 0
+      }
+    ]
+  ],
+  "log": [
+    {
+      "day": 1,
+      "text": "A small farm. The cabin lantern in the top-right is already lit."
+    }
+  ],
+  "last_note": null,
+  "players": {
+    "player1": {
+      "energy": 100,
+      "ended_turn": false
+    },
+    "player2": {
+      "energy": 100,
+      "ended_turn": false
+    }
+  },
+  "current_player": "player1"
+}
