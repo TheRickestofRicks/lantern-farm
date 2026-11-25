@@ -32,6 +32,9 @@ def sprite_key(tile: dict, weather: str | None = None) -> str:
         key += "_weedy"
     elif tile.get("weed"):
         key += "_weed"
+    fert = tile.get("fertilizer") if isinstance(tile.get("fertilizer"), dict) else None
+    if fert and fert.get("kind") in {"general", "yield", "growth"}:
+        key += f"_fert_{fert['kind']}"
     return key
 
 
@@ -48,6 +51,13 @@ def parse_sprite_key(key: str) -> dict:
     weedy = False
     weed = False
     snow = False
+    fertilizer = None
+    for kind in ("general", "yield", "growth"):
+        suffix = "_fert_" + kind
+        if key.endswith(suffix):
+            fertilizer = kind
+            key = key[: -len(suffix)]
+            break
     if key.endswith("_weedy"):
         weedy = True
         key = key[: -len("_weedy")]
@@ -64,7 +74,7 @@ def parse_sprite_key(key: str) -> dict:
         "soil_wet": {"tilled": False, "watered": True},
     }
     if key in soil_keys:
-        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, **soil_keys[key]}
+        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, **soil_keys[key]}
     parts = key.split("_")
     if len(parts) >= 3 and parts[-1] in {"wet", "dry"}:
         moist = parts[-1]
@@ -78,10 +88,11 @@ def parse_sprite_key(key: str) -> dict:
             "weed": weed,
             "weedy": weedy,
             "snow": snow,
+            "fertilizer": fertilizer,
         }
     if weed or weedy:
-        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow}
-    return {"kind": "unknown", "raw": key, "snow": snow}
+        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer}
+    return {"kind": "unknown", "raw": key, "snow": snow, "fertilizer": fertilizer}
 
 
 # Warm, slightly dusk palette — lantern light on earth.
@@ -604,6 +615,30 @@ def _weed_clump(x: int, y: int, fuller: bool = False, flip: bool = False) -> str
     return "\n".join(parts)
 
 
+def _fertilizer_overlay(kind: str | None) -> str:
+    """Little teal/green granules on the dirt, under the crop."""
+    if kind == "yield":
+        fill, hi = "#2a6b2a", "#9ad48a"
+    elif kind == "growth":
+        fill, hi = "#2a5a6b", "#8ad4ce"
+    else:
+        fill, hi = "#1f6b5a", "#7dcec0"
+    # Scattered near the soil surface, kept out of the crop's centre.
+    spots = (
+        (28, 118, 3.2), (48, 132, 2.6), (72, 124, 3.0), (96, 136, 2.4),
+        (118, 120, 3.1), (138, 130, 2.5), (40, 108, 2.2), (86, 112, 2.8),
+        (124, 108, 2.3), (62, 140, 2.7), (108, 142, 2.2), (22, 136, 2.0),
+    )
+    parts = []
+    for x, y, r in spots:
+        parts.append(f'<ellipse cx="{x}" cy="{y}" rx="{r}" ry="{r * 0.7}" fill="{fill}" opacity="0.9"/>')
+        parts.append(
+            f'<ellipse cx="{x - 0.6}" cy="{y - 0.5}" rx="{r * 0.35}" ry="{r * 0.25}" '
+            f'fill="{hi}" opacity="0.7"/>'
+        )
+    return "\n".join(parts)
+
+
 def _weed_overlay(weedy: bool = False) -> str:
     """Weeds sit in the lower corners so they stay visible beside a crop."""
     left = _weed_clump(22, 140, fuller=weedy)
@@ -624,6 +659,8 @@ def svg_for_key(key: str) -> str:
     layers = [_soil_layer(tilled, watered)]
     if info.get("snow"):
         layers.append(_snow_ground_overlay(tilled))
+    if info.get("fertilizer"):
+        layers.append(_fertilizer_overlay(info.get("fertilizer")))
     if kind and kind != "soil" and info.get("stage"):
         layers.append(_crop_layer(kind, info["stage"]))
     if info.get("weedy") or info.get("weed"):

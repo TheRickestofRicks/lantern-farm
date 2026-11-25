@@ -28,7 +28,10 @@
     "strawberry_sprouting": "overlays/strawberry_sprouting.png",
     "strawberry_withered": "overlays/strawberry_withered.png",
     "weed": "overlays/weed.png",
-    "weedy": "overlays/weedy.png"
+    "weedy": "overlays/weedy.png",
+    "fertilizer_general": "overlays/fertilizer_general.png",
+    "fertilizer_yield": "overlays/fertilizer_yield.png",
+    "fertilizer_growth": "overlays/fertilizer_growth.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

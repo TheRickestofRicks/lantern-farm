@@ -1056,6 +1056,17 @@ def shop_kinds(crops: dict, season: str | None = None) -> list[str]:
     ]
 
 
+def fertilizer_shop_items(season: str | None = None, rules: dict | None = None) -> list[str]:
+    from inventory import FERTILIZERS, FERTILIZER_SHOP_SEASONS
+    if season and season not in FERTILIZER_SHOP_SEASONS:
+        return []
+    return list(FERTILIZERS.keys())
+
+
+def shop_listing(crops: dict, season: str | None = None, rules: dict | None = None) -> list[str]:
+    return shop_kinds(crops, season) + fertilizer_shop_items(season, rules)
+
+
 def is_perennial(info: dict | None) -> bool:
     if not info:
         return False
@@ -1887,6 +1898,41 @@ def yield_roll(
     return 2 if r < p2 else 1
 
 
+def fertilizer_on_tile(tile: dict | None, state: dict, crops: dict | None = None) -> dict | None:
+    """Return the bag on this plot if it still counts for the current season."""
+    fert = tile.get("fertilizer") if isinstance(tile, dict) else None
+    if not isinstance(fert, dict) or not fert.get("kind"):
+        return None
+    season = state.get("season")
+    year = year_for_day(int(state.get("day") or 1), crops)
+    if fert.get("season") == season and int(fert.get("year") or 0) == int(year):
+        return fert
+    return None
+
+
+def fertilizer_phrase(tile: dict | None, state: dict, crops: dict | None = None) -> str:
+    fert = fertilizer_on_tile(tile, state, crops)
+    if not fert:
+        return ""
+    kind = fert.get("kind")
+    if kind == "general":
+        return " The soil is fertilized (general)."
+    if kind == "yield":
+        return " The soil is fed with yield-boost fertilizer."
+    if kind == "growth":
+        return " The soil is fed with growth-boost fertilizer."
+    return " The soil is fertilized."
+
+
+def clear_expired_fertilizer(state: dict, crops: dict | None = None) -> None:
+    for _r, _c, tile in iter_tiles(state):
+        fert = tile.get("fertilizer")
+        if not fert:
+            continue
+        if not fertilizer_on_tile(tile, state, crops):
+            tile["fertilizer"] = None
+
+
 def fertilizer_bonus(tile: dict) -> float:
     fert = tile.get("fertilizer") if isinstance(tile, dict) else None
     if not isinstance(fert, dict):
@@ -2124,18 +2170,147 @@ def _parse_count(n) -> tuple[int | None, str | None]:
     return count, None
 
 
+def fertilize(
+    state: dict,
+    crops: dict,
+    row,
+    col,
+    kind=None,
+    player: str | None = None,
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Feed a soil plot. One bag per plot per season; the bag must be in the pack."""
+    from inventory import (
+        FERTILIZERS,
+        fertilizer_item_for_kind,
+        fertilizer_info,
+        pack_has,
+        pack_of,
+        take_available,
+        item_name,
+        is_fertilizer,
+    )
+    r, c, err = parse_row_col(row, col)
+    if err:
+        return False, err
+    tile = get_tile(state, r, c)
+    if tile["type"] != "soil":
+        return False, f"You can only fertilize soil. {position_name(r, c)} is {tile['type']}."
+    existing = fertilizer_on_tile(tile, state, crops)
+    if existing:
+        return False, (
+            f"The plot at {position_name(r, c)} is already fertilized this "
+            f"{state.get('season') or 'season'}."
+        )
+    item = fertilizer_item_for_kind(kind) if kind else None
+    if kind and not item:
+        return False, (
+            "Unknown fertilizer. Use general, yield, or growth "
+            "(or the bag's full name)."
+        )
+    if not item:
+        # Pick the bag in the pack (or chest when no player, for tests).
+        found = []
+        if player:
+            for slot in pack_of(state, player, rules):
+                if slot and is_fertilizer(slot.get("item")) and slot["item"] not in found:
+                    found.append(slot["item"])
+        else:
+            from inventory import chest_of
+            for slot in chest_of(state, rules):
+                if slot and is_fertilizer(slot.get("item")) and slot["item"] not in found:
+                    found.append(slot["item"])
+        if not found:
+            return False, "You need a bag of fertilizer in your pack."
+        if len(found) > 1:
+            names = ", ".join(FERTILIZERS[i]["name"] for i in found)
+            return False, f"Which bag? You are carrying {names}. Try: fertilize general."
+        item = found[0]
+    if player and not pack_has(state, player, item, 1, rules):
+        return False, f"You need {item_name(item, 1, crops, rules)} in your pack."
+    taken = take_available(state, item, 1, player, pack_only=bool(player), rules=rules)
+    if taken < 1:
+        return False, f"You need {item_name(item, 1, crops, rules)} in your pack."
+    info = fertilizer_info(item, rules) or FERTILIZERS[item]
+    bag_kind = info["kind"]
+    tile["fertilizer"] = {
+        "kind": bag_kind,
+        "season": state.get("season"),
+        "year": year_for_day(int(state.get("day") or 1), crops),
+    }
+    crop = tile.get("crop")
+    if bag_kind == "general" and crop and crop.get("stage") not in {None, "withered"}:
+        ensure_crop_vitals(crop, crop_info(crops, crop.get("kind")))
+        crop["health"] = min(100, int(crop.get("health") or 100) + 10)
+    here = position_name(r, c)
+    if bag_kind == "general":
+        fed = "general fertilizer"
+    elif bag_kind == "yield":
+        fed = "yield-boost fertilizer"
+    else:
+        fed = "growth-boost fertilizer"
+    msg = f"{who(player, 'fertilize', 'fertilizes')} the plot at {here} with {fed}."
+    log_append(state, msg, player)
+    return True, msg
+
+
 def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[bool, str]:
+    from inventory import (
+        store_item,
+        pack_space_for,
+        item_name as inv_item_name,
+        fertilizer_item_for_kind,
+        fertilizer_info,
+        FERTILIZERS,
+        FERTILIZER_SHOP_SEASONS,
+        is_fertilizer,
+    )
+    raw_kind = kind
+    fert_item = fertilizer_item_for_kind(str(kind))
+    if fert_item:
+        season = state.get("season") or "this season"
+        if season not in FERTILIZER_SHOP_SEASONS:
+            known = ", ".join(shop_listing(crops, season)) or "nothing right now"
+            return False, (
+                f"The shop isn't selling fertilizer this {season}. It sells: {known}."
+            )
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        info = fertilizer_info(fert_item) or FERTILIZERS[fert_item]
+        price = int(info["price"]) * count
+        gold = int(state["gold"])
+        label = inv_item_name(fert_item, count, crops)
+        if gold < price:
+            return (
+                False,
+                f"Not enough gold. {label} cost {price}G; you have {gold}G.",
+            )
+        if player and not is_player_in_cabin(state, player):
+            return False, "The shop is at the cabin. Walk there to buy."
+        state["gold"] = gold - price
+        prefer = "pack" if player and pack_space_for(state, player, fert_item, count) else "chest"
+        store_item(state, fert_item, count, player, prefer=prefer if player else "chest")
+        where = "the pack" if prefer == "pack" and player else "the cabin chest"
+        msg = (
+            f"{who(player, 'buy', 'buys')} {label} for {price}G "
+            f"({where}). "
+            f"{display_name(player) if player else 'You'} "
+            f"{'has' if player else 'have'} {state['gold']}G left."
+        )
+        log_append(state, msg, player)
+        return True, msg
     kind = normalize_kind(str(kind))
     info = crop_info(crops, kind)
     if not info:
-        known = ", ".join(shop_kinds(crops, state.get("season"))) or "nothing right now"
+        known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
         return False, f"Unknown seed {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
-        known = ", ".join(shop_kinds(crops, state.get("season"))) or "nothing right now"
+        known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)}s yet. It sells: {known}."
     if not crop_in_season(info, state.get("season")):
         season = state.get("season") or "this season"
-        known = ", ".join(shop_kinds(crops, season)) or "nothing right now"
+        known = ", ".join(shop_listing(crops, season)) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)}s this {season}. It sells: {known}."
     count, err = _parse_count(n)
     if err:
@@ -2523,6 +2698,7 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
     notes = _apply_evening_growth(state, crops, rules)
     state["day"] = int(state["day"]) + 1
     state["season"] = season_for_day(state["day"], crops)
+    clear_expired_fertilizer(state, crops)
     archive_journal_if_needed(state, crops)
     ensure_weather_seed(state, rules, crops)
     state["weather"] = weather_for_day(
@@ -2931,6 +3107,24 @@ def legal_actions(
             actions.append(f"harvest {r} {c}")
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
+        if energy >= energy_cost("fertilize", rules) and not fertilizer_on_tile(tile, state, crops):
+            from inventory import pack_of, chest_of, is_fertilizer
+            bags = []
+            if actor:
+                for slot in pack_of(state, actor, rules):
+                    if slot and is_fertilizer(slot.get("item")) and slot["item"] not in bags:
+                        bags.append(slot["item"])
+            else:
+                for slot in chest_of(state, rules):
+                    if slot and is_fertilizer(slot.get("item")) and slot["item"] not in bags:
+                        bags.append(slot["item"])
+            if len(bags) == 1:
+                actions.append(f"fertilize {r} {c}")
+            else:
+                from inventory import FERTILIZERS
+                for item in bags:
+                    kind = FERTILIZERS[item]["kind"]
+                    actions.append(f"fertilize {r} {c} {kind}")
     from inventory import (
         pack_of,
         chest_of,
@@ -2946,6 +3140,11 @@ def legal_actions(
                 price = int(info["seed_price"])
                 if int(state["gold"]) >= price:
                     actions.append(f"buy {kind} 1")
+        from inventory import fertilizer_info
+        for item in fertilizer_shop_items(state.get("season"), rules):
+            info = fertilizer_info(item, rules)
+            if info and int(state["gold"]) >= int(info["price"]):
+                actions.append(f"buy {item} 1")
         sellable = {}
         if actor:
             for slot in (pack_of(state, actor, rules) + chest_of(state, rules)):
@@ -3059,6 +3258,28 @@ def do_action(
     # Plot work is on the tile you're standing on. Coords are optional,
     # but if given they must be the current tile.
     here = player_where(state, actor)
+    fert_kind = None
+    if verb == "fertilize":
+        # fertilize | fertilize <kind> | fertilize <row> <col> | fertilize <row> <col> <kind>
+        if len(args) == 0:
+            r, c = here
+        elif len(args) == 1:
+            r, c = here
+            fert_kind = args[0]
+        elif len(args) == 2:
+            r, c, err = parse_row_col(args[0], args[1])
+            if err:
+                return False, err
+        elif len(args) == 3:
+            r, c, err = parse_row_col(args[0], args[1])
+            if err:
+                return False, err
+            fert_kind = args[2]
+        else:
+            return False, "Usage: fertilize [kind]   or: fertilize <row> <col> [kind]"
+        stood = _must_stand_here(state, actor, r, c)
+        if stood:
+            return False, stood
     plot_verbs = {"till", "plant", "water", "harvest", "pluck"}
     if verb in plot_verbs:
         if verb == "plant":
@@ -3115,11 +3336,13 @@ def do_action(
         ok, msg = sell(state, crops, args[0], args[1], actor)
     elif verb == "pluck":
         ok, msg = pluck(state, crops, r, c, actor)
+    elif verb == "fertilize":
+        ok, msg = fertilize(state, crops, r, c, fert_kind, actor, rules)
     else:
         return (
             False,
             "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
-            "pluck, eat, buy, sell, take, drop, craft, or end turn.",
+            "pluck, fertilize, eat, buy, sell, take, drop, craft, or end turn.",
         )
 
     if ok and cost:

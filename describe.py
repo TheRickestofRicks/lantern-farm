@@ -19,6 +19,7 @@ from engine import (
     crop_cycle_days,
     crop_is_dormant,
     crop_hint,
+    fertilizer_phrase,
     is_perennial,
     grow_days,
     regrow_days,
@@ -244,7 +245,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         weed_bit = " A small weed has crept in."
     crop = tile.get("crop")
     if not crop:
-        return f"  {here} — {tilled} soil, {moist}. Empty.{till_hold_phrase(tile)}{who_bit}{weed_bit} (sprite: {key})"
+        return f"  {here} — {tilled} soil, {moist}. Empty.{till_hold_phrase(tile)}{fertilizer_phrase(tile, state, crops)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
     stage = crop.get("stage", "seed")
@@ -253,13 +254,13 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"  {here} — {tilled} soil, {moist}. "
             f"A withered {kind} (planted on day {crop.get('planted_day', '?')}, "
             f"grew {crop.get('days_grown', 0)} day(s) before it died, "
-            f"{crop.get('dry_days', 0)} dry day(s)).{till_hold_phrase(tile)}{who_bit}{weed_bit} (sprite: {key})"
+            f"{crop.get('dry_days', 0)} dry day(s)).{till_hold_phrase(tile)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
     if info and (stage == "dormant" or (crop_is_dormant(crop, info, state.get("season")) and stage != "mature")):
         return (
             f"  {here} — {tilled} soil, {moist}. "
             f"A dormant {kind}, resting until spring. It needs no water."
-            f" Planted on day {crop.get('planted_day', '?')}.{who_bit}{weed_bit} (sprite: {key})"
+            f" Planted on day {crop.get('planted_day', '?')}.{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
     if (
         info
@@ -272,7 +273,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         return (
             f"  {here} — {tilled} soil, {moist}. "
             f"{crop_name(kind, info)}, establishing ({label_est}); it will fruit after its first winter, {moist}."
-            f" Planted on day {crop.get('planted_day', '?')}.{crop_hint(crop, tile, state, info)}{who_bit}{weed_bit} (sprite: {key})"
+            f" Planted on day {crop.get('planted_day', '?')}.{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
     needed = crop_cycle_days(info, crop) if info else "?"
     grown = crop.get("days_grown", 0)
@@ -293,7 +294,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{kind}, day {grown} of {needed}, {label}, {moist}"
-        f"{dry_bit}. Planted on day {planted}.{ready}{crop_hint(crop, tile, state, info)}{who_bit}{weed_bit} (sprite: {key})"
+        f"{dry_bit}. Planted on day {planted}.{ready}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
     )
 
 
@@ -499,6 +500,9 @@ def describe_state(
         "pluck it with `pluck <row> <col>` (5 energy, key Q) before the next "
         "day, or the plot grows weedy: weeds slow growth and wear the plant down. "
         "Weeds never kill crops on their own. "
+        "The shop sells three bags of fertilizer in spring and summer "
+        "(general 15G, yield-boost 25G, growth-boost 20G). Feed a plot with "
+        "`fertilize` (key F) while the bag is in your pack; one bag per plot per season. "
         "The sprite key on each tile is the same one the image view uses. "
         "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
         "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "

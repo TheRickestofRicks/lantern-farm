@@ -2614,6 +2614,120 @@ class GrowthHealthAndYield(unittest.TestCase):
 
 
 
+class Fertilizer(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+
+    def test_shop_sells_fertilizer_in_spring_and_summer_only(self):
+        from engine import buy, shop_listing
+        self.assertEqual(self.state["season"], "spring")
+        ok, msg = buy(self.state, self.crops, "fertilizer_general", 1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], int(fresh_state(self.crops, rules=self.rules)["gold"]) - 15)
+        self.assertIn("fertilizer_general", shop_listing(self.crops, "summer"))
+        self.state["season"] = "autumn"
+        ok, msg = buy(self.state, self.crops, "fertilizer_yield", 1)
+        self.assertFalse(ok)
+        self.assertIn("autumn", msg.lower())
+
+    def test_one_bag_per_plot_per_season_and_effects(self):
+        from engine import fertilize, fertilizer_on_tile, fertilizer_bonus, growth_step_for, crop_info
+        from engine import _apply_evening_growth, advance_day
+        till(self.state, self.crops, 1, 1)
+        give_item(self.state, "fertilizer_general", 1)
+        give_item(self.state, "fertilizer_yield", 1)
+        give_seeds(self.state, "turnip", 1)
+        plant(self.state, self.crops, 1, 1, "turnip")
+        crop = self.state["tiles"][0][0]["crop"]
+        crop["health"] = 80
+        ok, msg = fertilize(self.state, self.crops, 1, 1, "general")
+        self.assertTrue(ok, msg)
+        self.assertEqual(crop["health"], 90)
+        self.assertEqual(fertilizer_on_tile(self.state["tiles"][0][0], self.state, self.crops)["kind"], "general")
+        self.assertAlmostEqual(fertilizer_bonus(self.state["tiles"][0][0]), 0.10)
+        ok, msg = fertilize(self.state, self.crops, 1, 1, "yield")
+        self.assertFalse(ok)
+        self.assertIn("already fertilized", msg.lower())
+        # Season change clears the bag so a new one can be applied.
+        self.state["day"] = 15
+        self.state["season"] = "spring"
+        self.state["tiles"][0][0]["watered"] = True
+        ok, msg = sleep(self.state, self.crops, no_weed_rules())
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["season"], "summer")
+        self.assertIsNone(fertilizer_on_tile(self.state["tiles"][0][0], self.state, self.crops))
+        ok, msg = fertilize(self.state, self.crops, 1, 1, "yield")
+        self.assertTrue(ok, msg)
+        self.assertAlmostEqual(fertilizer_bonus(self.state["tiles"][0][0]), 0.25)
+
+    def test_growth_boost_speeds_a_watered_day(self):
+        from engine import fertilize, growth_step_for, crop_info
+        till(self.state, self.crops, 1, 1)
+        give_seeds(self.state, "turnip", 1)
+        plant(self.state, self.crops, 1, 1, "turnip")
+        give_item(self.state, "fertilizer_growth", 1)
+        ok, msg = fertilize(self.state, self.crops, 1, 1, "growth")
+        self.assertTrue(ok, msg)
+        info = crop_info(self.crops, "turnip")
+        crop = self.state["tiles"][0][0]["crop"]
+        bare = growth_step_for(info, crop, weedy=False, tile={"fertilizer": None})
+        boosted = growth_step_for(info, crop, weedy=False, tile=self.state["tiles"][0][0])
+        self.assertAlmostEqual(boosted, bare * 1.5)
+
+    def test_look_names_the_kind_and_sprite_key_includes_it(self):
+        from engine import fertilize, fertilizer_phrase
+        from describe import describe_tile
+        from sprites import sprite_key, parse_sprite_key, svg_for_key
+        till(self.state, self.crops, 1, 1)
+        give_item(self.state, "fertilizer_yield", 1)
+        fertilize(self.state, self.crops, 1, 1, "yield")
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("yield-boost fertilizer", line)
+        self.assertNotIn("%", line)
+        key = sprite_key(self.state["tiles"][0][0], "sun")
+        self.assertIn("_fert_yield", key)
+        parsed = parse_sprite_key(key)
+        self.assertEqual(parsed.get("fertilizer"), "yield")
+        svg = svg_for_key(key)
+        # Granules are painted before a crop layer would be (empty bed here).
+        self.assertIn("ellipse", svg)
+        # Crop-on-fertilizer: granules appear in the SVG before the plant stem/leaf.
+        give_seeds(self.state, "turnip", 1)
+        plant(self.state, self.crops, 1, 1, "turnip")
+        key = sprite_key(self.state["tiles"][0][0], "sun")
+        svg = svg_for_key(key)
+        self.assertLess(svg.find('fill="#2a6b2a"'), _crop_marker(svg))
+
+    def test_player_must_carry_the_bag_in_the_pack(self):
+        from engine import fertilize
+        kit_out(self.state, P1)
+        till(self.state, self.crops, 1, 1)
+        give_item(self.state, "fertilizer_general", 1)  # chest
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "fertilize general", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("pack", msg.lower())
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take fertilizer_general", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "fertilize", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["tiles"][0][0]["fertilizer"]["kind"], "general")
+
+
+def _crop_marker(svg: str) -> int:
+    # Turnip seed is a pale mound/seed fill in the classic sprite.
+    for token in ('fill="#d8c070"', 'fill="#8a7030"', 'fill="#3d6b3a"'):
+        i = svg.find(token)
+        if i >= 0:
+            return i
+    return len(svg)
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

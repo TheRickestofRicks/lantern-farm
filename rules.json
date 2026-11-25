@@ -13,7 +13,8 @@
     "eat": 0,
     "take": 0,
     "drop": 0,
-    "craft": 0
+    "craft": 0,
+    "fertilize": 5
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -93,6 +94,17 @@
       "eat_energy": 40,
       "sell_price": 60,
       "description": "A carrot and a turnip stewed together. Warm and filling."
+    }
+  },
+  "fertilizers": {
+    "fertilizer_general": {
+      "price": 15
+    },
+    "fertilizer_yield": {
+      "price": 25
+    },
+    "fertilizer_growth": {
+      "price": 20
     }
   }
 }

@@ -810,6 +810,7 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>P</kbd> plant
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
+        &middot; <kbd>F</kbd> fertilize
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
@@ -931,7 +932,16 @@ PAGE = r"""<!DOCTYPE html>
         }
         return {kind: "cabin", weather: weather};
       }
-      let weedy = false, weed = false, snow = false;
+      let weedy = false, weed = false, snow = false, fertilizer = null;
+      const fertKinds = ["general", "yield", "growth"];
+      for (let i = 0; i < fertKinds.length; i++) {
+        const suffix = "_fert_" + fertKinds[i];
+        if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+          fertilizer = fertKinds[i];
+          key = key.slice(0, -suffix.length);
+          break;
+        }
+      }
       if (key.length >= 6 && key.slice(-6) === "_weedy") {
         weedy = true;
         key = key.slice(0, -6);
@@ -950,7 +960,7 @@ PAGE = r"""<!DOCTYPE html>
         soil_wet: {tilled: false, watered: true}
       };
       if (soilKeys[key]) {
-        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow};
+        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer};
         out.tilled = soilKeys[key].tilled;
         out.watered = soilKeys[key].watered;
         return out;
@@ -965,11 +975,12 @@ PAGE = r"""<!DOCTYPE html>
           tilled: true,
           weed: weed,
           weedy: weedy,
-          snow: snow
+          snow: snow,
+          fertilizer: fertilizer
         };
       }
-      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow};
-      return {kind: "unknown", raw: key, snow: snow};
+      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer};
+      return {kind: "unknown", raw: key, snow: snow, fertilizer: fertilizer};
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
@@ -1004,6 +1015,11 @@ PAGE = r"""<!DOCTYPE html>
       if (!ground && gkey && gkey.slice(-5) === "_snow") ground = pack.grounds[gkey.slice(0, -5)];
       if (!ground) return null;
       layers.push("/static/packs/" + pack.id + "/" + ground);
+      if (parsed.fertilizer) {
+        const fkey = "fertilizer_" + parsed.fertilizer;
+        const fert = pack.overlays && pack.overlays[fkey];
+        if (fert) layers.push("/static/packs/" + pack.id + "/" + fert);
+      }
       if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {
         const crop = pack.overlays && pack.overlays[parsed.kind + "_" + parsed.stage];
         if (!crop) return null;
@@ -1167,6 +1183,11 @@ PAGE = r"""<!DOCTYPE html>
       return (lastData && lastData.crops && lastData.crops[kind]) || {};
     }
     function itemName(key, n) {
+      const fert = lastData && lastData.fertilizers && lastData.fertilizers[key];
+      if (fert) {
+        const noun = (n === 1) ? (fert.name || key) : ((fert.name_plural) || ((fert.name || key) + "s"));
+        return n + " " + noun;
+      }
       let kind = key;
       let stock = null;
       if (key.endsWith("_seedling")) { kind = key.slice(0, -9); stock = "seedling"; }
@@ -1219,6 +1240,15 @@ PAGE = r"""<!DOCTYPE html>
       return " It " + form(unique[0]) + " and " + form(unique[1]) + ".";
     }
 
+    function fertilizerPhrase(tile) {
+      const fert = tile && tile.fertilizer;
+      if (!fert || !fert.kind) return "";
+      if (fert.kind === "general") return " The soil is fertilized (general).";
+      if (fert.kind === "yield") return " The soil is fed with yield-boost fertilizer.";
+      if (fert.kind === "growth") return " The soil is fed with growth-boost fertilizer.";
+      return " The soil is fertilized.";
+    }
+
     function describeTile(tile, r, c) {
       if (!tile) return "Click a plot.";
       if (tile.type === "cabin") {
@@ -1242,12 +1272,12 @@ PAGE = r"""<!DOCTYPE html>
         if (n <= 0) hold = " It will go untilled at nightfall if it stays empty.";
         else hold = " " + n + (n === 1 ? " day" : " days") + " left until it reverts if left unwatered.";
       }
-      if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + hold + weed;
+      if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + hold + fertilizerPhrase(tile) + weed;
       if (crop.stage === "withered") {
-        return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + hold + weed;
+        return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + hold + fertilizerPhrase(tile) + weed;
       }
       if (crop.stage === "dormant") {
-        return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + weed;
+        return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + fertilizerPhrase(tile) + weed;
       }
       const info = (lastData && lastData.crops && lastData.crops[crop.kind]) || {};
       const needed = (crop.harvests && info.regrow_days) ? info.regrow_days : info.grow_days;
@@ -1261,7 +1291,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       let hint = cropHint(tile, crop);
       return tileName(r, c) + " — " + crop.kind + ", day " + crop.days_grown + of +
-        ", " + crop.stage + ", " + moist + "." + ready + hint + weed;
+        ", " + crop.stage + ", " + moist + "." + ready + hint + fertilizerPhrase(tile) + weed;
     }
 
     function forecastIcon(kind) {
@@ -1691,13 +1721,18 @@ PAGE = r"""<!DOCTYPE html>
       const card = document.createElement("div");
       card.className = "shop-card";
       const img = document.createElement("img");
-      img.src = "/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg";
+      img.src = (stock === "bag" || (data.fertilizers && data.fertilizers[kind]))
+        ? ("/item/" + kind + ".svg")
+        : ("/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg");
       img.alt = title;
       card.appendChild(img);
       const body = document.createElement("div");
-      let cycle = info.regrow_days
-        ? (info.grow_days + " days, then every " + info.regrow_days + " days")
-        : (info.grow_days + " days");
+      let cycle = "";
+      if (info.grow_days) {
+        cycle = info.regrow_days
+          ? (info.grow_days + " days, then every " + info.regrow_days + " days")
+          : (info.grow_days + " days");
+      }
       if (info.perennial) {
         if (info.fruiting_after_dormancy === false) {
           cycle += " · perennial, fruits in the planting year, dormant in winter, lives "
@@ -1717,11 +1752,11 @@ PAGE = r"""<!DOCTYPE html>
       body.innerHTML = "<b>" + escapeHtml(title) + "</b>" +
         (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
         '<div class="meta shop-meta">' + seasonLabel(info.shop_seasons && info.shop_seasons.length ? info.shop_seasons : info.seasons) +
-        " · " + cycle +
-        " · " + stock + "s " + info.seed_price + "G · sell " + info.sell_price + "G" +
+        (cycle ? " · " + cycle : "") +
+        " · " + info.seed_price + "G" +
+        (info.sell_price ? " · sell " + info.sell_price + "G" : "") +
         (eat ? " · eat +" + eat + " energy" : "") +
-        " · pack: " + seeds + " " + stock + (seeds === 1 ? "" : "s") +
-        ", " + fruit + " " + fruitName +
+        (stock === "bag" ? "" : (" · pack: " + seeds + " " + stock + (seeds === 1 ? "" : "s") + ", " + fruit + " " + fruitName)) +
         "</div>";
       const row = document.createElement("div");
       row.className = "shop-qty";
@@ -1821,6 +1856,21 @@ PAGE = r"""<!DOCTYPE html>
         title.textContent = "Seeds in season";
         shop.appendChild(title);
         forSale.forEach(function (pair) {
+          appendShopCard(shop, data, pair[0], pair[1], {buy: true, sell: false});
+        });
+      }
+      const fertilizers = data.fertilizers || {};
+      const fertSale = [];
+      for (const [item, info] of Object.entries(fertilizers)) {
+        const shopSeasons = info.shop_seasons || [];
+        if (shopSeasons.indexOf(season) !== -1) fertSale.push([item, info]);
+      }
+      if (fertSale.length) {
+        const title = document.createElement("div");
+        title.className = "shop-section-title";
+        title.textContent = "Fertilizer";
+        shop.appendChild(title);
+        fertSale.forEach(function (pair) {
           appendShopCard(shop, data, pair[0], pair[1], {buy: true, sell: false});
         });
       }
@@ -2090,6 +2140,38 @@ PAGE = r"""<!DOCTYPE html>
       actCmd("pluck");
     }
 
+    function fertilizerKindsInPack(pack) {
+      const bags = [];
+      const seen = {};
+      const map = {
+        fertilizer_general: "general",
+        fertilizer_yield: "yield",
+        fertilizer_growth: "growth"
+      };
+      (pack || []).forEach(function (slot) {
+        if (!slot || !slot.item || !map[slot.item] || seen[slot.item]) return;
+        seen[slot.item] = true;
+        bags.push(map[slot.item]);
+      });
+      return bags;
+    }
+
+    function keyFertilize() {
+      if (!needTurn() || !needHere()) return;
+      const pack = (lastData && lastData.pack) || (lastData && lastData.state && lastData.state.players && lastData.viewer && lastData.state.players[lastData.viewer] && lastData.state.players[lastData.viewer].pack) || [];
+      const kinds = fertilizerKindsInPack(pack);
+      if (!kinds.length) {
+        showToast("No fertilizer in the pack.", false);
+        return;
+      }
+      if (kinds.length === 1) {
+        actCmd("fertilize " + kinds[0]);
+        return;
+      }
+      actCmd("fertilize " + kinds[0]);
+      showToast("Used " + kinds[0] + " fertilizer. Press F again after buying if you want a different bag.", true);
+    }
+
     function keyPlant() {
       if (!needTurn() || !needHere()) return;
       const kinds = seedKinds((lastData && lastData.state && lastData.state.inventory) || {});
@@ -2261,6 +2343,13 @@ PAGE = r"""<!DOCTYPE html>
         keyPluck();
         return;
       }
+      if (letter === "f") {
+        ev.preventDefault();
+        endConfirm = false;
+        plantPick = null;
+        keyFertilize();
+        return;
+      }
       if (letter === "e") {
         ev.preventDefault();
         plantPick = null;
@@ -2366,6 +2455,25 @@ def render_page(viewer: str | None = None) -> str:
     return html
 
 
+def _fertilizer_catalog(rules: dict | None = None) -> dict:
+    from inventory import FERTILIZERS, FERTILIZER_SHOP_SEASONS, fertilizer_info
+    out = {}
+    for item in FERTILIZERS:
+        info = fertilizer_info(item, rules) or FERTILIZERS[item]
+        out[item] = {
+            "name": info["name"],
+            "shop_name": info["name"],
+            "stock": "bag",
+            "seed_price": int(info["price"]),
+            "sell_price": 0,
+            "available": True,
+            "seasons": list(FERTILIZER_SHOP_SEASONS),
+            "shop_seasons": list(FERTILIZER_SHOP_SEASONS),
+            "description": info.get("description") or "",
+        }
+    return out
+
+
 def _crop_catalog(crops: dict) -> dict:
     out = {}
     for kind, info in crops.get("crops", {}).items():
@@ -2432,6 +2540,7 @@ def api_payload(
         "cabin": [CABIN_ROW, CABIN_COL],
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
         "chest": state.get("chest") or [],
+        "fertilizers": _fertilizer_catalog(rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
     }

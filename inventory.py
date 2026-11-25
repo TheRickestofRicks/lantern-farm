@@ -51,6 +51,34 @@ DEFAULT_RECIPES = {
     },
 }
 
+FERTILIZERS = {
+    "fertilizer_general": {
+        "kind": "general",
+        "name": "general fertilizer",
+        "name_plural": "bags of general fertilizer",
+        "price": 15,
+        "description": "A little health now, and a small bump to the harvest.",
+    },
+    "fertilizer_yield": {
+        "kind": "yield",
+        "name": "yield-boost fertilizer",
+        "name_plural": "bags of yield-boost fertilizer",
+        "price": 25,
+        "description": "A stronger bump to how much the plant is likely to yield.",
+    },
+    "fertilizer_growth": {
+        "kind": "growth",
+        "name": "growth-boost fertilizer",
+        "name_plural": "bags of growth-boost fertilizer",
+        "price": 20,
+        "description": "Helps a watered plant put on growth a little faster.",
+    },
+}
+
+FERTILIZER_SHOP_SEASONS = ("spring", "summer")
+
+FERT_KIND_TO_ITEM = {info["kind"]: item for item, info in FERTILIZERS.items()}
+
 ITEM_ALIASES = {
     "hoe": TOOL_HOE,
     "watering_can": TOOL_CAN,
@@ -69,6 +97,25 @@ ITEM_ALIASES = {
     "stew": "root_stew",
     "root stew": "root_stew",
     "root_stew": "root_stew",
+    "fertilizer_general": "fertilizer_general",
+    "general fertilizer": "fertilizer_general",
+    "general fert": "fertilizer_general",
+    "fertilizer general": "fertilizer_general",
+    "fert general": "fertilizer_general",
+    "fertilizer_yield": "fertilizer_yield",
+    "yield fertilizer": "fertilizer_yield",
+    "yield-boost fertilizer": "fertilizer_yield",
+    "yield boost fertilizer": "fertilizer_yield",
+    "yield fert": "fertilizer_yield",
+    "fertilizer yield": "fertilizer_yield",
+    "fert yield": "fertilizer_yield",
+    "fertilizer_growth": "fertilizer_growth",
+    "growth fertilizer": "fertilizer_growth",
+    "growth-boost fertilizer": "fertilizer_growth",
+    "growth boost fertilizer": "fertilizer_growth",
+    "growth fert": "fertilizer_growth",
+    "fertilizer growth": "fertilizer_growth",
+    "fert growth": "fertilizer_growth",
 }
 
 
@@ -132,6 +179,44 @@ def is_tool(item: str | None) -> bool:
     return (item or "") in TOOLS
 
 
+def is_fertilizer(item: str | None) -> bool:
+    return (item or "") in FERTILIZERS
+
+
+def fertilizer_info(item: str | None, rules: dict | None = None) -> dict | None:
+    item = item or ""
+    if item not in FERTILIZERS:
+        return None
+    info = dict(FERTILIZERS[item])
+    custom = (rules or {}).get("fertilizers") if isinstance(rules, dict) else None
+    if isinstance(custom, dict) and isinstance(custom.get(item), dict):
+        info.update(custom[item])
+    try:
+        info["price"] = int(info.get("price") or FERTILIZERS[item]["price"])
+    except (TypeError, ValueError):
+        info["price"] = FERTILIZERS[item]["price"]
+    return info
+
+
+def fertilizer_item_for_kind(kind: str | None) -> str | None:
+    if not kind:
+        return None
+    text = str(kind).strip().lower().replace("-", " ").replace("_", " ")
+    compact = text.replace(" ", "")
+    if text in ITEM_ALIASES and ITEM_ALIASES[text] in FERTILIZERS:
+        return ITEM_ALIASES[text]
+    if compact in {"general", "yield", "growth"}:
+        return FERT_KIND_TO_ITEM[compact]
+    if text in FERT_KIND_TO_ITEM:
+        return FERT_KIND_TO_ITEM[text]
+    item = ITEM_ALIASES.get(text) or ITEM_ALIASES.get(compact)
+    if item in FERTILIZERS:
+        return item
+    if kind in FERTILIZERS:
+        return kind
+    return None
+
+
 def is_recipe_item(item: str | None, rules: dict | None = None) -> bool:
     return (item or "") in recipes(rules)
 
@@ -191,6 +276,11 @@ def normalize_item(raw: str | None) -> str | None:
         return underscored
     if underscored in TOOLS:
         return underscored
+    if underscored in FERTILIZERS:
+        return underscored
+    fert = fertilizer_item_for_kind(text) or fertilizer_item_for_kind(underscored)
+    if fert:
+        return fert
     return None
 
 
@@ -198,6 +288,10 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     item = item or ""
     if item in TOOLS:
         noun = TOOLS[item]["name"] if count == 1 else TOOLS[item]["name_plural"]
+        return f"{count} {noun}"
+    if item in FERTILIZERS:
+        info = fertilizer_info(item, rules) or FERTILIZERS[item]
+        noun = info["name"] if count == 1 else info["name_plural"]
         return f"{count} {noun}"
     rec = recipes(rules).get(item)
     if rec:
@@ -508,6 +602,8 @@ def sync_inventory_view(state: dict, rules: dict | None = None) -> dict[str, int
     for kind, info in (crops.get("crops") or {}).items():
         view.setdefault(stock_key(kind, info), 0)
         view.setdefault(kind, 0)
+    for item in FERTILIZERS:
+        view.setdefault(item, 0)
     state["inventory"] = view
     return view
 

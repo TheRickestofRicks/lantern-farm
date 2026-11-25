@@ -109,7 +109,7 @@ Keyboard (the page ignores keys while you are typing in an input):
 
 - Arrow keys walk one step (5 energy)
 - `1`–`9` walk to that plot (top row 1 2 3, middle 4 5 6, bottom 7 8 9; 3 is the cabin)
-- `T` till, `W` water, `H` harvest, `Q` pluck a weed on the tile you are standing on
+- `T` till, `W` water, `H` harvest, `Q` pluck a weed, `F` fertilize the tile you are standing on
 - `P` plant on the current tile: if the pack has one seed type, plant it; otherwise a small
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
@@ -235,7 +235,7 @@ configured.
   Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
 - A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (strawberries 1–3, kabocha and roots 1–2, always at least one).
-- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your pack. Each player has a 4-slot pack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries), kabocha soup (1 kabocha, a hearty snack), and root stew (carrot and turnip).
+- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your pack. Each player has a 4-slot pack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries), kabocha soup (1 kabocha, a hearty snack), and root stew (carrot and turnip). The shop also sells general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your pack; one application per plot per season.
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
