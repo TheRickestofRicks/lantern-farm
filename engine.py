@@ -1064,7 +1064,8 @@ def fertilizer_shop_items(season: str | None = None, rules: dict | None = None) 
 
 
 def shop_listing(crops: dict, season: str | None = None, rules: dict | None = None) -> list[str]:
-    return shop_kinds(crops, season) + fertilizer_shop_items(season, rules)
+    from inventory import staple_shop_items
+    return shop_kinds(crops, season) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
 
 
 def is_perennial(info: dict | None) -> bool:
@@ -1244,6 +1245,7 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
         "year": 1,
         "journal": empty_journal(1),
         "migrated_runner_from": True,
+        "discovered_recipes": ["strawberry_jam", "kabocha_soup"],
     }
     apply_new_day_turns(state, rules)
     from inventory import migrate_inventory
@@ -1593,7 +1595,11 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
     changed = migrate_tile_fields(state)
     if migrate_runner_from(state):
         changed = True
+    # Inventory first: recipe discovery must not invent an empty chest
+    # on a pre-pack save, or the old shared inventory would be skipped.
     if ensure_inventory_keys(state):
+        changed = True
+    if ensure_discovered_recipes(state, rules):
         changed = True
     if migrate_crop_vitals(state):
         changed = True
@@ -2335,11 +2341,40 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         )
         log_append(state, msg, player)
         return True, msg
+    from inventory import is_staple, staple_info, STAPLES, normalize_item as _norm_item
+    staple = _norm_item(str(kind)) if not fert_item else None
+    if staple and is_staple(staple):
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        info = staple_info(staple) or STAPLES[staple]
+        price = int(info["price"]) * count
+        gold = int(state["gold"])
+        label = inv_item_name(staple, count, crops)
+        if gold < price:
+            return (
+                False,
+                f"Not enough gold. {label} cost {price}G; you have {gold}G.",
+            )
+        if player and not is_player_in_cabin(state, player):
+            return False, "The shop is at the cabin. Walk there to buy."
+        state["gold"] = gold - price
+        prefer = "pack" if player and pack_space_for(state, player, staple, count) else "chest"
+        store_item(state, staple, count, player, prefer=prefer if player else "chest")
+        where = "the backpack" if prefer == "pack" and player else "the cabin chest"
+        msg = (
+            f"{who(player, 'buy', 'buys')} {label} for {price}G "
+            f"({where}). "
+            f"{display_name(player) if player else 'You'} "
+            f"{'has' if player else 'have'} {state['gold']}G left."
+        )
+        log_append(state, msg, player)
+        return True, msg
     kind = normalize_kind(str(kind))
     info = crop_info(crops, kind)
     if not info:
         known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
-        return False, f"Unknown seed {kind!r}. The shop sells: {known}."
+        return False, f"Unknown item {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
         known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)}s yet. It sells: {known}."
@@ -3082,6 +3117,160 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     return True, msg
 
 
+def _cabin_item_counts(state: dict, rules: dict | None = None) -> dict[str, int]:
+    """Items in the chest plus the backpacks of anyone currently at the cabin."""
+    from inventory import pack_of, chest_of
+    counts: dict[str, int] = {}
+    if "chest" in state:
+        for item, n in _counts_by_item(chest_of(state, rules)).items():
+            counts[item] = counts.get(item, 0) + n
+    else:
+        # Pre-pack saves keep a shared inventory at the cabin.
+        inv = state.get("inventory") or {}
+        if isinstance(inv, dict):
+            for item, n in inv.items():
+                qty = int(n or 0)
+                if item and qty > 0:
+                    key = str(item)
+                    counts[key] = counts.get(key, 0) + qty
+    for name in known_players():
+        if not is_player_in_cabin(state, name):
+            continue
+        slot = (state.get("players") or {}).get(name) or {}
+        if "pack" not in slot:
+            continue
+        for item, n in _counts_by_item(pack_of(state, name, rules)).items():
+            counts[item] = counts.get(item, 0) + n
+    return counts
+
+
+def recipe_ingredients_met(rec: dict, counts: dict[str, int]) -> bool:
+    from inventory import recipe_ingredients
+    for item, n in recipe_ingredients(rec):
+        if item == "strawberry" and int(rec.get("berries") or 0):
+            if counts.get("strawberry", 0) + counts.get("everbearing", 0) < n:
+                return False
+            continue
+        if counts.get(item, 0) < n:
+            return False
+    return True
+
+
+def recipe_is_craftable(
+    state: dict,
+    rec_id: str,
+    player: str | None,
+    rules: dict | None = None,
+    crops: dict | None = None,
+) -> bool:
+    from inventory import recipes, pack_of, chest_of, stack_count
+    rules = rules or load_rules()
+    rec = recipes(rules).get(rec_id)
+    if not rec:
+        return False
+    counts: dict[str, int] = {}
+    if player:
+        for item, n in _counts_by_item(pack_of(state, player, rules)).items():
+            counts[item] = counts.get(item, 0) + n
+    for item, n in _counts_by_item(chest_of(state, rules)).items():
+        counts[item] = counts.get(item, 0) + n
+    return recipe_ingredients_met(rec, counts)
+
+
+def discovered_recipe_ids(state: dict, rules: dict | None = None) -> list[str]:
+    from inventory import recipes, STARTING_DISCOVERED_RECIPES
+    recs = recipes(rules)
+    raw = state.get("discovered_recipes")
+    found = []
+    if isinstance(raw, list):
+        for item in raw:
+            key = str(item)
+            if key in recs and key not in found:
+                found.append(key)
+    for item in STARTING_DISCOVERED_RECIPES:
+        if item in recs and item not in found:
+            found.append(item)
+    return found
+
+
+def mark_recipe_discovered(state: dict, rec_id: str, rules: dict | None = None) -> bool:
+    from inventory import recipes
+    recs = recipes(rules)
+    if rec_id not in recs:
+        return False
+    found = discovered_recipe_ids(state, rules)
+    if rec_id in found:
+        state["discovered_recipes"] = found
+        return False
+    found.append(rec_id)
+    state["discovered_recipes"] = found
+    return True
+
+
+def ensure_discovered_recipes(state: dict, rules: dict | None = None) -> bool:
+    """Seed the starting book and discover any recipe whose ingredients are at the cabin."""
+    from inventory import recipes, STARTING_DISCOVERED_RECIPES
+    rules = rules or load_rules()
+    recs = recipes(rules)
+    before = list(state.get("discovered_recipes") or []) if isinstance(state.get("discovered_recipes"), list) else None
+    found = discovered_recipe_ids(state, rules)
+    changed = before != found
+    counts = _cabin_item_counts(state, rules)
+    for rec_id, rec in recs.items():
+        if rec_id in found:
+            continue
+        if recipe_ingredients_met(rec, counts):
+            found.append(rec_id)
+            changed = True
+    if state.get("discovered_recipes") != found:
+        state["discovered_recipes"] = found
+        changed = True
+    return changed
+
+
+def format_recipe_book(
+    state: dict,
+    crops: dict | None = None,
+    rules: dict | None = None,
+    player: str | None = None,
+) -> str:
+    """Human text for the recipe book: discovered recipes and their ingredients."""
+    from inventory import recipes, recipe_ingredients, item_name, item_label
+    rules = rules or load_rules()
+    crops = crops or load_crops()
+    ensure_discovered_recipes(state, rules)
+    recs = recipes(rules)
+    found = discovered_recipe_ids(state, rules)
+    lines = ["Recipe book"]
+    if not found:
+        lines.append("  No recipes discovered yet.")
+        return "\n".join(lines) + "\n"
+    for rec_id in found:
+        rec = recs.get(rec_id) or {}
+        name = rec.get("name") or rec_id.replace("_", " ")
+        bits = []
+        for item, n in recipe_ingredients(rec):
+            if item == "strawberry" and int(rec.get("berries") or 0):
+                noun = "strawberry" if n == 1 else "strawberries"
+                bits.append(f"{n} {noun} (any kind)")
+            else:
+                bits.append(item_name(item, n, crops, rules))
+        ings = ", ".join(bits) if bits else "no extra ingredients"
+        sell = rec.get("sell_price")
+        eat = rec.get("eat_energy")
+        extra = []
+        if sell is not None:
+            extra.append(f"sells for {int(sell)}G")
+        if eat is not None:
+            extra.append(f"eat +{int(eat)} energy")
+        tail = f" ({'; '.join(extra)})" if extra else ""
+        ready = ""
+        if player and is_player_in_cabin(state, player) and recipe_is_craftable(state, rec_id, player, rules, crops):
+            ready = " Ready to cook."
+        lines.append(f"  {name}: {ings}.{tail}{ready}")
+    return "\n".join(lines) + "\n"
+
+
 def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
     """Cook a recipe at the cabin, using pack first, then the chest."""
     from inventory import (
@@ -3104,9 +3293,15 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     key = normalize_item(str(recipe)) or str(recipe or "").strip().lower().replace(" ", "_")
     recs = recipes(rules)
     rec = recs.get(key)
+    ensure_discovered_recipes(state, rules)
     if not rec:
-        names = ", ".join(r.get("name") or k.replace("_", " ") for k, r in recs.items())
+        names = ", ".join(
+            (recs[k].get("name") or k.replace("_", " "))
+            for k in discovered_recipe_ids(state, rules)
+        ) or "nothing yet"
         return False, f"Unknown recipe {recipe!r}. You can craft: {names}."
+    if key not in discovered_recipe_ids(state, rules):
+        return False, f"You haven't found that recipe yet."
     # Check ingredients (pack + chest).
     needed = dict(rec.get("ingredients") or {})
     berry_need = int(rec.get("berries") or 0)
@@ -3140,6 +3335,7 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     # Determine where it landed: if pack has it now...
     from inventory import pack_has
     where = "the backpack" if pack_has(state, player, key, 1, rules) else "the chest"
+    mark_recipe_discovered(state, key, rules)
     msg = f"{display_name(player)} cooks {item_name(key, 1, crops, rules)} at the cabin ({where})."
     log_append(state, msg, player)
     return True, msg
@@ -3276,23 +3472,11 @@ def legal_actions(
         else:
             for item, have in _counts_by_item(chest_of(state, rules)).items():
                 actions.extend(take_drop_actions("take", item, have))
-        def _have(item):
-            n = 0
-            if actor:
-                n += stack_count(pack_of(state, actor, rules), item)
-            n += stack_count(chest_of(state, rules), item)
-            return n
-        for rec_id, rec in recipes(rules).items():
-            ok_rec = True
-            if int(rec.get("berries") or 0):
-                if _have("strawberry") + _have("everbearing") < int(rec["berries"]):
-                    ok_rec = False
-            for item, n in (rec.get("ingredients") or {}).items():
-                if _have(item) < int(n):
-                    ok_rec = False
-                    break
-            if ok_rec and energy >= energy_cost("craft", rules):
-                actions.append(f"craft {rec_id}")
+        ensure_discovered_recipes(state, rules)
+        if energy >= energy_cost("craft", rules):
+            for rec_id in discovered_recipe_ids(state, rules):
+                if recipe_is_craftable(state, rec_id, actor, rules, crops):
+                    actions.append(f"craft {rec_id}")
     if actor:
         can_snack = (
             int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
@@ -3311,11 +3495,7 @@ def legal_actions(
                     if not slot:
                         continue
                     item = slot.get("item")
-                    if (
-                        item
-                        and is_recipe_item(item, rules)
-                        and item_eat_energy(item, crops, rules) is not None
-                    ):
+                    if item and item_eat_energy(item, crops, rules) is not None:
                         actions.append(f"eat {item} chest")
     actions.append("end turn")
     return actions
@@ -3339,6 +3519,9 @@ def do_action(
     args = parts[1:]
     if verb == "look":
         return True, "look"
+    if verb in {"recipes", "recipe", "cookbook"}:
+        ensure_discovered_recipes(state, rules)
+        return True, format_recipe_book(state, crops, rules, player=player)
     if verb == "sleep":
         return (
             False,
@@ -3347,6 +3530,7 @@ def do_action(
     if verb in {"new", "reset"}:
         return False, "To start a new farm, run: python3 cli.py new"
 
+    ensure_discovered_recipes(state, rules)
     actor, err = parse_player(player)
     if err or not actor:
         return False, "Say who is acting with --player " + " or --player ".join(known_players()) + "."
@@ -3489,7 +3673,7 @@ def do_action(
         return (
             False,
             "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
-            "pluck, fertilize, eat, buy, sell, take, drop, craft, or end turn.",
+            "pluck, fertilize, eat, buy, sell, take, drop, craft, recipes, or end turn.",
         )
 
     if ok and cost:

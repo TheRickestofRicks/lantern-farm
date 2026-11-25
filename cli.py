@@ -24,6 +24,7 @@ def usage() -> str:
     return f"""{title()}
 
   python3 cli.py look
+  python3 cli.py recipes
   python3 cli.py journal
   python3 cli.py journal summer
   python3 cli.py do "<action>"
@@ -47,7 +48,8 @@ Actions:
   sell <kind> <count>     (at the cabin, from backpack or chest)
   take <item> [count]     (chest to backpack, at the cabin; count or all)
   drop <item> [count]     (backpack to chest, at the cabin; count or all)
-  craft <recipe>          (at the cabin: strawberry_jam, kabocha_soup, root_stew)
+  craft <recipe>          (at the cabin; only recipes you can cook are listed)
+  recipes                 (the recipe book of discovered recipes)
   end turn
   end turn <note>
   end turn: <note>
@@ -57,13 +59,17 @@ Till needs a hoe in your backpack; water needs a watering can. There is one hoe
 and two cans in the world; they start in the cabin chest. Each player has a
 4-slot backpack (tools take a slot each). Harvest goes into the backpack — if it is
 full, walk home and drop something first. Buy, sell, take, drop, and craft
-are done at the cabin. Recipes: strawberry jam (3 berries, any kind),
-kabocha soup (1 kabocha, +45 energy), and root stew (carrot + turnip).
+are done at the cabin. The shop also sells bread (8G), butter (10G), and milk
+(8G) year-round. Open the recipe book with `recipes`; jam and kabocha soup
+start discovered, and a recipe is learned when you first have all its
+ingredients at the cabin (or cook it). Only cookable discovered recipes appear
+as craft actions. Kitchen recipes include bread and butter, jam toast,
+strawberry milk, buttered kabocha, and kabocha cream soup.
 
 Each step costs 5 energy, including diagonals. Harvest, buy, sell, eat,
 take and drop are free; crafting costs 5 energy. Eat a snack from the backpack (up to 2 a turn)
-to restore energy: strawberry 30, everbearing 20, jam 50, soup 45, stew 40,
-and later crops if you have them (carrot 10, turnip 12, kabocha 25).
+to restore energy: strawberry 30, everbearing 20, jam 40, soup 55, stew 50,
+bread 10, butter 6, milk 8, and later crops if you have them (carrot 10, turnip 12, kabocha 25).
 
 Ending your turn in the cabin is sleep — next day you wake there with 100
 energy. Ending it anywhere else is passing out — you wake where you fell
@@ -80,7 +86,7 @@ means autumn) to read just that page. Older years are archived and not shown.
 Rows and columns are 1-indexed. Row 1 is the top, col 1 is the left.
 The cabin is top-right (row 1 col 3) and cannot be farmed.
 
-Crops: the shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
+Crops: the shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the seed rack is empty, but bread, butter, and milk stay in the shop. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
 """
 
 
@@ -140,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     cmd = args[0].lower()
     if cmd == "look":
         sys.stdout.write(look(viewer=player))
+        return 0
+    if cmd in {"recipes", "recipe"}:
+        from engine import format_recipe_book, load_rules
+        with session(write=True) as (state, crops):
+            sys.stdout.write(format_recipe_book(state, crops, load_rules(), player=player))
         return 0
     if cmd == "journal":
         season = " ".join(args[1:]).strip()

@@ -94,6 +94,57 @@
       "eat_energy": 50,
       "sell_price": 70,
       "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw."
+    },
+    "bread_and_butter": {
+      "name": "bread and butter",
+      "ingredients": {
+        "bread": 1,
+        "butter": 1
+      },
+      "eat_energy": 22,
+      "sell_price": 28,
+      "description": "A loaf split and spread with butter. More filling than eating them separately, and worth a little more gold."
+    },
+    "jam_toast": {
+      "name": "jam toast",
+      "ingredients": {
+        "bread": 1,
+        "strawberry_jam": 1
+      },
+      "eat_energy": 58,
+      "sell_price": 115,
+      "description": "Toast with a spoon of strawberry jam. A sweeter snack than the jam alone."
+    },
+    "strawberry_milk": {
+      "name": "strawberry milk",
+      "ingredients": {
+        "milk": 1,
+        "strawberry": 1
+      },
+      "eat_energy": 45,
+      "sell_price": 45,
+      "description": "Cold milk stirred with a crushed strawberry. Restores more than the fruit and milk on their own."
+    },
+    "buttered_kabocha": {
+      "name": "buttered kabocha",
+      "ingredients": {
+        "kabocha": 1,
+        "butter": 1
+      },
+      "eat_energy": 42,
+      "sell_price": 75,
+      "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw, and sells for more than the two apart."
+    },
+    "kabocha_cream_soup": {
+      "name": "kabocha cream soup",
+      "ingredients": {
+        "kabocha": 1,
+        "milk": 1,
+        "butter": 1
+      },
+      "eat_energy": 70,
+      "sell_price": 88,
+      "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen."
     }
   },
   "fertilizers": {
@@ -105,6 +156,23 @@
     },
     "fertilizer_growth": {
       "price": 20
+    }
+  },
+  "staples": {
+    "bread": {
+      "price": 8,
+      "sell_price": 4,
+      "eat_energy": 10
+    },
+    "butter": {
+      "price": 10,
+      "sell_price": 5,
+      "eat_energy": 6
+    },
+    "milk": {
+      "price": 8,
+      "sell_price": 4,
+      "eat_energy": 8
     }
   }
 }

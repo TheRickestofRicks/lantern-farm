@@ -25,6 +25,37 @@ TOOLS = {
     },
 }
 
+# Shop staples: cheap, year-round, lightly filling.
+STAPLES = {
+    "bread": {
+        "name": "bread",
+        "name_plural": "loaves of bread",
+        "price": 8,
+        "sell_price": 4,
+        "eat_energy": 10,
+        "description": "A small loaf from the village bakery. Modest, and always in the shop.",
+    },
+    "butter": {
+        "name": "butter",
+        "name_plural": "pats of butter",
+        "price": 10,
+        "sell_price": 5,
+        "eat_energy": 6,
+        "description": "A pale pat of butter. Nice on bread, or in a pan with kabocha.",
+    },
+    "milk": {
+        "name": "milk",
+        "name_plural": "bottles of milk",
+        "price": 8,
+        "sell_price": 4,
+        "eat_energy": 8,
+        "description": "A bottle of fresh milk. Good on its own, or with berries and soup.",
+    },
+}
+
+# Recipes that are already in the book when a farm begins (or an older save is migrated).
+STARTING_DISCOVERED_RECIPES = ("strawberry_jam", "kabocha_soup")
+
 # Default recipes if rules.json has not listed them yet.
 DEFAULT_RECIPES = {
     "strawberry_jam": {
@@ -48,6 +79,41 @@ DEFAULT_RECIPES = {
         "eat_energy": 50,
         "sell_price": 70,
         "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw.",
+    },
+    "bread_and_butter": {
+        "name": "bread and butter",
+        "ingredients": {"bread": 1, "butter": 1},
+        "eat_energy": 22,
+        "sell_price": 28,
+        "description": "A loaf split and spread with butter. More filling than eating them separately, and worth a little more gold.",
+    },
+    "jam_toast": {
+        "name": "jam toast",
+        "ingredients": {"bread": 1, "strawberry_jam": 1},
+        "eat_energy": 58,
+        "sell_price": 115,
+        "description": "Toast with a spoon of strawberry jam. A sweeter snack than the jam alone.",
+    },
+    "strawberry_milk": {
+        "name": "strawberry milk",
+        "ingredients": {"milk": 1, "strawberry": 1},
+        "eat_energy": 45,
+        "sell_price": 45,
+        "description": "Cold milk stirred with a crushed strawberry. Restores more than the fruit and milk on their own.",
+    },
+    "buttered_kabocha": {
+        "name": "buttered kabocha",
+        "ingredients": {"kabocha": 1, "butter": 1},
+        "eat_energy": 42,
+        "sell_price": 75,
+        "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw, and sells for more than the two apart.",
+    },
+    "kabocha_cream_soup": {
+        "name": "kabocha cream soup",
+        "ingredients": {"kabocha": 1, "milk": 1, "butter": 1},
+        "eat_energy": 70,
+        "sell_price": 88,
+        "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen.",
     },
 }
 
@@ -97,6 +163,28 @@ ITEM_ALIASES = {
     "stew": "root_stew",
     "root stew": "root_stew",
     "root_stew": "root_stew",
+    "bread": "bread",
+    "loaf": "bread",
+    "loaf of bread": "bread",
+    "loaves of bread": "bread",
+    "butter": "butter",
+    "pat of butter": "butter",
+    "pats of butter": "butter",
+    "milk": "milk",
+    "bottle of milk": "milk",
+    "bottles of milk": "milk",
+    "bread and butter": "bread_and_butter",
+    "bread_and_butter": "bread_and_butter",
+    "jam toast": "jam_toast",
+    "jam_toast": "jam_toast",
+    "toast": "jam_toast",
+    "strawberry milk": "strawberry_milk",
+    "strawberry_milk": "strawberry_milk",
+    "buttered kabocha": "buttered_kabocha",
+    "buttered_kabocha": "buttered_kabocha",
+    "kabocha cream soup": "kabocha_cream_soup",
+    "kabocha_cream_soup": "kabocha_cream_soup",
+    "cream soup": "kabocha_cream_soup",
     "fertilizer_general": "fertilizer_general",
     "general fertilizer": "fertilizer_general",
     "general fert": "fertilizer_general",
@@ -181,6 +269,86 @@ def is_tool(item: str | None) -> bool:
 
 def is_fertilizer(item: str | None) -> bool:
     return (item or "") in FERTILIZERS
+
+
+def is_staple(item: str | None) -> bool:
+    return (item or "") in STAPLES
+
+
+def staple_info(item: str | None, rules: dict | None = None) -> dict | None:
+    item = item or ""
+    if item not in STAPLES:
+        return None
+    info = dict(STAPLES[item])
+    custom = (rules or {}).get("staples") if isinstance(rules, dict) else None
+    if isinstance(custom, dict) and isinstance(custom.get(item), dict):
+        info.update(custom[item])
+    for key in ("price", "sell_price", "eat_energy"):
+        if info.get(key) is None:
+            continue
+        try:
+            info[key] = int(info[key])
+        except (TypeError, ValueError):
+            info[key] = STAPLES[item].get(key)
+    return info
+
+
+def staple_shop_items(rules: dict | None = None) -> list[str]:
+    """Staples are sold year-round."""
+    items = list(STAPLES)
+    custom = (rules or {}).get("staples") if isinstance(rules, dict) else None
+    if isinstance(custom, dict):
+        for key in custom:
+            item = normalize_item(key) or str(key).strip().lower().replace(" ", "_")
+            if item not in items and item in STAPLES:
+                items.append(item)
+    return items
+
+
+def recipe_ingredients(rec: dict | None) -> list[tuple[str, int]]:
+    """Normalized (item, count) pairs, including jam's berry requirement."""
+    if not rec:
+        return []
+    out: list[tuple[str, int]] = []
+    berries = int(rec.get("berries") or 0)
+    if berries:
+        out.append(("strawberry", berries))
+    for raw, n in (rec.get("ingredients") or {}).items():
+        item = normalize_item(raw) or str(raw).strip().lower().replace(" ", "_")
+        try:
+            count = int(n)
+        except (TypeError, ValueError):
+            continue
+        if item and count > 0:
+            out.append((item, count))
+    return out
+
+
+def ingredient_cost(rec: dict, crops: dict | None = None, rules: dict | None = None) -> int:
+    """Gold value of a recipe's ingredients (shop price for staples, sell price otherwise)."""
+    total = 0
+    for item, n in recipe_ingredients(rec):
+        if item in STAPLES:
+            info = staple_info(item, rules) or STAPLES[item]
+            try:
+                total += n * int(info.get("price") or 0)
+            except (TypeError, ValueError):
+                pass
+            continue
+        price = item_sell_price(item, crops, rules)
+        if price:
+            total += n * int(price)
+    return total
+
+
+def ingredient_eat_total(rec: dict, crops: dict | None = None, rules: dict | None = None) -> int:
+    total = 0
+    for item, n in recipe_ingredients(rec):
+        # Jam's berry slot is "any strawberry"; June-bearing energy is the fair comparison.
+        energy = item_eat_energy(item, crops, rules)
+        if energy:
+            total += n * int(energy)
+    return total
 
 
 def fertilizer_info(item: str | None, rules: dict | None = None) -> dict | None:
@@ -295,6 +463,10 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     if item in TOOLS:
         noun = TOOLS[item]["name"] if count == 1 else TOOLS[item]["name_plural"]
         return f"{count} {noun}"
+    if item in STAPLES:
+        info = staple_info(item, rules) or STAPLES[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
+        return f"{count} {noun}"
     if item in FERTILIZERS:
         info = fertilizer_info(item, rules) or FERTILIZERS[item]
         noun = info["name"] if count == 1 else info["name_plural"]
@@ -326,6 +498,12 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
 
 
 def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
+    if item in STAPLES:
+        stap = staple_info(item, rules) or STAPLES[item]
+        try:
+            return int(stap["sell_price"])
+        except (KeyError, TypeError, ValueError):
+            return None
     rec = recipes(rules).get(item)
     if rec:
         price = rec.get("sell_price")
@@ -347,6 +525,14 @@ def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = N
 
 
 def item_eat_energy(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
+    if item in STAPLES:
+        stap = staple_info(item, rules) or STAPLES[item]
+        if stap.get("eat_energy") is None:
+            return None
+        try:
+            return max(0, int(stap["eat_energy"]))
+        except (TypeError, ValueError):
+            return None
     rec = recipes(rules).get(item)
     if rec and rec.get("eat_energy") is not None:
         try:

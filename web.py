@@ -511,6 +511,29 @@ PAGE = r"""<!DOCTYPE html>
     }
     .toast.bad { color: var(--bad); }
     .inv { margin: 0 0 0.8rem; color: var(--ink); }
+    .recipe-book {
+      margin: 0 0 0.9rem;
+      border-top: 1px solid var(--line);
+      padding-top: 0.55rem;
+    }
+    .recipe-book-head {
+      cursor: pointer;
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 0.92rem;
+    }
+    .recipe-entry {
+      margin: 0.55rem 0 0;
+      padding: 0.45rem 0 0.5rem;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .recipe-entry:last-child { border-bottom: 0; }
+    .recipe-entry b { color: var(--ink); }
+    .recipe-entry .recipe-meta { font-size: 0.9rem; }
+    .recipe-book .btn { margin-top: 0.4rem; }
     .inv-panel .shop-section-title { margin-top: 0; }
     .inv-panel .shop-card {
       grid-template-columns: 56px 1fr;
@@ -852,6 +875,10 @@ PAGE = r"""<!DOCTYPE html>
           <select id="art-pack" aria-label="Art pack"></select>
         </label>
       </div>
+      <details class="recipe-book" id="recipe-book">
+        <summary class="recipe-book-head">Recipe book</summary>
+        <div id="recipe-book-body"></div>
+      </details>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div class="actions" id="tile-actions"></div>
@@ -1405,6 +1432,7 @@ PAGE = r"""<!DOCTYPE html>
           (data.your_turn ? "" : " — waiting, it's " + displayName(current) + "'s turn") +
         "</span>";
       renderBackpack(data);
+      renderRecipeBook(data);
       const endBtn = $("end-turn");
       if (endBtn) {
         endBtn.disabled = !data.your_turn;
@@ -1877,7 +1905,9 @@ PAGE = r"""<!DOCTYPE html>
 
     function recipeInfo(item, data) {
       const recs = (data && data.recipes) || {};
-      return recs[item] || null;
+      if (recs[item]) return recs[item];
+      const staples = (data && data.staples) || {};
+      return staples[item] || null;
     }
 
     function appendItemCard(parent, slot, opts) {
@@ -1932,6 +1962,50 @@ PAGE = r"""<!DOCTYPE html>
       if (btns.childNodes.length) body.appendChild(btns);
       row.appendChild(body);
       parent.appendChild(row);
+    }
+
+    function renderRecipeBook(data) {
+      const el = $("recipe-book-body");
+      if (!el) return;
+      el.innerHTML = "";
+      const book = data.recipe_book || [];
+      if (!book.length) {
+        const empty = document.createElement("p");
+        empty.className = "shop-empty";
+        empty.textContent = "No recipes in the book yet.";
+        el.appendChild(empty);
+        return;
+      }
+      book.forEach(function (entry) {
+        const row = document.createElement("div");
+        row.className = "recipe-entry";
+        const title = document.createElement("b");
+        title.textContent = entry.name || entry.id;
+        row.appendChild(title);
+        const meta = document.createElement("div");
+        meta.className = "recipe-meta";
+        const bits = [];
+        if (entry.ingredients_text) bits.push(entry.ingredients_text);
+        if (entry.sell_price) bits.push("sells for " + entry.sell_price + "G");
+        if (entry.eat_energy) bits.push("eat +" + entry.eat_energy + " energy");
+        meta.textContent = bits.join(" · ");
+        row.appendChild(meta);
+        if (entry.description) {
+          const desc = document.createElement("div");
+          desc.className = "recipe-meta";
+          desc.textContent = entry.description;
+          row.appendChild(desc);
+        }
+        if (data.in_cabin && entry.craftable && data.your_turn) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn";
+          btn.textContent = "Craft";
+          btn.addEventListener("click", function () { actCmd("craft " + entry.id); });
+          row.appendChild(btn);
+        }
+        el.appendChild(row);
+      });
     }
 
     function renderBackpack(data) {
@@ -2012,6 +2086,17 @@ PAGE = r"""<!DOCTYPE html>
           appendShopCard(shop, data, pair[0], pair[1], {buy: true, sell: false});
         });
       }
+      const staples = data.staples || {};
+      const stapleSale = Object.keys(staples);
+      if (stapleSale.length) {
+        const title = document.createElement("div");
+        title.className = "shop-section-title";
+        title.textContent = "Staples";
+        shop.appendChild(title);
+        stapleSale.forEach(function (item) {
+          appendShopCard(shop, data, item, staples[item], {buy: true, sell: true});
+        });
+      }
       if (sellables.length) {
         const title = document.createElement("div");
         title.className = "shop-section-title";
@@ -2048,18 +2133,24 @@ PAGE = r"""<!DOCTYPE html>
             appendItemCard(shop, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
           });
         }
+        const book = data.recipe_book || [];
+        const cookable = book.filter(function (entry) { return entry && entry.craftable; });
         const craftTitle = document.createElement("div");
         craftTitle.className = "shop-section-title";
         craftTitle.textContent = "Kitchen";
         shop.appendChild(craftTitle);
-        [["strawberry_jam", "Strawberry jam (3 berries)"],
-         ["kabocha_soup", "Kabocha soup (1 kabocha)"],
-         ["root_stew", "Root stew (carrot + turnip)"]].forEach(function (pair) {
+        if (!cookable.length) {
+          const hint = document.createElement("p");
+          hint.className = "shop-empty";
+          hint.textContent = "No discovered recipes you can cook right now. Ingredients come from the backpack and the chest.";
+          shop.appendChild(hint);
+        }
+        cookable.forEach(function (entry) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn";
-          btn.textContent = "Craft " + pair[1];
-          btn.addEventListener("click", function () { actCmd("craft " + pair[0]); });
+          btn.textContent = "Craft " + entry.name + " (" + (entry.ingredients_text || "") + ")";
+          btn.addEventListener("click", function () { actCmd("craft " + entry.id); });
           shop.appendChild(btn);
         });
       }
@@ -2577,7 +2668,8 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
     from inventory import FERTILIZERS, TOOLS, recipes, item_name
     from engine import stock_key
-    keys = list(TOOLS) + list(FERTILIZERS) + list(recipes(rules))
+    from inventory import STAPLES
+    keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
         keys.append(stock_key(kind, info))
@@ -2612,6 +2704,70 @@ def _recipe_catalog(rules: dict | None = None) -> dict:
             "sell_price": sell,
             "eat_energy": eat,
         }
+    return out
+
+
+def _staple_catalog(rules: dict | None = None) -> dict:
+    from inventory import staple_shop_items, staple_info, STAPLES
+    seasons = ["spring", "summer", "autumn", "winter"]
+    out = {}
+    for item in staple_shop_items(rules):
+        info = staple_info(item, rules) or STAPLES[item]
+        out[item] = {
+            "name": info.get("name") or item.replace("_", " "),
+            "name_plural": info.get("name_plural") or "",
+            "shop_name": info.get("name") or item.replace("_", " "),
+            "stock": "",
+            "seed_price": int(info.get("price") or 0),
+            "sell_price": int(info.get("sell_price") or 0),
+            "eat_energy": int(info["eat_energy"]) if info.get("eat_energy") is not None else None,
+            "available": True,
+            "seasons": list(seasons),
+            "shop_seasons": list(seasons),
+            "description": info.get("description") or "",
+        }
+    return out
+
+
+def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: str | None) -> list[dict]:
+    from inventory import recipes, recipe_ingredients, item_name
+    from engine import (
+        ensure_discovered_recipes,
+        discovered_recipe_ids,
+        recipe_is_craftable,
+        is_player_in_cabin,
+    )
+    ensure_discovered_recipes(state, rules)
+    recs = recipes(rules)
+    out = []
+    at_cabin = bool(player and is_player_in_cabin(state, player))
+    for rec_id in discovered_recipe_ids(state, rules):
+        rec = recs.get(rec_id) or {}
+        bits = []
+        for item, n in recipe_ingredients(rec):
+            if item == "strawberry" and int(rec.get("berries") or 0):
+                bits.append(("1 strawberry (any kind)" if n == 1 else f"{n} strawberries (any kind)"))
+            else:
+                bits.append(item_name(item, n, crops, rules))
+        sell = rec.get("sell_price")
+        eat = rec.get("eat_energy")
+        try:
+            sell = int(sell) if sell is not None else None
+        except (TypeError, ValueError):
+            sell = None
+        try:
+            eat = int(eat) if eat is not None else None
+        except (TypeError, ValueError):
+            eat = None
+        out.append({
+            "id": rec_id,
+            "name": rec.get("name") or rec_id.replace("_", " "),
+            "ingredients_text": ", ".join(bits),
+            "description": rec.get("description") or "",
+            "sell_price": sell,
+            "eat_energy": eat,
+            "craftable": at_cabin and recipe_is_craftable(state, rec_id, player, rules, crops),
+        })
     return out
 
 
@@ -2677,7 +2833,7 @@ def api_payload(
     migrate_state(state, rules)
     viewer = _web_player(player)
     from config import starting_player
-    from engine import recent_notes, year_for_day
+    from engine import recent_notes, year_for_day, discovered_recipe_ids
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
     sprites = [[sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)] for r, row in enumerate(state["tiles"])]
@@ -2703,6 +2859,9 @@ def api_payload(
         "fertilizers": _fertilizer_catalog(rules),
         "item_names": _item_name_catalog(crops, rules),
         "recipes": _recipe_catalog(rules),
+        "staples": _staple_catalog(rules),
+        "recipe_book": _recipe_book_payload(state, crops, rules, viewer),
+        "discovered_recipes": discovered_recipe_ids(state, rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
     }

@@ -32,6 +32,7 @@ if str(ROOT) not in sys.path:
 from describe import describe_state
 from engine import (
     do_action,
+    format_recipe_book,
     energy_cost,
     known_players,
     load_crops,
@@ -210,8 +211,8 @@ def farm_rules() -> str:
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
             "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the item instead of selling it.",
             "Each player has a 4-slot backpack. Till needs a hoe in the backpack; water needs a watering can. One hoe and two cans start in the shared cabin chest. Take, drop, buy, sell, and craft only at the cabin. Harvest goes into the backpack. At the cabin, `take <item> 1` / `take <item> all` and `drop <item> 1` / `drop <item> all` move a stack between the chest and the backpack.",
-            "Craft at the cabin: strawberry_jam (3 berries), kabocha_soup (1 kabocha, +45 energy), root_stew (carrot and turnip).",
-            "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the shop is empty for now. Later crops stay in the backpack if you already grew them.",
+            "Craft at the cabin from discovered recipes you can cook (ingredients in the backpack or chest). Jam and kabocha soup start in the recipe book; others are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` lists the book.",
+            "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer, and bread (8G), butter (10G), and milk (8G) year-round. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. Later crops stay in the backpack if you already grew them.",
             "The day advances when every player has ended their turn.",
         ],
     }
@@ -242,6 +243,18 @@ def farm_journal(season: str | None = None, path: Path | None = None) -> str:
         return "Seasons are spring, summer, autumn (or fall), and winter.\n"
     with _session(write=False, path=dest) as (state, _crops):
         return format_season_journal(state, wanted or None)
+
+
+def farm_recipes(player: str | None = None, path: Path | None = None) -> str:
+    """The discovered recipe book, the same text as `cli.py recipes`."""
+    dest = path or _STATE_PATH
+    from engine import load_crops, load_rules, session as _session, format_recipe_book, parse_player, normalize_player
+    viewer = None
+    if player:
+        who, err = parse_player(str(player))
+        viewer = who if not err else normalize_player(player)
+    with _session(write=True, path=dest) as (state, crops):
+        return format_recipe_book(state, crops, load_rules(), player=viewer)
 
 
 TOOL_SPECS = [
@@ -342,6 +355,21 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "farm_recipes",
+        "description": (
+            "Show the farm's recipe book: discovered recipes, their ingredients, "
+            "sell price, and energy restored. Optional player so the book can mark "
+            "recipes that are ready to cook at the cabin."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "player": {"type": "string", "description": "Optional player id, so ready-to-cook recipes can be marked."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "farm_rules",
         "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy, regrow days, and whether a crop is in the shop), and the configured players.",
         "inputSchema": {
@@ -373,6 +401,8 @@ def call_tool(name: str, arguments: dict | None) -> tuple[str, bool]:
         if name == "farm_journal":
             season = args.get("season")
             return farm_journal(None if season is None else str(season)), False
+        if name == "farm_recipes":
+            return farm_recipes(args.get("player")), False
         if name == "farm_rules":
             return farm_rules(), False
     except Exception:

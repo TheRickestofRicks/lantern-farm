@@ -1132,7 +1132,7 @@ class ConfigAndMCP(unittest.TestCase):
         names = [t["name"] for t in listed["result"]["tools"]]
         self.assertEqual(
             names,
-            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_rules"],
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_rules"],
         )
         p1 = starting_player()
         called = mcp_server.handle_rpc({
@@ -1246,7 +1246,7 @@ class ConfigAndMCP(unittest.TestCase):
         names = [tool["name"] for tool in by_id[2]["result"]["tools"]]
         self.assertEqual(
             names,
-            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_rules"],
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_rules"],
         )
         self.assertEqual(proc.returncode, 0)
 
@@ -3030,6 +3030,165 @@ class RunnerVines(unittest.TestCase):
         # Idempotent.
         self.assertFalse(migrate_runner_from(self.state))
         self.assertEqual(self.state["tiles"][0][1]["crop"].get("runner_from"), [1, 1])
+
+
+
+
+class StaplesAndRecipeBook(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_shop_sells_bread_butter_and_milk_year_round(self):
+        from engine import shop_listing, buy
+        from inventory import pack_has
+        for season in ("spring", "summer", "autumn", "winter"):
+            listing = shop_listing(self.crops, season, self.rules)
+            self.assertIn("bread", listing)
+            self.assertIn("butter", listing)
+            self.assertIn("milk", listing)
+        self.state["season"] = "winter"
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "buy bread 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("bread", msg)
+        self.assertNotIn("_", msg)
+        self.assertEqual(int(self.state["gold"]), gold - 8)
+        self.assertTrue(pack_has(self.state, P1, "bread", 1, self.rules))
+
+    def test_staples_are_edible_snacks(self):
+        from inventory import add_to_pack, pack_has, item_eat_energy
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        self.state["players"][P1]["energy"] = 20
+        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 30)
+        self.assertIn("bread", msg)
+        self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        self.assertEqual(item_eat_energy("butter", self.crops, self.rules), 6)
+        self.assertEqual(item_eat_energy("milk", self.crops, self.rules), 8)
+
+    def test_starting_book_has_jam_and_soup_but_not_later_recipes(self):
+        from engine import discovered_recipe_ids, format_recipe_book, legal_actions
+        found = discovered_recipe_ids(self.state, self.rules)
+        self.assertIn("strawberry_jam", found)
+        self.assertIn("kabocha_soup", found)
+        self.assertNotIn("jam_toast", found)
+        self.assertNotIn("bread_and_butter", found)
+        book = format_recipe_book(self.state, self.crops, self.rules, player=P1)
+        self.assertIn("strawberry jam", book)
+        self.assertIn("3 strawberries (any kind)", book)
+        self.assertIn("kabocha soup", book)
+        self.assertNotIn("jam toast", book)
+        self.assertNotIn("bread and butter", book)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertFalse(any(a.startswith("craft ") for a in actions))
+
+    def test_having_ingredients_at_the_cabin_discovers_a_recipe(self):
+        from inventory import add_to_chest, add_to_pack, pack_has
+        from engine import discovered_recipe_ids, format_recipe_book
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        add_to_chest(self.state, "butter", 1, self.rules)
+        # Trigger discovery by asking for the book / legal actions at the cabin.
+        ok, book = do_action(self.state, self.crops, "recipes", player=P1, rules=self.rules)
+        self.assertTrue(ok, book)
+        self.assertIn("bread_and_butter", discovered_recipe_ids(self.state, self.rules))
+        self.assertIn("bread and butter", book)
+        self.assertIn("1 bread", book)
+        self.assertIn("1 butter", book)
+        self.assertIn("Ready to cook", book)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("craft bread_and_butter", actions)
+        self.assertNotIn("craft jam_toast", actions)
+        # Cooking spends ingredients, costs 5 energy, and the food sells above cost.
+        energy = int(self.state["players"][P1]["energy"])
+        ok, msg = do_action(self.state, self.crops, "craft bread and butter", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("bread and butter", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], energy - 5)
+        self.assertTrue(pack_has(self.state, P1, "bread_and_butter", 1, self.rules))
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "sell bread and butter 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["gold"]), gold + 28)
+
+    def test_undiscovered_recipes_cannot_be_cooked_and_do_not_spoil_the_book(self):
+        from inventory import add_to_pack
+        ok, msg = do_action(self.state, self.crops, "craft jam toast", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertTrue("haven't found" in msg.lower() or "unknown recipe" in msg.lower(), msg)
+        # Even with ingredients in the field, discovery waits until the cabin.
+        stand(self.state, P1, 1, 1)
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        add_to_pack(self.state, P1, "strawberry_jam", 1, self.rules)
+        ok, book = do_action(self.state, self.crops, "recipes", player=P1, rules=self.rules)
+        self.assertTrue(ok, book)
+        self.assertNotIn("jam toast", book)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, book = do_action(self.state, self.crops, "recipes", player=P1, rules=self.rules)
+        self.assertTrue(ok, book)
+        self.assertIn("jam toast", book)
+
+    def test_new_crafted_foods_sell_and_restore_more_than_their_ingredients(self):
+        from inventory import (
+            recipes,
+            ingredient_cost,
+            ingredient_eat_total,
+            item_sell_price,
+            item_eat_energy,
+        )
+        recs = recipes(self.rules)
+        for key in (
+            "bread_and_butter",
+            "jam_toast",
+            "strawberry_milk",
+            "buttered_kabocha",
+            "kabocha_cream_soup",
+            "strawberry_jam",
+            "kabocha_soup",
+            "root_stew",
+        ):
+            rec = recs[key]
+            self.assertGreater(
+                item_sell_price(key, self.crops, self.rules),
+                ingredient_cost(rec, self.crops, self.rules),
+                key,
+            )
+            # Jam is a modest snack by design (less than eating three berries raw).
+            if key != "strawberry_jam":
+                self.assertGreater(
+                    item_eat_energy(key, self.crops, self.rules),
+                    ingredient_eat_total(rec, self.crops, self.rules),
+                    key,
+                )
+
+    def test_migrate_seeds_jam_and_soup_in_the_recipe_book(self):
+        from engine import migrate_state, discovered_recipe_ids
+        self.state.pop("discovered_recipes", None)
+        self.assertTrue(migrate_state(self.state, self.rules))
+        found = discovered_recipe_ids(self.state, self.rules)
+        self.assertEqual(found[:2], ["strawberry_jam", "kabocha_soup"])
+        self.assertIn("strawberry_jam", self.state["discovered_recipes"])
+        self.assertIn("kabocha_soup", self.state["discovered_recipes"])
+
+    def test_mcp_and_cli_recipe_book_agree(self):
+        import tempfile
+        from pathlib import Path
+        import mcp_server
+        from engine import save_state
+        folder = Path(tempfile.mkdtemp(prefix="lantern-farm-recipes-"))
+        path = folder / "state.json"
+        save_state(self.state, path)
+        mcp_server._STATE_PATH = path
+        self.addCleanup(lambda: setattr(mcp_server, "_STATE_PATH", None))
+        text = mcp_server.farm_recipes(P1)
+        self.assertIn("strawberry jam", text)
+        self.assertIn("kabocha soup", text)
+        self.assertNotIn("jam toast", text)
+        names = [spec["name"] for spec in mcp_server.TOOL_SPECS]
+        self.assertIn("farm_recipes", names)
 
 
 
