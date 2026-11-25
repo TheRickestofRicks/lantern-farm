@@ -491,7 +491,14 @@ def normalize_kind(kind: str) -> str:
     return k
 
 
-def stage_for(days_grown: int, info: dict) -> str:
+def stage_for(days_grown: int, info: dict, crop: dict | None = None) -> str:
+    if crop and regrow_days(info) > 0 and int(crop.get("harvests") or 0) > 0:
+        needed = regrow_days(info)
+        if days_grown >= needed:
+            return "mature"
+        if days_grown <= 0:
+            return "regrowing"
+        return "growing"
     stages = sorted(info["stages"], key=lambda s: int(s["at"]))
     current = stages[0]["id"]
     for stage in stages:
@@ -501,6 +508,8 @@ def stage_for(days_grown: int, info: dict) -> str:
 
 
 def stage_label(info: dict, stage_id: str) -> str:
+    if stage_id == "regrowing":
+        return "regrowing"
     for stage in info.get("stages", []):
         if stage["id"] == stage_id:
             return stage.get("label", stage_id)
@@ -509,6 +518,39 @@ def stage_label(info: dict, stage_id: str) -> str:
 
 def grow_days(info: dict) -> int:
     return int(info["grow_days"])
+
+
+def regrow_days(info: dict) -> int:
+    return int(info.get("regrow_days") or 0)
+
+
+def crop_in_shop(info: dict) -> bool:
+    if not info:
+        return False
+    return info.get("available", True) is not False
+
+
+def shop_kinds(crops: dict) -> list[str]:
+    return [kind for kind, info in (crops.get("crops") or {}).items() if crop_in_shop(info)]
+
+
+def crop_cycle_days(info: dict, crop: dict | None = None) -> int:
+    if crop and regrow_days(info) > 0 and int(crop.get("harvests") or 0) > 0:
+        return regrow_days(info)
+    return grow_days(info)
+
+
+def ensure_inventory_keys(state: dict, crops: dict | None = None) -> bool:
+    """Add missing inventory keys for known crops as 0. Never change counts."""
+    crops = crops or load_crops()
+    inv = state.setdefault("inventory", {})
+    changed = False
+    for kind in crops.get("crops", {}):
+        for key in (f"{kind}_seed", kind):
+            if key not in inv:
+                inv[key] = 0
+                changed = True
+    return changed
 
 
 def position_name(row: int, col: int) -> str:
@@ -743,6 +785,8 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
     """Add turn/energy/weed fields to older saves. Returns True if the state changed."""
     rules = rules or load_rules()
     changed = migrate_tile_fields(state)
+    if ensure_inventory_keys(state):
+        changed = True
     if "last_note" not in state:
         state["last_note"] = None
         changed = True
@@ -977,14 +1021,26 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         return True, msg
     if crop.get("stage") != "mature":
         info = crop_info(crops, crop["kind"]) or {}
-        needed = grow_days(info) if info else "?"
+        needed = crop_cycle_days(info, crop) if info else "?"
         return (
             False,
             f"The {crop['kind']} at {here} is not ready "
             f"(day {crop.get('days_grown', 0)} of {needed}, {crop.get('stage')}).",
         )
     kind = crop["kind"]
+    info = crop_info(crops, kind) or {}
     state["inventory"][kind] = int(state["inventory"].get(kind, 0)) + 1
+    if regrow_days(info) > 0:
+        crop["harvests"] = int(crop.get("harvests") or 0) + 1
+        crop["days_grown"] = 0
+        crop["stage"] = "regrowing"
+        again = regrow_days(info)
+        msg = (
+            f"{who(player, 'harvest', 'harvests')} a {kind} at {here}. "
+            f"It will fruit again in {again} watered day(s)."
+        )
+        log_append(state, msg, player)
+        return True, msg
     tile["crop"] = None
     # The bed stays tilled; today's water remains.
     msg = f"{who(player, 'harvest', 'harvests')} a {kind} at {here}."
@@ -1006,8 +1062,11 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     kind = normalize_kind(str(kind))
     info = crop_info(crops, kind)
     if not info:
-        known = ", ".join(crops.get("crops", {}))
+        known = ", ".join(shop_kinds(crops)) or "nothing right now"
         return False, f"Unknown seed {kind!r}. The shop sells: {known}."
+    if not crop_in_shop(info):
+        known = ", ".join(shop_kinds(crops)) or "nothing right now"
+        return False, f"The shop isn't selling {kind} seeds yet. It sells: {known}."
     count, err = _parse_count(n)
     if err:
         return False, err
@@ -1190,7 +1249,7 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
                     )
                 else:
                     crop["days_grown"] = int(crop.get("days_grown", 0)) + 1
-                    new_stage = stage_for(crop["days_grown"], info)
+                    new_stage = stage_for(crop["days_grown"], info, crop)
                     if new_stage != crop.get("stage"):
                         crop["stage"] = new_stage
                         if new_stage == "mature":
@@ -1198,7 +1257,7 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
                         else:
                             notes.append(
                                 f"The {kind} at {here} is now {stage_label(info, new_stage)} "
-                                f"(day {crop['days_grown']} of {grow_days(info)})."
+                                f"(day {crop['days_grown']} of {crop_cycle_days(info, crop)})."
                             )
                     else:
                         crop["stage"] = new_stage
@@ -1473,9 +1532,10 @@ def legal_actions(
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
     for kind, info in crops.get("crops", {}).items():
-        price = int(info["seed_price"])
-        if int(state["gold"]) >= price:
-            actions.append(f"buy {kind} 1")
+        if crop_in_shop(info):
+            price = int(info["seed_price"])
+            if int(state["gold"]) >= price:
+                actions.append(f"buy {kind} 1")
         if int(state["inventory"].get(kind, 0)) > 0:
             actions.append(f"sell {kind} 1")
             if (

@@ -13,7 +13,9 @@ from engine import (
     describe_where,
     display_name,
     get_tile,
+    crop_cycle_days,
     grow_days,
+    regrow_days,
     known_players,
     legal_actions,
     load_crops,
@@ -50,6 +52,8 @@ FORECAST_WORDS = {
 }
 
 INVENTORY_ORDER = [
+    "strawberry_seed",
+    "strawberry",
     "kabocha_seed",
     "turnip_seed",
     "carrot_seed",
@@ -194,7 +198,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"grew {crop.get('days_grown', 0)} day(s) before it died, "
             f"{crop.get('dry_days', 0)} dry day(s)).{who_bit}{weed_bit} (sprite: {key})"
         )
-    needed = grow_days(info) if info else "?"
+    needed = crop_cycle_days(info, crop) if info else "?"
     grown = crop.get("days_grown", 0)
     label = stage_label(info, stage) if info else stage
     planted = crop.get("planted_day", "?")
@@ -203,7 +207,13 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     if dry:
         limit = wither_after(crops)
         dry_bit = f", {dry} dry day(s) (withers at {limit})"
-    ready = " Ready to harvest." if stage == "mature" else ""
+    ready = ""
+    if stage == "mature":
+        ready = " Ready to harvest."
+        if info and regrow_days(info) > 0:
+            ready += (
+                f" It will fruit again in {regrow_days(info)} watered day(s) after you pick it."
+            )
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{kind}, day {grown} of {needed}, {label}, {moist}"
@@ -352,6 +362,9 @@ def describe_state(
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
         "Eat a harvested crop from the pack with `eat <crop>` (free, up to 2 snacks a turn). "
+        "The shop currently sells spring crops (strawberry). Strawberries fruit in 5 days, "
+        "then again every 2 watered days until spring ends. Later crops stay in the pack "
+        "if you already grew them. "
         "Till, plant, and water cost energy (see rules.json); harvest, buy, sell, and eat are free. "
         "The day advances when both players have ended their turn."
     )

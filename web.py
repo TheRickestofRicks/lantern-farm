@@ -685,7 +685,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function invPhrase(inv) {
-      const order = ["kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
+      const order = ["strawberry_seed","strawberry","kabocha_seed","turnip_seed","carrot_seed","kabocha","turnip","carrot"];
       const bits = [];
       const used = new Set();
       for (const key of order) {
@@ -737,8 +737,18 @@ PAGE = r"""<!DOCTYPE html>
       if (crop.stage === "withered") {
         return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + weed;
       }
-      return tileName(r, c) + " — " + crop.kind + ", day " + crop.days_grown +
-        ", " + crop.stage + ", " + moist + "." + weed;
+      const info = (lastData && lastData.crops && lastData.crops[crop.kind]) || {};
+      const needed = (crop.harvests && info.regrow_days) ? info.regrow_days : info.grow_days;
+      const of = needed ? (" of " + needed) : "";
+      let ready = "";
+      if (crop.stage === "mature") {
+        ready = " Ready to harvest.";
+        if (info.regrow_days) {
+          ready += " It will fruit again in " + info.regrow_days + " watered day(s) after you pick it.";
+        }
+      }
+      return tileName(r, c) + " — " + crop.kind + ", day " + crop.days_grown + of +
+        ", " + crop.stage + ", " + moist + "." + ready + weed;
     }
 
     function forecastIcon(kind) {
@@ -963,7 +973,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function seedKinds(inv) {
-      const order = ["kabocha", "turnip", "carrot"];
+      const order = ["strawberry", "kabocha", "turnip", "carrot"];
       const found = [];
       const seen = {};
       inv = inv || {};
@@ -1025,31 +1035,39 @@ PAGE = r"""<!DOCTYPE html>
       const inv = data.state.inventory || {};
       const gold = data.state.gold;
       for (const [kind, info] of Object.entries(crops)) {
-        const row = document.createElement("div");
-        row.className = "shop-item";
         const seeds = inv[kind + "_seed"] || 0;
         const fruit = inv[kind] || 0;
+        const inShop = info.available !== false;
+        if (!inShop && seeds < 1 && fruit < 1) continue;
+        const row = document.createElement("div");
+        row.className = "shop-item";
         const eat = info.eat_energy;
+        const cycle = info.regrow_days
+          ? (info.grow_days + " days, then every " + info.regrow_days)
+          : (info.grow_days + " days");
         row.innerHTML = "<div><b>" + cap(kind) + "</b><br>" +
-          info.grow_days + " days · seeds " + seeds + " · crop " + fruit +
-          "<br>buy " + info.seed_price + "G · sell " + info.sell_price + "G" +
+          cycle + " · seeds " + seeds + " · crop " + fruit +
+          "<br>" + (inShop ? ("buy " + info.seed_price + "G · ") : "later crop · ") +
+          "sell " + info.sell_price + "G" +
           (eat ? " · eat +" + eat + " energy" : "") +
           " · " + (info.seasons || []).join(", ") + "</div>";
         const btns = document.createElement("div");
         btns.className = "shop-row";
-        const buy = document.createElement("button");
-        buy.type = "button";
-        buy.className = "btn";
-        buy.textContent = "Buy seed";
-        buy.disabled = gold < info.seed_price || !data.your_turn;
-        buy.addEventListener("click", function () { actCmd("buy " + kind + " 1"); });
+        if (inShop) {
+          const buy = document.createElement("button");
+          buy.type = "button";
+          buy.className = "btn";
+          buy.textContent = "Buy seed";
+          buy.disabled = gold < info.seed_price || !data.your_turn;
+          buy.addEventListener("click", function () { actCmd("buy " + kind + " 1"); });
+          btns.appendChild(buy);
+        }
         const sell = document.createElement("button");
         sell.type = "button";
         sell.className = "btn";
         sell.textContent = "Sell";
         sell.disabled = fruit < 1 || !data.your_turn;
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
-        btns.appendChild(buy);
         btns.appendChild(sell);
         if (eat) {
           const eatBtn = document.createElement("button");
@@ -1507,6 +1525,8 @@ def _crop_catalog(crops: dict) -> dict:
             "seed_price": int(info["seed_price"]),
             "sell_price": int(info["sell_price"]),
             "grow_days": int(info["grow_days"]),
+            "regrow_days": int(info.get("regrow_days") or 0),
+            "available": info.get("available", True) is not False,
             "seasons": list(info["seasons"]),
             "eat_energy": info.get("eat_energy", info.get("raw_energy")),
         }

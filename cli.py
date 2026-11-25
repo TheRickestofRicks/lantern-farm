@@ -50,7 +50,7 @@ Actions:
 You can only till, plant, water, harvest, or pluck the tile you are standing on.
 Each step costs 10 energy, including diagonals. Harvest, buy, sell, and eat
 are free. Eat a harvested crop from the pack (up to 2 snacks a turn) to
-restore energy: carrot 10, turnip 15, kabocha 25. Eating spends the crop
+restore energy: strawberry 10, and later crops if you have them (carrot 10, turnip 15, kabocha 25). Eating spends the crop
 instead of selling it.
 
 Ending your turn in the cabin is sleep — next day you wake there with 100
@@ -63,7 +63,8 @@ or  python3 cli.py do "end turn: water the kabocha"
 Rows and columns are 1-indexed. Row 1 is the top, col 1 is the left.
 The cabin is top-right (row 1 col 3) and cannot be farmed.
 
-Crops: kabocha, turnip, carrot.
+Crops: the shop sells strawberry (spring, fruits in 5 days then every 2 days).
+Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
 """
 
 

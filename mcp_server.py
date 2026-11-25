@@ -164,8 +164,10 @@ def farm_rules() -> str:
             {
                 "kind": kind,
                 "grow_days": int(info.get("grow_days", 0)),
+                "regrow_days": int(info.get("regrow_days") or 0),
                 "seed_price": int(info.get("seed_price", 0)),
                 "sell_price": int(info.get("sell_price", 0)),
+                "available": info.get("available", True) is not False,
                 "seasons": list(info.get("seasons") or []),
                 "eat_energy": info.get("eat_energy", info.get("raw_energy")),
             }
@@ -197,6 +199,7 @@ def farm_rules() -> str:
             "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 10 energy, diagonals included.",
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
             "Eat a harvested crop with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the crop instead of selling it.",
+            "The shop currently sells spring crops only (strawberry). Strawberries fruit in 5 days, then again every 2 watered days until spring ends. Later crops stay in the pack if you already grew them.",
             "The day advances when every player has ended their turn.",
         ],
     }
@@ -250,7 +253,7 @@ TOOL_SPECS = [
                 "player": {"type": "string", "description": "Player id acting"},
                 "command": {
                     "type": "string",
-                    "description": 'A command such as "water 1 1" or "plant 2 2 kabocha"',
+                    "description": 'A command such as "water 1 1" or "plant strawberry"',
                 },
             },
             "required": ["player", "command"],
@@ -293,7 +296,7 @@ TOOL_SPECS = [
     },
     {
         "name": "farm_rules",
-        "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy), and the configured players.",
+        "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy, regrow days, and whether a crop is in the shop), and the configured players.",
         "inputSchema": {
             "type": "object",
             "properties": {},

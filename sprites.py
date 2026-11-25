@@ -123,6 +123,11 @@ P = {
     "carrot": "#e07a3d",
     "carrot_d": "#c45a22",
     "carrot_hi": "#f0a060",
+    "berry": "#c43c3c",
+    "berry_hi": "#e07060",
+    "berry_seed": "#f2e6c8",
+    "berry_unripe": "#7a9a48",
+    "berry_flower": "#f4efe6",
     "seed": "#d8c070",
     "seed_d": "#8a7030",
     "mound": "#8a5a30",
@@ -282,16 +287,53 @@ def _withered_plant(x: int, y: int) -> str:
     )
 
 
+def _strawberry_berry(x: float, y: float, scale: float = 1.0, ripe: bool = True) -> str:
+    fill = P["berry"] if ripe else P["berry_unripe"]
+    rx, ry = 7 * scale, 8 * scale
+    bits = [
+        f'<ellipse cx="{x}" cy="{y}" rx="{rx}" ry="{ry}" fill="{fill}"/>',
+        f'<path d="M{x},{y-ry} L{x-2.2*scale},{y-ry-3*scale} L{x+2.2*scale},{y-ry-3*scale} Z" '
+        f'fill="{P["leaf3"]}"/>',
+    ]
+    if ripe:
+        bits.append(
+            f'<ellipse cx="{x-2*scale}" cy="{y-2*scale}" rx="{2.2*scale}" ry="{1.6*scale}" '
+            f'fill="{P["berry_hi"]}" opacity="0.55"/>'
+        )
+        for sx, sy in ((-2.0, 1.5), (1.8, 0.5), (0.2, 3.4)):
+            bits.append(
+                f'<circle cx="{x+sx*scale}" cy="{y+sy*scale}" r="{0.7*scale}" '
+                f'fill="{P["berry_seed"]}" opacity="0.85"/>'
+            )
+    return "".join(bits)
+
+
+def _strawberry_cluster(x: int, y: int, ripe: bool = True, scale: float = 1.0) -> str:
+    if ripe:
+        return (
+            _strawberry_berry(x - 10 * scale, y + 2 * scale, 0.85 * scale, True)
+            + _strawberry_berry(x + 11 * scale, y + 1 * scale, 0.8 * scale, True)
+            + _strawberry_berry(x, y + 8 * scale, 1.05 * scale, True)
+        )
+    return (
+        _strawberry_berry(x - 8 * scale, y + 6 * scale, 0.55 * scale, False)
+        + _strawberry_berry(x + 8 * scale, y + 7 * scale, 0.5 * scale, False)
+    )
+
+
 def _crop_layer(kind: str, stage: str) -> str:
     x, y = 80, 100
     if stage == "withered":
         return _withered_plant(x, y)
     if stage == "seed":
         return _draw_seed(x, y)
-    if stage == "sprouting":
-        leaf = {"kabocha": P["leaf"], "turnip": P["leaf3"], "carrot": P["leaf"]}.get(
-            kind, P["leaf"]
-        )
+    if stage in {"sprouting", "regrowing"}:
+        leaf = {
+            "kabocha": P["leaf"],
+            "turnip": P["leaf3"],
+            "carrot": P["leaf"],
+            "strawberry": P["leaf3"],
+        }.get(kind, P["leaf"])
         return _sprout(x, y, leaf)
     if stage == "growing":
         extra = ""
@@ -304,6 +346,12 @@ def _crop_layer(kind: str, stage: str) -> str:
                 f'<path d="M{x},{y+4} L{x+4},{y+8} L{x},{y+16} L{x-4},{y+8} Z" '
                 f'fill="{P["carrot"]}"/>'
             )
+        elif kind == "strawberry":
+            extra = (
+                f'<ellipse cx="{x}" cy="{y-6}" rx="4" ry="4" fill="{P["berry_flower"]}"/>'
+                f'<ellipse cx="{x+12}" cy="{y-2}" rx="3.2" ry="3.2" fill="{P["berry_flower"]}"/>'
+                + _strawberry_cluster(x, y, ripe=False, scale=0.9)
+            )
         return _growing_leaves(x, y, extra)
     # mature
     if kind == "kabocha":
@@ -312,6 +360,8 @@ def _crop_layer(kind: str, stage: str) -> str:
         return _turnip_fruit(x, y + 4, 1.05)
     if kind == "carrot":
         return _carrot_fruit(x, y, 1.05)
+    if kind == "strawberry":
+        return _growing_leaves(x, y - 4) + _strawberry_cluster(x, y + 4, ripe=True)
     return _growing_leaves(x, y)
 
 

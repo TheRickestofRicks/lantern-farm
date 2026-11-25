@@ -48,8 +48,9 @@ editing the engine.
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.
 - Eat a harvested crop from the pack with `eat <crop>` (up to two snacks a
-  turn). Carrot restores 10, turnip 15, kabocha 25. Eating spends the crop
-  instead of selling it.
+  turn). A strawberry restores 10. Later crops still snack if you have them
+  (carrot 10, turnip 15, kabocha 25). Eating spends the crop instead of
+  selling it.
 - If `notify` is set in `config.local.json`, a short ping is sent on the
   configured handoff (for example when player 1 ends and it becomes player
   2's turn). Credentials come from a separate env file named in that
@@ -66,15 +67,15 @@ From this folder:
 python3 cli.py look
 python3 cli.py do "move to 1 1"
 python3 cli.py do "till"
-python3 cli.py do "plant kabocha"
+python3 cli.py do "plant strawberry"
 python3 cli.py do "water"
 python3 cli.py do "go cabin"
 python3 cli.py do "end turn"
 python3 cli.py do "harvest"
 python3 cli.py do "pluck"
-python3 cli.py do "eat carrot"
-python3 cli.py do "buy carrot 1"
-python3 cli.py do "sell kabocha 1"
+python3 cli.py do "eat strawberry"
+python3 cli.py do "buy strawberry 1"
+python3 cli.py do "sell strawberry 1"
 python3 cli.py --player player1 do "end turn"
 python3 cli.py new          # start over at day 1, starting player's turn
 ```
@@ -142,7 +143,7 @@ Stop it with `kill "$(cat web.pid)"`.
 `mcp_server.py` exposes the same farm over the [Model Context Protocol](https://modelcontextprotocol.io/):
 
 - `farm_look(player)` — the full text view for that player
-- `farm_do(player, command)` — one command (`move to 1 1`, `till`, `plant kabocha`, `eat carrot`, `go cabin`, …)
+- `farm_do(player, command)` — one command (`move to 1 1`, `till`, `plant strawberry`, `eat strawberry`, `go cabin`, …)
 - `farm_end_turn(player, note?)` — end that player's turn, optional note
 - `farm_rules()` — energy costs, movement and sleep rules, snacks, crops, and configured players
 - `farm_forecast()` — the 7-day forecast (also included in `farm_look`)
@@ -231,19 +232,36 @@ configured.
 
 ## Crops
 
-| Crop    | Days | Seed | Sell | Eat | Seasons                    |
-|---------|------|------|------|-----|----------------------------|
-| kabocha | 7    | 20G  | 50G  | 25  | spring, summer, autumn     |
-| turnip  | 4    | 8G   | 20G  | 15  | spring, autumn             |
-| carrot  | 5    | 12G  | 30G  | 10  | spring, autumn, winter     |
+Content is added season by season. Spring is first: the shop sells strawberries
+only. Turnip, carrot, and kabocha stay in `crops.json` as later content
+(`"available": false`). Existing plants already in the ground keep growing and
+can be harvested; harvested later crops stay in the pack and can still be sold
+or eaten. Seeds you already own can still be planted in season.
 
-A new farm starts on day 1 of spring with 80G, two kabocha seeds, and one
-turnip seed, both players in the cabin, on the starting player's turn at 100 energy.
+| Crop       | Days                         | Seed | Sell | Eat | Seasons                    | Shop   |
+|------------|------------------------------|------|------|-----|----------------------------|--------|
+| strawberry | 5, then every 2 (regrows)    | 15G  | 12G  | 10  | spring                     | yes    |
+| kabocha    | 7                            | 20G  | 50G  | 25  | spring, summer, autumn     | later  |
+| turnip     | 4                            | 8G   | 20G  | 15  | spring, autumn             | later  |
+| carrot     | 5                            | 12G  | 30G  | 10  | spring, autumn, winter     | later  |
+
+A strawberry seed costs 15G, between a carrot (12G) and a kabocha (20G). The
+plant fruits after 5 watered days (the same wait as a carrot), then a berry
+every 2 watered days until spring ends. Each berry sells for 12G and snacks
+for +10 energy. A day-1 planting tended through a 14-day spring yields five
+berries (days 6, 8, 10, 12, and 14) for 60G — 45G profit, better than one
+kabocha (30G profit) if you keep watering, but the plant withers when summer
+arrives, and each berry is cheaper than a one-shot crop because you get
+several from one seed. Planting late in spring may only get one harvest.
+
+A new farm starts on day 1 of spring with 80G and two strawberry seeds, both
+players in the cabin, on the starting player's turn at 100 energy.
 `eat <crop>` restores the Eat energy from a harvested crop in the pack (up to
 two snacks a turn) and spends that crop instead of selling it.
 
-Stages: seed → sprouting → growing → mature. A just-planted kabocha is
-"day 0 of 7, seed". After three watered days it is "day 3 of 7, sprouting".
+Stages: seed → sprouting → growing → mature (strawberries also have a
+regrowing stage after each harvest). A just-planted strawberry is
+"day 0 of 5, seed". After three watered days it is "day 3 of 5, growing".
 
 
 ## Roadmap

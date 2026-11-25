@@ -5,8 +5,10 @@
   "weather_seed": 1,
   "gold": 80,
   "inventory": {
-    "kabocha_seed": 2,
-    "turnip_seed": 1,
+    "strawberry_seed": 2,
+    "strawberry": 0,
+    "kabocha_seed": 0,
+    "turnip_seed": 0,
     "carrot_seed": 0,
     "kabocha": 0,
     "turnip": 0,
