@@ -1,6 +1,6 @@
 {
-  "id": "parchment",
-  "name": "Parchment",
+  "id": "storybook",
+  "name": "Storybook",
   "description": "Ink-and-watercolour tiles painted for Lantern Farm.",
   "size": 512,
   "grounds": {

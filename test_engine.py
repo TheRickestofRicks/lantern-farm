@@ -2055,19 +2055,19 @@ class ArtPackAndPage(unittest.TestCase):
         alphas = [row[i + 3] for row in rows for i in range(0, width * 4, 4)]
         return min(alphas), max(alphas)
 
-    def test_parchment_pack_tiles_are_square_and_keyed(self):
+    def test_storybook_pack_tiles_are_square_and_keyed(self):
         from packs import PACKS_ROOT, load_manifest
 
-        man = load_manifest("parchment")
+        man = load_manifest("storybook")
         self.assertIsNotNone(man)
-        self.assertEqual(man["id"], "parchment")
+        self.assertEqual(man["id"], "storybook")
         self.assertEqual(int(man["size"]), 512)
         self.assertIn("soil", man["grounds"])
         self.assertIn("strawberry_mature", man["overlays"])
         self.assertIn("everbearing_seedling", man["overlays"])
         self.assertIn("weed", man["overlays"])
         for rel in list(man["grounds"].values()) + list(man["overlays"].values()):
-            path = PACKS_ROOT / "parchment" / rel
+            path = PACKS_ROOT / "storybook" / rel
             self.assertTrue(path.is_file(), rel)
             width, height, color, raw = self._png_info(path)
             self.assertEqual((width, height), (512, 512), rel)
@@ -2082,7 +2082,7 @@ class ArtPackAndPage(unittest.TestCase):
     def test_pack_layers_fall_back_when_a_sprite_is_missing(self):
         from packs import layers_for_key, load_manifest
 
-        man = load_manifest("parchment")
+        man = load_manifest("storybook")
         soil = layers_for_key("soil", man)
         self.assertEqual([layer["role"] for layer in soil], ["ground"])
         self.assertTrue(soil[0]["file"].endswith("soil.png"))
@@ -2104,16 +2104,16 @@ class ArtPackAndPage(unittest.TestCase):
     def test_safe_pack_file_rejects_path_traversal(self):
         from packs import safe_pack_file
 
-        soil = safe_pack_file("/static/packs/parchment/grounds/soil.png")
+        soil = safe_pack_file("/static/packs/storybook/grounds/soil.png")
         self.assertIsNotNone(soil)
         self.assertEqual(soil.name, "soil.png")
-        self.assertIsNotNone(safe_pack_file("/static/packs/parchment/manifest.json"))
-        self.assertIsNone(safe_pack_file("/static/packs/parchment/sources/prompts.md"))
-        self.assertIsNone(safe_pack_file("/static/packs/parchment/sources/originals/soil.jpg"))
+        self.assertIsNotNone(safe_pack_file("/static/packs/storybook/manifest.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/storybook/sources/prompts.md"))
+        self.assertIsNone(safe_pack_file("/static/packs/storybook/sources/originals/soil.jpg"))
         self.assertIsNone(safe_pack_file("/static/packs/../../state.json"))
-        self.assertIsNone(safe_pack_file("/static/packs/parchment/../../../etc/passwd"))
-        self.assertIsNone(safe_pack_file("/static/packs/parchment/grounds/../../config.local.json"))
-        self.assertIsNone(safe_pack_file("/static/packs/parchment/grounds/../../../config.local.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/storybook/../../../etc/passwd"))
+        self.assertIsNone(safe_pack_file("/static/packs/storybook/grounds/../../config.local.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/storybook/grounds/../../../config.local.json"))
         self.assertIsNone(safe_pack_file("/etc/passwd"))
         self.assertIsNone(safe_pack_file("/sprite/soil.svg"))
 
@@ -2143,9 +2143,9 @@ class ArtPackAndPage(unittest.TestCase):
         from packs import public_packs
         ids = [p["id"] for p in public_packs()]
         self.assertEqual(ids[0], "classic")
-        self.assertIn("parchment", ids)
+        self.assertIn("storybook", ids)
         page = web.render_page(viewer=P1)
-        self.assertIn('"id": "parchment"', page)
+        self.assertIn('"id": "storybook"', page)
         self.assertIn('"id": "classic"', page)
 
 
