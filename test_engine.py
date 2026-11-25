@@ -1362,6 +1362,37 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertTrue(is_player_in_cabin(self.state, P1))
 
+    def test_walk_messages_name_the_place_cleanly(self):
+        from engine import describe_place, describe_where, steps_phrase
+        # Cabin is already where a fresh farm starts.
+        self.assertEqual(describe_place(1, 3), "the cabin")
+        self.assertEqual(describe_where(1, 3), "in the cabin")
+        self.assertEqual(describe_place(2, 3), "mid-right, row 2 col 3")
+        self.assertEqual(describe_where(2, 3), "at mid-right, row 2 col 3")
+        self.assertEqual(steps_phrase(1), "1 step")
+        self.assertEqual(steps_phrase(2), "2 steps")
+        ok, msg = do_action(self.state, self.crops, "move to 2 3", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(msg, f"{N1} walks to mid-right, row 2 col 3 (1 step, 5 energy).")
+        self.assertNotIn("walks to at ", msg)
+        self.assertNotIn("step(s)", msg)
+        ok, msg = do_action(self.state, self.crops, "move to 2 3", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(msg, f"{N1} is already at mid-right, row 2 col 3.")
+        ok, msg = do_action(self.state, self.crops, "go cabin", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(msg, f"{N1} walks to the cabin (1 step, 5 energy).")
+        self.assertNotIn("walks to in the cabin", msg)
+        ok, msg = do_action(self.state, self.crops, "move down", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(msg, f"{N1} walks down to mid-right, row 2 col 3 (5 energy).")
+        self.assertNotIn("to at ", msg)
+        self.state["players"][P1]["energy"] = 5
+        ok, msg = do_action(self.state, self.crops, "move to 3 1", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("Walking to bottom-left, row 3 col 1 is 2 steps (10 energy)", msg)
+        self.assertNotIn("step(s)", msg)
+
     def test_sleep_in_cabin_and_pass_out_in_the_field(self):
         self.assertIn("sleep", sleep_outlook(self.state, P1).lower())
         self.assertIn("100", sleep_outlook(self.state, P1))
@@ -1379,7 +1410,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertEqual(self.state["players"][P2]["energy"], 100)
         self.assertTrue(is_player_in_cabin(self.state, P2))
         header = "\n".join(__import__("describe").turn_header_lines(self.state, self.crops, viewer=P1))
-        self.assertIn(f"{N1} is at plot 7", header)
+        self.assertIn(f"{N1} is at bottom-left, row 3 col 1", header)
         self.assertIn(f"{N2} is in the cabin", header)
         self.assertIn("You'll pass out in the field", header)
 
@@ -1949,6 +1980,173 @@ class FarmJournal(unittest.TestCase):
         self.assertIn("Journal <kbd>J</kbd>", html)
 
 
+
+
+class ArtPackAndPage(unittest.TestCase):
+    def _png_info(self, path: Path):
+        import struct
+        import zlib
+
+        data = path.read_bytes()
+        self.assertGreaterEqual(data[:8], b"")  # keep assert style on the signature
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        pos = 8
+        idats = []
+        width = height = color = None
+        while pos + 8 <= len(data):
+            length, typ = struct.unpack(">I4s", data[pos:pos + 8])
+            chunk = data[pos + 8:pos + 8 + length]
+            if typ == b"IHDR":
+                width, height, _bit, color = struct.unpack(">IIBB", chunk[:10])
+            elif typ == b"IDAT":
+                idats.append(chunk)
+            elif typ == b"IEND":
+                break
+            pos += 12 + length
+        raw = zlib.decompress(b"".join(idats))
+        return width, height, color, raw
+
+    def _paeth(self, a, b, c):
+        p = a + b - c
+        pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+        if pa <= pb and pa <= pc:
+            return a
+        if pb <= pc:
+            return b
+        return c
+
+    def _unfilter_rows(self, width, height, bpp, raw):
+        row = width * bpp
+        prev = bytes(row)
+        out = []
+        pos = 0
+        for _ in range(height):
+            ftype = raw[pos]
+            pos += 1
+            cur = bytearray(row)
+            for i in range(row):
+                left = cur[i - bpp] if i >= bpp else 0
+                up = prev[i]
+                ul = prev[i - bpp] if i >= bpp else 0
+                x = raw[pos + i]
+                if ftype == 0:
+                    cur[i] = x
+                elif ftype == 1:
+                    cur[i] = (x + left) & 255
+                elif ftype == 2:
+                    cur[i] = (x + up) & 255
+                elif ftype == 3:
+                    cur[i] = (x + ((left + up) // 2)) & 255
+                elif ftype == 4:
+                    cur[i] = (x + self._paeth(left, up, ul)) & 255
+                else:
+                    self.fail(f"unknown PNG filter {ftype}")
+            pos += row
+            prev = bytes(cur)
+            out.append(prev)
+        return out
+
+    def _alpha_extrema(self, width, height, color, raw):
+        # color 2 = RGB, 6 = RGBA
+        if color == 2:
+            return 255, 255
+        self.assertEqual(color, 6)
+        rows = self._unfilter_rows(width, height, 4, raw)
+        alphas = [row[i + 3] for row in rows for i in range(0, width * 4, 4)]
+        return min(alphas), max(alphas)
+
+    def test_parchment_pack_tiles_are_square_and_keyed(self):
+        from packs import PACKS_ROOT, load_manifest
+
+        man = load_manifest("parchment")
+        self.assertIsNotNone(man)
+        self.assertEqual(man["id"], "parchment")
+        self.assertEqual(int(man["size"]), 512)
+        self.assertIn("soil", man["grounds"])
+        self.assertIn("strawberry_mature", man["overlays"])
+        self.assertIn("everbearing_seedling", man["overlays"])
+        self.assertIn("weed", man["overlays"])
+        for rel in list(man["grounds"].values()) + list(man["overlays"].values()):
+            path = PACKS_ROOT / "parchment" / rel
+            self.assertTrue(path.is_file(), rel)
+            width, height, color, raw = self._png_info(path)
+            self.assertEqual((width, height), (512, 512), rel)
+            lo, hi = self._alpha_extrema(width, height, color, raw)
+            if rel.startswith("grounds/"):
+                self.assertEqual((lo, hi), (255, 255), rel)
+            else:
+                self.assertEqual(color, 6, rel)
+                self.assertEqual(lo, 0, rel)
+                self.assertGreater(hi, 0, rel)
+
+    def test_pack_layers_fall_back_when_a_sprite_is_missing(self):
+        from packs import layers_for_key, load_manifest
+
+        man = load_manifest("parchment")
+        soil = layers_for_key("soil", man)
+        self.assertEqual([layer["role"] for layer in soil], ["ground"])
+        self.assertTrue(soil[0]["file"].endswith("soil.png"))
+        crop = layers_for_key("strawberry_mature_wet", man)
+        self.assertEqual([layer["role"] for layer in crop], ["ground", "crop"])
+        self.assertIn("soil_watered", crop[0]["file"])
+        self.assertIn("strawberry_mature", crop[1]["file"])
+        weedy = layers_for_key("soil_tilled_weedy", man)
+        self.assertEqual([layer["role"] for layer in weedy], ["ground", "weed"])
+        self.assertIn("weedy", weedy[1]["file"])
+        stacked = layers_for_key("strawberry_sprouting_dry_weed", man)
+        self.assertEqual([layer["role"] for layer in stacked], ["ground", "crop", "weed"])
+        self.assertIsNone(layers_for_key("cabin", man))
+        self.assertIsNone(layers_for_key("cabin_rain", man))
+        # Other crops still use the default SVG until a later pack batch.
+        self.assertIsNone(layers_for_key("kabocha_sprouting_wet", man))
+        self.assertIsNone(layers_for_key("soil", None))
+
+    def test_safe_pack_file_rejects_path_traversal(self):
+        from packs import safe_pack_file
+
+        soil = safe_pack_file("/static/packs/parchment/grounds/soil.png")
+        self.assertIsNotNone(soil)
+        self.assertEqual(soil.name, "soil.png")
+        self.assertIsNotNone(safe_pack_file("/static/packs/parchment/manifest.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/parchment/sources/prompts.md"))
+        self.assertIsNone(safe_pack_file("/static/packs/parchment/sources/originals/soil.jpg"))
+        self.assertIsNone(safe_pack_file("/static/packs/../../state.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/parchment/../../../etc/passwd"))
+        self.assertIsNone(safe_pack_file("/static/packs/parchment/grounds/../../config.local.json"))
+        self.assertIsNone(safe_pack_file("/static/packs/parchment/grounds/../../../config.local.json"))
+        self.assertIsNone(safe_pack_file("/etc/passwd"))
+        self.assertIsNone(safe_pack_file("/sprite/soil.svg"))
+
+    def test_web_page_has_art_pack_toggle_and_folded_notes(self):
+        import web
+
+        html = web.PAGE
+        self.assertIn('id="art-pack"', html)
+        self.assertIn("lantern-farm-art-pack", html)
+        self.assertIn('<details class="recent-notes"', html)
+        self.assertIn('id="recent-notes"', html)
+        self.assertIn("lantern-farm-recent-notes-open", html)
+        self.assertNotIn('<details class="recent-notes" id="recent-notes" open', html)
+        self.assertNotIn("<details class='recent-notes' id='recent-notes' open", html)
+        end_at = html.find('id="end-turn"')
+        note_at = html.find('id="end-note"')
+        outlook_at = html.find('id="sleep-outlook"')
+        recent_at = html.find('id="recent-notes"')
+        self.assertTrue(0 < end_at < recent_at)
+        self.assertTrue(0 < note_at < recent_at)
+        self.assertTrue(0 < outlook_at < recent_at)
+        self.assertIn('id="journal-modal"', html)
+        self.assertIn('id="journal-modal" class="shop-modal" hidden', html)
+        # The journal is opened by the button or the J key, not on page load.
+        boot = html.split("function openJournal()", 1)[0]
+        self.assertNotIn("openJournal();", boot)
+        from packs import public_packs
+        ids = [p["id"] for p in public_packs()]
+        self.assertEqual(ids[0], "classic")
+        self.assertIn("parchment", ids)
+        page = web.render_page(viewer=P1)
+        self.assertIn('"id": "parchment"', page)
+        self.assertIn('"id": "classic"', page)
 
 
 if __name__ == "__main__":

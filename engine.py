@@ -169,10 +169,23 @@ def plot_number(row: int, col: int) -> int:
     return (int(row) - 1) * COLS + int(col)
 
 
+def describe_place(row: int, col: int) -> str:
+    """Bare place name, for phrases like 'walks to X'."""
+    if is_cabin_at(row, col):
+        return "the cabin"
+    return position_name(row, col)
+
+
 def describe_where(row: int, col: int) -> str:
+    """Prepositional location, for phrases like 'is X' or 'already X'."""
     if is_cabin_at(row, col):
         return "in the cabin"
-    return f"at plot {plot_number(row, col)}"
+    return f"at {position_name(row, col)}"
+
+
+def steps_phrase(count: int) -> str:
+    n = int(count)
+    return "1 step" if n == 1 else f"{n} steps"
 
 
 def player_where(state: dict, player: str) -> tuple[int, int]:
@@ -2185,7 +2198,7 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
     slot["energy"] = energy - cost
     return (
         True,
-        f"{display_name(player)} walks {direction} to {describe_where(*dest)} ({cost} energy).",
+        f"{display_name(player)} walks {direction} to {describe_place(*dest)} ({cost} energy).",
     )
 
 
@@ -2205,15 +2218,16 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
     if cost > energy:
         return (
             False,
-            f"Not enough energy. Walking {describe_where(*dest)} is {len(steps)} "
-            f"step(s) ({cost} energy); {display_name(player)} has {energy} left.",
+            f"Not enough energy. Walking to {describe_place(*dest)} is "
+            f"{steps_phrase(len(steps))} ({cost} energy); "
+            f"{display_name(player)} has {energy} left.",
         )
     set_player_where(state, player, dest_r, dest_c)
     slot["energy"] = energy - cost
     return (
         True,
-        f"{display_name(player)} walks to {describe_where(*dest)} "
-        f"({len(steps)} step(s), {cost} energy).",
+        f"{display_name(player)} walks to {describe_place(*dest)} "
+        f"({steps_phrase(len(steps))}, {cost} energy).",
     )
 
 

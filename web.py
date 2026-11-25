@@ -38,6 +38,7 @@ from engine import (
     weather_forecast,
 )
 from hey_notify import maybe_notify_after_end_turn
+from packs import content_type_for, public_packs, safe_pack_file
 from sprites import is_safe_key, sprite_key, svg_for_key
 
 def default_web_player() -> str:
@@ -377,11 +378,22 @@ PAGE = r"""<!DOCTYPE html>
       aspect-ratio: 1;
       box-shadow: 0 4px 0 #120c08;
     }
-    button.tile img {
+    button.tile img,
+    button.tile .tile-art,
+    button.tile .tile-art img {
       display: block;
       width: 100%;
       height: 100%;
       object-fit: cover;
+    }
+    button.tile .tile-art {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+    button.tile .tile-art img {
+      position: absolute;
+      inset: 0;
     }
     button.tile .label {
       position: absolute;
@@ -620,13 +632,19 @@ PAGE = r"""<!DOCTYPE html>
       color: var(--gold);
       font-weight: 600;
     }
-    .recent-notes-head {
+    .recent-notes-head,
+    .recent-notes > summary {
       color: var(--gold);
       font-weight: 600;
       font-size: 0.92rem;
       letter-spacing: 0.04em;
       text-transform: uppercase;
       margin: 0 0 0.35rem;
+      cursor: pointer;
+    }
+    .recent-notes > summary:focus-visible {
+      outline: 2px solid var(--gold);
+      outline-offset: 2px;
     }
     .recent-notes ul {
       list-style: none;
@@ -644,7 +662,29 @@ PAGE = r"""<!DOCTYPE html>
       margin: 0 0 0.8rem;
       display: flex;
       flex-wrap: wrap;
+      align-items: center;
       gap: 0.45rem;
+    }
+    .art-pack-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .art-pack-wrap select {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #140f0c;
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 0.4rem 0.65rem;
+      border-radius: 12px;
+    }
+    .art-pack-wrap select:focus {
+      outline: none;
+      border-color: var(--gold);
     }
     .journal-tabs {
       display: flex;
@@ -784,20 +824,23 @@ PAGE = r"""<!DOCTYPE html>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button">Shop <kbd>S</kbd></button>
         <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
+        <label class="art-pack-wrap">Art
+          <select id="art-pack" aria-label="Art pack"></select>
+        </label>
       </div>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div class="actions" id="tile-actions"></div>
-      <div class="recent-notes" id="recent-notes" hidden>
-        <div class="recent-notes-head">Recent notes</div>
-        <ul id="recent-notes-list"></ul>
-      </div>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
       </div>
       <div class="sleep-outlook" id="sleep-outlook"></div>
       <div class="confirm-end" id="end-confirm" hidden>End your turn? Press <kbd>E</kbd> or <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel. A note in the box will be sent too.</div>
+      <details class="recent-notes" id="recent-notes" hidden>
+        <summary class="recent-notes-head">Recent notes</summary>
+        <ul id="recent-notes-list"></ul>
+      </details>
       <h2 style="margin-top:1.1rem">Log</h2>
       <ul class="log" id="log"></ul>
       <details>
@@ -856,8 +899,172 @@ PAGE = r"""<!DOCTYPE html>
     let journalSeason = "spring";
     const JOURNAL_SEASONS = ["spring", "summer", "autumn", "winter"];
     const shopQty = {};
+    const ART_PACKS = __ART_PACKS__;
+    const ART_PACK_STORAGE = "lantern-farm-art-pack";
+    const NOTES_OPEN_STORAGE = "lantern-farm-recent-notes-open";
+    let artPackId = "classic";
 
     function $(id) { return document.getElementById(id); }
+
+    function loadArtPackId() {
+      try {
+        const stored = localStorage.getItem(ART_PACK_STORAGE);
+        if (stored && ART_PACKS.some(function (p) { return p.id === stored; })) return stored;
+      } catch (err) {}
+      return "classic";
+    }
+    function packById(id) {
+      for (let i = 0; i < ART_PACKS.length; i++) {
+        if (ART_PACKS[i].id === id) return ART_PACKS[i];
+      }
+      return ART_PACKS[0];
+    }
+    function parseSpriteKey(key) {
+      key = String(key || "").trim().toLowerCase();
+      if (key === "cabin" || key.indexOf("cabin_") === 0) {
+        return {kind: "cabin"};
+      }
+      let weedy = false, weed = false;
+      if (key.length >= 6 && key.slice(-6) === "_weedy") {
+        weedy = true;
+        key = key.slice(0, -6);
+      } else if (key.length >= 5 && key.slice(-5) === "_weed") {
+        weed = true;
+        key = key.slice(0, -5);
+      }
+      const soilKeys = {
+        soil: {tilled: false, watered: false},
+        soil_tilled: {tilled: true, watered: false},
+        soil_watered: {tilled: true, watered: true},
+        soil_wet: {tilled: false, watered: true}
+      };
+      if (soilKeys[key]) {
+        const out = {kind: "soil", weed: weed, weedy: weedy};
+        out.tilled = soilKeys[key].tilled;
+        out.watered = soilKeys[key].watered;
+        return out;
+      }
+      const parts = key.split("_");
+      const moist = parts[parts.length - 1];
+      if (parts.length >= 3 && (moist === "wet" || moist === "dry")) {
+        return {
+          kind: parts.slice(0, -2).join("_"),
+          stage: parts[parts.length - 2],
+          watered: moist === "wet",
+          tilled: true,
+          weed: weed,
+          weedy: weedy
+        };
+      }
+      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy};
+      return {kind: "unknown", raw: key};
+    }
+    function groundKeyFor(parsed) {
+      if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      if (parsed.kind === "soil") {
+        if (parsed.tilled && parsed.watered) return "soil_watered";
+        if (parsed.tilled) return "soil_tilled";
+        if (parsed.watered) return "soil_wet";
+        return "soil";
+      }
+      return parsed.watered ? "soil_watered" : "soil_tilled";
+    }
+    function layersForKey(key, pack) {
+      if (!pack || pack.id === "classic" || !pack.grounds) return null;
+      const parsed = parseSpriteKey(key);
+      if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      const layers = [];
+      const gkey = groundKeyFor(parsed);
+      const ground = gkey && pack.grounds[gkey];
+      if (!ground) return null;
+      layers.push("/static/packs/" + pack.id + "/" + ground);
+      if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {
+        const crop = pack.overlays && pack.overlays[parsed.kind + "_" + parsed.stage];
+        if (!crop) return null;
+        layers.push("/static/packs/" + pack.id + "/" + crop);
+      }
+      if (parsed.weedy || parsed.weed) {
+        const wkey = parsed.weedy ? "weedy" : "weed";
+        const weed = pack.overlays && pack.overlays[wkey];
+        if (!weed) return null;
+        layers.push("/static/packs/" + pack.id + "/" + weed);
+      }
+      return layers;
+    }
+    function applyTileArt(btn, key) {
+      const wrap = document.createElement("div");
+      wrap.className = "tile-art";
+      const layers = layersForKey(key, packById(artPackId));
+      const alt = String(key || "").replace(/_/g, " ");
+      function useSvg() {
+        wrap.innerHTML = "";
+        const img = document.createElement("img");
+        img.alt = alt;
+        img.src = "/sprite/" + key + ".svg";
+        wrap.appendChild(img);
+      }
+      if (!layers) {
+        useSvg();
+        btn.appendChild(wrap);
+        return;
+      }
+      let failed = false;
+      layers.forEach(function (src) {
+        const img = document.createElement("img");
+        img.className = "layer";
+        img.alt = alt;
+        img.src = src;
+        img.addEventListener("error", function () {
+          if (failed) return;
+          failed = true;
+          useSvg();
+        });
+        wrap.appendChild(img);
+      });
+      btn.appendChild(wrap);
+    }
+    function initArtPackControl() {
+      artPackId = loadArtPackId();
+      const sel = $("art-pack");
+      if (!sel) return;
+      sel.innerHTML = "";
+      (ART_PACKS || []).forEach(function (p) {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if (p.description) opt.title = p.description;
+        sel.appendChild(opt);
+      });
+      sel.value = artPackId;
+      sel.addEventListener("change", function () {
+        artPackId = sel.value || "classic";
+        try { localStorage.setItem(ART_PACK_STORAGE, artPackId); } catch (err) {}
+        if (lastData) render(lastData);
+      });
+    }
+    function rememberRecentNotesOpen() {
+      const box = $("recent-notes");
+      if (!box) return;
+      try { localStorage.setItem(NOTES_OPEN_STORAGE, box.open ? "1" : "0"); } catch (err) {}
+    }
+    function restoreRecentNotesOpen() {
+      const box = $("recent-notes");
+      if (!box) return;
+      try {
+        box.open = localStorage.getItem(NOTES_OPEN_STORAGE) === "1";
+      } catch (err) {
+        box.open = false;
+      }
+      box.addEventListener("toggle", rememberRecentNotesOpen);
+      const summary = box.querySelector("summary");
+      if (summary) {
+        summary.addEventListener("click", function () {
+          // Persist after the default details toggle. Needed in environments
+          // that change `open` on click but do not fire a `toggle` event.
+          setTimeout(rememberRecentNotesOpen, 0);
+        });
+      }
+    }
 
     const FALLBACK_COLORS = ["#6b8f3a", "#c47a3a", "#5a7ea6", "#a67a4a"];
     function playerColor(id) {
@@ -1087,16 +1294,13 @@ PAGE = r"""<!DOCTYPE html>
           if (selected && selected.r === r && selected.c === c) btn.classList.add("selected");
           if (stand && stand.r === r && stand.c === c) btn.classList.add("here");
           btn.setAttribute("aria-label", tileName(r, c));
-          const img = document.createElement("img");
-          img.src = "/sprite/" + key + ".svg";
-          img.alt = key.replace(/_/g, " ");
+          applyTileArt(btn, key);
           const num = document.createElement("div");
           num.className = "keynum";
           num.textContent = String((r - 1) * cols + c);
           const lab = document.createElement("div");
           lab.className = "label";
           lab.textContent = tile.type === "cabin" ? "cabin" : ("r" + r + " c" + c);
-          btn.appendChild(img);
           btn.appendChild(num);
           btn.appendChild(lab);
           const here = whoAt(data, r, c);
@@ -1935,6 +2139,8 @@ PAGE = r"""<!DOCTYPE html>
     if (closeJournalBtn) closeJournalBtn.addEventListener("click", function () { closeJournal(); });
     const journalBackdrop = $("journal-backdrop");
     if (journalBackdrop) journalBackdrop.addEventListener("click", function () { closeJournal(); });
+    initArtPackControl();
+    restoreRecentNotesOpen();
     poll();
     pollTimer = setInterval(poll, 1500);
   </script>
@@ -2006,6 +2212,7 @@ def render_page(viewer: str | None = None) -> str:
             "storm": flavor("cabin_short_storm") or "the cabin, a storm rattling the roof.",
             "snow": flavor("cabin_short_snow") or "the cabin, snow on the roof, flakes in the air.",
         }),
+        "__ART_PACKS__": _json.dumps(public_packs()),
     }
     for key, val in replacements.items():
         html = html.replace(key, val)
@@ -2209,6 +2416,18 @@ class FarmHandler(BaseHTTPRequestHandler):
                 self._send(400, "bad sprite key\n", "text/plain; charset=utf-8")
                 return
             self._send(200, svg_for_key(key), "image/svg+xml; charset=utf-8", cache=True)
+            return
+        if path.startswith("/static/packs/"):
+            found = safe_pack_file(path)
+            if found is None:
+                self._send(404, "not found\n", "text/plain; charset=utf-8")
+                return
+            try:
+                body = found.read_bytes()
+            except OSError:
+                self._send(404, "not found\n", "text/plain; charset=utf-8")
+                return
+            self._send(200, body, content_type_for(found), cache=True)
             return
         self._send(404, "not found\n", "text/plain; charset=utf-8")
 

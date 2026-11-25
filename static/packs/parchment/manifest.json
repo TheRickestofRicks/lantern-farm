@@ -1,0 +1,33 @@
+{
+  "id": "parchment",
+  "name": "Parchment",
+  "description": "Ink-and-watercolour tiles painted for Lantern Farm.",
+  "size": 512,
+  "grounds": {
+    "soil": "grounds/soil.png",
+    "soil_wet": "grounds/soil_wet.png",
+    "soil_tilled": "grounds/soil_tilled.png",
+    "soil_watered": "grounds/soil_watered.png"
+  },
+  "overlays": {
+    "everbearing_dormant": "overlays/everbearing_dormant.png",
+    "everbearing_growing": "overlays/everbearing_growing.png",
+    "everbearing_mature": "overlays/everbearing_mature.png",
+    "everbearing_regrowing": "overlays/everbearing_regrowing.png",
+    "everbearing_seedling": "overlays/everbearing_seedling.png",
+    "everbearing_withered": "overlays/everbearing_withered.png",
+    "strawberry_dormant": "overlays/strawberry_dormant.png",
+    "strawberry_growing": "overlays/strawberry_growing.png",
+    "strawberry_mature": "overlays/strawberry_mature.png",
+    "strawberry_regrowing": "overlays/strawberry_regrowing.png",
+    "strawberry_seed": "overlays/strawberry_seed.png",
+    "strawberry_sprouting": "overlays/strawberry_sprouting.png",
+    "strawberry_withered": "overlays/strawberry_withered.png",
+    "weed": "overlays/weed.png",
+    "weedy": "overlays/weedy.png"
+  },
+  "aliases": {
+    "everbearing_withered": "strawberry_withered",
+    "everbearing_regrowing": "strawberry_regrowing"
+  }
+}

@@ -93,7 +93,7 @@ python3 web.py
 Then open http://127.0.0.1:8790. The server always binds localhost. If
 `config.local.json` lists `bind.extra_hosts`, or if a tailnet IPv4 is
 available on the machine, it binds those too. Click a tile for its actions.
-Use **End turn** from the side panel, open the shop with the Shop button or `S`, and open the journal with the Journal button or `J`. The page polls the JSON
+Use **End turn** from the side panel (above Recent notes), open the shop with the Shop button or `S`, and open the journal with the Journal button or `J`. The Journal window only opens when you ask for it. Recent notes start folded away so the farm can be shown without them; this browser remembers whether you left them open. The pictures start as the original procedural SVG tiles; the Art menu in the side panel can switch to the Parchment pack (ink-and-watercolour ground, strawberry, and weed tiles) and remembers that choice in this browser. Tiles the pack does not paint yet, such as the cabin, keep the original art. The page polls the JSON
 state, so if someone acts from the CLI, the pictures update on their own.
 
 The web page is locked to the same machine (or an allowed host). Requests must
