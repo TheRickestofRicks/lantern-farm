@@ -5770,6 +5770,72 @@ class ShopChestWebUi(unittest.TestCase):
             "recipe book should still offer Craft: " + repr(data.get("recipeCraftButtons")),
         )
 
+    def test_shop_cards_show_growing_seasons_and_days_left_in_late_summer(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from engine import crop_viable_days_left, crop_info
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        state["day"] = 30
+        state["season"] = "summer"
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        payload = web.api_payload(state, crops, player=P1)
+        carrot = payload["crops"]["carrot"]
+        self.assertTrue(carrot["for_sale"])
+        self.assertIn("summer", carrot["seasons"])
+        self.assertIn("autumn", carrot["seasons"])
+        self.assertIn("winter", carrot["seasons"])
+        self.assertNotEqual(list(carrot["seasons"]), ["spring"])
+        left = crop_viable_days_left(crop_info(crops, "carrot"), "summer", day=30, crops=crops)
+        self.assertEqual(carrot["viable_days_left"], left)
+        self.assertGreaterEqual(left, 12)
+
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        names = data.get("shopCardNames") or []
+        metas = data.get("shopMetas") or []
+        titles = data.get("shopTitles") or []
+        self.assertTrue(names, "shop should list seeds on summer day 30")
+        # Pair each In-season crop card with its meta line.
+        by_name = {}
+        for name, meta, title in zip(names, metas, titles):
+            by_name[name] = (meta, title)
+        # Carrot must not look like a spring-only seed.
+        carrot_meta = None
+        for name, (meta, title) in by_name.items():
+            if "carrot" in name.lower():
+                carrot_meta = meta
+                self.assertRegex(meta, r"grows spring, summer, autumn, winter")
+                self.assertRegex(meta, r"12 days")
+                self.assertRegex(meta, rf"{left} days left to finish")
+                self.assertEqual(title, meta)
+                self.assertFalse(meta.strip().lower().startswith("spring ·"))
+                break
+        self.assertIsNotNone(carrot_meta, "carrot seed card missing: " + repr(names))
+        lettuce_hit = False
+        for name, (meta, _title) in by_name.items():
+            if "lettuce" in name.lower():
+                lettuce_hit = True
+                self.assertRegex(meta, r"grows spring, summer, autumn")
+                self.assertNotRegex(meta, r"^spring ·")
+                break
+        self.assertTrue(lettuce_hit, "lettuce seed card missing: " + repr(names))
+        for name, (meta, _title) in by_name.items():
+            if "everbearing" in name.lower():
+                self.assertIn("sold in spring, summer", meta)
+        # No seed card should be labeled only "spring" when it also grows later.
+        for name, (meta, _title) in by_name.items():
+            if "crown" in name.lower() or "rhubarb" in name.lower() or "asparagus" in name.lower():
+                continue
+            self.assertNotRegex(
+                meta.strip(),
+                r"^spring ·",
+                f"{name} still looks spring-only: {meta}",
+            )
+
 
 class CabinChestOrder(unittest.TestCase):
     def setUp(self):
@@ -6611,6 +6677,15 @@ class SeedShopWindow(unittest.TestCase):
         self.assertFalse(crops["pumpkin"]["for_sale"])
         self.assertFalse(crops["turnip"]["for_sale"])
         self.assertFalse(crops["rhubarb"]["for_sale"])
+        # Leftover spring-only shop_seasons on annuals must not be sent as the window.
+        self.assertIn("summer", crops["carrot"]["seasons"])
+        self.assertIn("summer", crops["carrot"]["shop_seasons"])
+        self.assertFalse(crops["carrot"]["shop_uses_override"])
+        self.assertEqual(crops["carrot"]["grow_days"], 12)
+        self.assertGreaterEqual(crops["carrot"]["viable_days_left"], 12)
+        self.assertTrue(crops["rhubarb"]["shop_uses_override"])
+        self.assertEqual(crops["rhubarb"]["shop_seasons"], ["spring"])
+        self.assertIn("summer", crops["rhubarb"]["seasons"])
 
 
 class ForgedToolDisplay(unittest.TestCase):

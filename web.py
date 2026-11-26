@@ -2507,15 +2507,35 @@ PAGE = r"""<!DOCTYPE html>
         }
       }
       const desc = info.description || "";
-      body.innerHTML = "<b>" + escapeHtml(title) + "</b>" +
-        (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
-        '<div class="meta shop-meta">' + seasonLabel(info.shop_seasons && info.shop_seasons.length ? info.shop_seasons : info.seasons) +
+      const isCrop = !!(info.grow_days);
+      let seasonBit;
+      if (isCrop) {
+        seasonBit = "grows " + seasonLabel(info.seasons);
+        if (info.shop_uses_override && info.shop_seasons && info.shop_seasons.length) {
+          seasonBit += " · sold in " + seasonLabel(info.shop_seasons);
+        }
+      } else {
+        const listed = (info.shop_seasons && info.shop_seasons.length) ? info.shop_seasons : (info.seasons || []);
+        seasonBit = (listed.length === 4) ? "year-round" : seasonLabel(listed);
+      }
+      let windowBit = "";
+      if (isCrop && info.for_sale && info.viable_days_left != null) {
+        const left = Number(info.viable_days_left);
+        if (left > 0) {
+          windowBit = left + (left === 1 ? " day left to finish" : " days left to finish");
+        }
+      }
+      const meta = seasonBit +
         (cycle ? " · " + cycle : "") +
+        (windowBit ? " · " + windowBit : "") +
         " · " + info.seed_price + "G" +
         (info.sell_price ? " · sell " + info.sell_price + "G" : "") +
         (eat ? " · eat +" + eat + " energy" : "") +
-        " · " + shopOwnedCount(kind, info, opts, data) +
-        "</div>";
+        " · " + shopOwnedCount(kind, info, opts, data);
+      card.title = meta;
+      body.innerHTML = "<b>" + escapeHtml(title) + "</b>" +
+        (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
+        '<div class="meta shop-meta">' + escapeHtml(meta) + "</div>";
       const row = document.createElement("div");
       row.className = "shop-qty";
       if (opts.buy) {
@@ -3947,11 +3967,13 @@ def _fertilizer_catalog(rules: dict | None = None) -> dict:
 
 
 def _crop_catalog(crops: dict, state: dict | None = None) -> dict:
-    from engine import shop_name, crop_for_sale
+    from engine import shop_name, crop_for_sale, crop_viable_days_left, crop_shop_uses_override
     out = {}
     season = (state or {}).get("season")
     day = (state or {}).get("day")
     for kind, info in crops.get("crops", {}).items():
+        uses_override = crop_shop_uses_override(info)
+        growing = list(info["seasons"])
         out[kind] = {
             "name": info.get("name") or kind,
             "name_plural": info.get("name_plural") or "",
@@ -3962,9 +3984,12 @@ def _crop_catalog(crops: dict, state: dict | None = None) -> dict:
             "grow_days": int(info["grow_days"]),
             "regrow_days": int(info.get("regrow_days") or 0),
             "available": info.get("available", True) is not False,
-            "seasons": list(info["seasons"]),
-            "shop_seasons": list(info.get("shop_seasons") or info.get("seasons") or []),
+            "seasons": growing,
+            # Annual leftover shop_seasons in crops.json are not the sale window.
+            "shop_seasons": list(info.get("shop_seasons") or []) if uses_override else growing,
+            "shop_uses_override": uses_override,
             "for_sale": crop_for_sale(info, season, day=day, crops=crops),
+            "viable_days_left": crop_viable_days_left(info, season, day=day, crops=crops),
             "description": info.get("description") or "",
             "sprite": f"{kind}_mature_dry",
             "perennial": bool(info.get("perennial")),
