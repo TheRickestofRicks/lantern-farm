@@ -809,9 +809,10 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         return False, "No room in the backpack for the wood. Drop something at the cabin first."
     sync_inventory_view(state, rules)
     tile["tree"] = make_tree("stump", planted_day=int(state.get("day") or 1), days_grown=0)
+    pack_verb = "pack" if not player else "packs"
     msg = (
         f"{who(player, 'chop', 'chops')} the tree at {describe_place(area, row, col)} "
-        f"and pack {wood_n} wood."
+        f"and {pack_verb} {wood_n} wood."
     )
     log_append(state, msg, player)
     return True, msg

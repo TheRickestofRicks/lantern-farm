@@ -3398,9 +3398,12 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.state["players"][P1]["energy"] = 20
         ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["players"][P1]["energy"], 30)
+        self.assertEqual(self.state["players"][P1]["energy"], 25)
         self.assertIn("bread", msg)
         self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        self.assertTrue(pack_has(self.state, P1, "bread_half", 1, self.rules))
+        self.assertEqual(item_eat_energy("bread", self.crops, self.rules), 5)
+        self.assertEqual(item_eat_energy("bread_half", self.crops, self.rules), 5)
         self.assertEqual(item_eat_energy("butter", self.crops, self.rules), 6)
         self.assertEqual(item_eat_energy("milk", self.crops, self.rules), 8)
 
@@ -3675,7 +3678,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.state["players"][P1]["energy"] = 80
         self.assertEqual(
             format_legal_action("eat bread", self.state, self.crops, P1, self.rules),
-            "eat bread (+10 energy)",
+            "eat bread (+5 energy)",
         )
         add_to_pack(self.state, P1, "strawberry", 3, self.rules)
         line = format_legal_action("craft strawberry_jam", self.state, self.crops, P1, self.rules)
@@ -3694,7 +3697,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertNotIn("take strawberry_seed", look)
         self.assertNotIn(" 2 seeds", look)
         # Pasting a look line still works.
-        self.assertEqual(strip_action_descriptor("eat bread (+10 energy)"), "eat bread")
+        self.assertEqual(strip_action_descriptor("eat bread (+5 energy)"), "eat bread")
         stand(self.state, P1, 2, 3)
         self.assertEqual(
             format_legal_action("end turn", self.state, self.crops, P1, self.rules),
@@ -4252,6 +4255,8 @@ class HillsPhaseOne(unittest.TestCase):
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+        self.assertIn("packs 2 wood", msg)
+        self.assertNotIn("and pack 2", msg)
         self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
         self.assertTrue(pack_has(self.state, P1, "wood", 2, self.rules))
         self.assertEqual(self.state["players"][P1]["energy"], 90)
@@ -4346,7 +4351,7 @@ class HillsPhaseOne(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         hp, cap = player_hp(self.state, P1, self.rules)
-        self.assertEqual(hp, 90)
+        self.assertEqual(hp, 85)
         self.assertEqual(self.state["players"][P1]["energy"], 100)
         self.assertIn("HP", msg)
         self.state["players"][P1]["hp"] = 40
@@ -4569,6 +4574,189 @@ class ForageFood(unittest.TestCase):
         self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
         self.assertFalse(pack_has(self.state, P1, "strawberry", 1, self.rules))
         self.assertFalse(pack_has(self.state, P1, "wild_berry", 1, self.rules))
+
+
+
+class BreadHalvesAndChopGrammar(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 40
+        self.state["players"][P1]["snacks_eaten"] = 0
+
+    def test_eating_bread_leaves_a_half_loaf_and_the_two_halves_sum_to_ten(self):
+        from inventory import add_to_pack, pack_has, item_sell_price, item_eat_energy, staple_shop_items
+
+        self.assertEqual(item_eat_energy("bread", self.crops, self.rules), 5)
+        self.assertEqual(item_eat_energy("bread_half", self.crops, self.rules), 5)
+        self.assertEqual(item_sell_price("bread", self.crops, self.rules), 4)
+        self.assertEqual(item_sell_price("bread_half", self.crops, self.rules), 2)
+        self.assertNotIn("bread_half", staple_shop_items(self.rules))
+
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
+        self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        self.assertTrue(pack_has(self.state, P1, "bread_half", 1, self.rules))
+        self.assertIn("half loaf", msg)
+
+        ok, msg = do_action(self.state, self.crops, "eat half loaf", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertFalse(pack_has(self.state, P1, "bread_half", 1, self.rules))
+
+    def test_a_half_loaf_can_be_left_in_the_chest_for_a_companion(self):
+        from inventory import add_to_pack, pack_has, stack_count, chest_of
+        from engine import eat
+
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "drop bread_half 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(pack_has(self.state, P1, "bread_half", 1, self.rules))
+        self.assertGreaterEqual(stack_count(chest_of(self.state, self.rules), "bread_half"), 1)
+
+        self.state["players"][P2]["energy"] = 40
+        self.state["players"][P2]["snacks_eaten"] = 0
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        ok, msg = eat(self.state, self.crops, "half loaf", P2, self.rules, from_chest=True)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 45)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "bread_half"), 0)
+
+    def test_shop_does_not_sell_half_loaves(self):
+        self.state["gold"] = 100
+        ok, msg = do_action(self.state, self.crops, "buy half loaf 1", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("isn't selling", msg.lower())
+
+    def test_chop_log_says_packs_wood(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from inventory import TOOL_AXE, pack_has, remove_from_chest, add_to_pack, sync_inventory_view
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        if not pack_has(self.state, P1, TOOL_AXE, 1, self.rules):
+            remove_from_chest(self.state, TOOL_AXE, 1, self.rules)
+            add_to_pack(self.state, P1, TOOL_AXE, 1, self.rules)
+            sync_inventory_view(self.state, self.rules)
+        tile = get_hills_tile(self.state, 2, 3)
+        tile["tree"] = make_tree("grown", planted_day=1)
+        tile["forage"] = None
+        set_player_place(self.state, P1, AREA_HILLS, 2, 3)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("packs 2 wood", msg)
+        self.assertNotIn("and pack 2", msg)
+
+
+class PerennialProgressLabels(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["weather"] = "sun"
+
+    def _plant(self, kind, r=1, c=1):
+        from engine import stock_key, crop_info, till, plant
+        till(self.state, self.crops, r, c)
+        info = crop_info(self.crops, kind)
+        give_item(self.state, stock_key(kind, info), 1)
+        ok, msg = plant(self.state, self.crops, r, c, kind)
+        self.assertTrue(ok, msg)
+        return self.state["tiles"][r - 1][c - 1]["crop"]
+
+    def _grow(self, r, c, n):
+        from engine import water, sleep
+        for _ in range(n):
+            water(self.state, self.crops, r, c)
+            sleep(self.state, self.crops, self.rules)
+
+    def test_june_bearing_strawberry_is_establishing_not_day_zero_of_seven(self):
+        from describe import describe_tile, crop_progress_phrase
+        from engine import crop_info
+        import web
+
+        crop = self._plant("strawberry")
+        info = crop_info(self.crops, "strawberry")
+        phrase = crop_progress_phrase(crop, info)
+        self.assertEqual(phrase, "establishing, day 0 of the first year; fruits next spring")
+        self.assertNotIn("day 0 of 7", phrase)
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("establishing, day 0 of the first year; fruits next spring", line)
+        self.assertNotIn("day 0 of 7", line)
+
+        self._grow(1, 1, 5)
+        crop = self.state["tiles"][0][0]["crop"]
+        self.assertEqual(int(crop.get("days_established") or 0), 5)
+        self.assertEqual(int(crop.get("days_grown") or 0), 0)
+        phrase = crop_progress_phrase(crop, info)
+        self.assertEqual(phrase, "establishing, day 5 of the first year; fruits next spring")
+        self.assertNotIn("of 7", phrase)
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("establishing, day 5 of the first year; fruits next spring", line)
+        self.assertNotIn("day 0 of 7", line)
+        self.assertNotIn("day 5 of 7", line)
+
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        view_crop = payload["view_tiles"][0][0]["crop"]
+        self.assertEqual(
+            view_crop["progress_phrase"],
+            "establishing, day 5 of the first year; fruits next spring",
+        )
+        # The live save must not be annotated for the client.
+        self.assertNotIn("progress_phrase", self.state["tiles"][0][0]["crop"])
+
+    def test_everbearing_uses_settling_day_n_of_four(self):
+        from describe import describe_tile, crop_progress_phrase
+        from engine import crop_info
+
+        crop = self._plant("everbearing")
+        info = crop_info(self.crops, "everbearing")
+        phrase = crop_progress_phrase(crop, info)
+        self.assertEqual(phrase, "settling, day 0 of 4")
+        self.assertNotIn("day 0 of 7", phrase)
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("settling, day 0 of 4", line)
+        self.assertNotIn("day 0 of 7", line)
+
+        self._grow(1, 1, 2)
+        crop = self.state["tiles"][0][0]["crop"]
+        phrase = crop_progress_phrase(crop, info)
+        self.assertEqual(phrase, "settling, day 2 of 4")
+        line = describe_tile(self.state, self.crops, 1, 1)
+        self.assertIn("settling, day 2 of 4", line)
+
+    def test_rhubarb_and_asparagus_crowns_are_establishing(self):
+        from describe import describe_tile, crop_progress_phrase
+        from engine import crop_info
+
+        for kind, col in (("rhubarb", 1), ("asparagus", 2)):
+            state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+            state["weather"] = "sun"
+            self.state = state
+            crop = self._plant(kind, 1, col)
+            info = crop_info(self.crops, kind)
+            phrase = crop_progress_phrase(crop, info)
+            self.assertTrue(phrase.startswith("establishing, day 0 of the first year"), kind)
+            self.assertIn("fruits next spring", phrase)
+            self.assertNotIn("day 0 of 10", phrase)
+            self.assertNotIn("day 0 of 7", phrase)
+            line = describe_tile(self.state, self.crops, 1, col)
+            self.assertIn("establishing, day 0 of the first year; fruits next spring", line)
+            self.assertNotIn("day 0 of 10", line)
+            self._grow(1, col, 3)
+            crop = self.state["tiles"][0][col - 1]["crop"]
+            self.assertEqual(int(crop.get("days_established") or 0), 3, kind)
+            phrase = crop_progress_phrase(crop, info)
+            self.assertEqual(
+                phrase,
+                "establishing, day 3 of the first year; fruits next spring",
+                kind,
+            )
 
 
 

@@ -2585,6 +2585,11 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     from inventory import is_staple, staple_info, STAPLES, normalize_item as _norm_item
     staple = _norm_item(str(kind)) if not fert_item else None
     if staple and is_staple(staple):
+        from inventory import staple_is_sold, item_label as _staple_label
+        if not staple_is_sold(staple):
+            known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
+            label = _staple_label(staple, crops) if staple else str(kind)
+            return False, f"The shop isn't selling {label}. It sells: {known}."
         count, err = _parse_count(n)
         if err:
             return False, err
@@ -3264,6 +3269,7 @@ def eat(
         chest_of,
         stack_count,
         is_forage_item,
+        store_item,
     )
 
     rules = rules or load_rules()
@@ -3325,10 +3331,18 @@ def eat(
         bits.append(f"eats {label} (already full)")
         # Should not happen because we refused when both were full.
     body = " and ".join(bits)
+    leftover_bit = ""
+    if kind == "bread":
+        prefer = "chest" if from_chest else "pack"
+        store_item(state, "bread_half", 1, player, prefer=prefer, rules=rules)
+        if pack_has(state, player, "bread_half", 1, rules) and prefer == "pack":
+            leftover_bit = " A half loaf remains in the backpack."
+        else:
+            leftover_bit = " A half loaf remains in the chest."
     if body.startswith("recovers") or body.startswith("heals"):
-        msg = f"{display_name(player)} eats {label} and {body}. {snack_bit}"
+        msg = f"{display_name(player)} eats {label} and {body}.{leftover_bit} {snack_bit}"
     else:
-        msg = f"{display_name(player)} eats {label}. {snack_bit}"
+        msg = f"{display_name(player)} eats {label}.{leftover_bit} {snack_bit}"
     return (
         True,
         msg,

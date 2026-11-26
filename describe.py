@@ -269,6 +269,42 @@ def runner_vine_phrase(crop: dict | None) -> str:
     return f" A runner from {position_name(*parent)}, still joined by its vine."
 
 
+def crop_progress_phrase(crop: dict | None, info: dict | None) -> str:
+    """Honest growth progress: never treat an establishing perennial as 'day 0 of N'."""
+    if not crop:
+        return ""
+    stage = crop.get("stage")
+    if stage in {"withered", "dormant"}:
+        return ""
+    info = info or {}
+    after_dormancy = info.get("fruiting_after_dormancy", True) is not False
+    if (
+        info.get("perennial")
+        and after_dormancy
+        and not crop.get("overwintered")
+        and not crop.get("fruiting_started")
+        and stage != "mature"
+    ):
+        n = int(crop.get("days_established") or 0)
+        return f"establishing, day {n} of the first year; fruits next spring"
+    if (
+        info.get("perennial")
+        and not after_dormancy
+        and not int(crop.get("harvests") or 0)
+        and stage != "mature"
+        and not crop.get("overwintered")
+    ):
+        needed = grow_days(info) if info.get("grow_days") is not None else 0
+        grown = int(crop.get("days_grown") or 0)
+        return f"settling, day {grown} of {needed}"
+    needed = crop_cycle_days(info, crop) if info else None
+    grown = int(crop.get("days_grown") or 0)
+    if needed:
+        return f"day {grown} of {needed}"
+    return f"day {grown}"
+
+
+
 def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     tile = get_tile(state, row, col)
     here = position_name(row, col)
@@ -315,21 +351,6 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"A dormant {kind}, resting until spring. It needs no water."
             f" Planted on day {crop.get('planted_day', '?')}.{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
-    if (
-        info
-        and is_perennial(info)
-        and info.get("fruiting_after_dormancy", True)
-        and not crop.get("overwintered")
-        and not crop.get("fruiting_started")
-    ):
-        label_est = stage_label(info, stage) if info else stage
-        return (
-            f"  {here} — {tilled} soil, {moist}. "
-            f"{crop_name(kind, info)}, establishing ({label_est}); it will fruit after its first winter, {moist}."
-            f" Planted on day {crop.get('planted_day', '?')}.{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
-        )
-    needed = crop_cycle_days(info, crop) if info else "?"
-    grown = crop.get("days_grown", 0)
     label = stage_label(info, stage) if info else stage
     planted = crop.get("planted_day", "?")
     dry = crop.get("dry_days", 0)
@@ -344,9 +365,11 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             ready += (
                 f" It will fruit again in {regrow_days(info)} watered day(s) after you pick it."
             )
+    progress = crop_progress_phrase(crop, info)
+    name = crop_name(kind, info) if info else kind
     return (
         f"  {here} — {tilled} soil, {moist}. "
-        f"{kind}, day {grown} of {needed}, {label}, {moist}"
+        f"{name}, {progress}, {label}, {moist}"
         f"{dry_bit}. Planted on day {planted}.{ready}{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
     )
 

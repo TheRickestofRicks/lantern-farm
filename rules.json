@@ -194,7 +194,7 @@
     "bread": {
       "price": 8,
       "sell_price": 4,
-      "eat_energy": 10
+      "eat_energy": 5
     },
     "butter": {
       "price": 10,

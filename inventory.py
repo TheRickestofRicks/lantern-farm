@@ -44,8 +44,16 @@ STAPLES = {
         "name_plural": "loaves of bread",
         "price": 8,
         "sell_price": 4,
-        "eat_energy": 10,
-        "description": "A small loaf from the village bakery. Modest, and always in the shop.",
+        "eat_energy": 5,
+        "description": "A small loaf from the village bakery. Eat one half (+5 energy) and leave the other half for a companion.",
+    },
+    "bread_half": {
+        "name": "half loaf",
+        "name_plural": "half loaves",
+        "sell_price": 2,
+        "eat_energy": 5,
+        "shop": False,
+        "description": "The other half of a loaf. A small snack, or a share left in the chest for a companion.",
     },
     "butter": {
         "name": "butter",
@@ -281,6 +289,13 @@ ITEM_ALIASES = {
     "loaf": "bread",
     "loaf of bread": "bread",
     "loaves of bread": "bread",
+    "bread_half": "bread_half",
+    "bread half": "bread_half",
+    "half loaf": "bread_half",
+    "half-loaf": "bread_half",
+    "halfloaf": "bread_half",
+    "half bread": "bread_half",
+    "half loaves": "bread_half",
     "butter": "butter",
     "pat of butter": "butter",
     "pats of butter": "butter",
@@ -431,14 +446,24 @@ def staple_info(item: str | None, rules: dict | None = None) -> dict | None:
     return info
 
 
+def staple_is_sold(item: str | None, rules: dict | None = None) -> bool:
+    """True when the shop sells this staple (half loaves are leftover, not stock)."""
+    info = staple_info(item, rules)
+    if not info:
+        return False
+    if info.get("shop") is False:
+        return False
+    return info.get("price") is not None
+
+
 def staple_shop_items(rules: dict | None = None) -> list[str]:
     """Staples are sold year-round."""
-    items = list(STAPLES)
+    items = [item for item in STAPLES if staple_is_sold(item, rules)]
     custom = (rules or {}).get("staples") if isinstance(rules, dict) else None
     if isinstance(custom, dict):
         for key in custom:
             item = normalize_item(key) or str(key).strip().lower().replace(" ", "_")
-            if item not in items and item in STAPLES:
+            if item not in items and staple_is_sold(item, rules):
                 items.append(item)
     return items
 

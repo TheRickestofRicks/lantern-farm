@@ -1571,8 +1571,6 @@ PAGE = r"""<!DOCTYPE html>
         return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + fertilizerPhrase(tile) + weed;
       }
       const info = (lastData && lastData.crops && lastData.crops[crop.kind]) || {};
-      const needed = (crop.harvests && info.regrow_days) ? info.regrow_days : info.grow_days;
-      const of = needed ? (" of " + needed) : "";
       let ready = "";
       if (crop.stage === "mature") {
         ready = " Ready to harvest.";
@@ -1581,8 +1579,30 @@ PAGE = r"""<!DOCTYPE html>
         }
       }
       let hint = cropHint(tile, crop);
-      return tileName(r, c) + " — " + crop.kind + ", day " + crop.days_grown + of +
+      const name = info.name || crop.kind;
+      const progress = cropProgressPhrase(crop, info);
+      return tileName(r, c) + " — " + name + ", " + progress +
         ", " + crop.stage + ", " + moist + "." + ready + hint + fertilizerPhrase(tile) + weed;
+    }
+
+    function cropProgressPhrase(crop, info) {
+      if (!crop) return "";
+      if (crop.progress_phrase) return crop.progress_phrase;
+      if (crop.stage === "withered" || crop.stage === "dormant") return "";
+      info = info || {};
+      const afterDormancy = info.fruiting_after_dormancy !== false;
+      if (info.perennial && afterDormancy && !crop.overwintered && !crop.fruiting_started && crop.stage !== "mature") {
+        const n = Number(crop.days_established || 0);
+        return "establishing, day " + n + " of the first year; fruits next spring";
+      }
+      if (info.perennial && info.fruiting_after_dormancy === false && !crop.harvests && crop.stage !== "mature" && !crop.overwintered) {
+        const needed = info.grow_days;
+        const grown = Number(crop.days_grown || 0);
+        return "settling, day " + grown + " of " + needed;
+      }
+      const needed = (crop.harvests && info.regrow_days) ? info.regrow_days : info.grow_days;
+      const of = needed ? (" of " + needed) : "";
+      return "day " + (crop.days_grown || 0) + of;
     }
 
     function forecastIcon(kind) {
@@ -1704,7 +1724,9 @@ PAGE = r"""<!DOCTYPE html>
           btn.className = "tile" + (isCabin ? " cabin" : "");
           if (selected && selected.r === r && selected.c === c) btn.classList.add("selected");
           if (stand && stand.r === r && stand.c === c) btn.classList.add("here");
-          btn.setAttribute("aria-label", tileName(r, c));
+          const tip = describeTile(tile, r, c, data);
+          btn.setAttribute("aria-label", tip);
+          btn.title = tip;
           applyTileArt(btn, key);
           const num = document.createElement("div");
           num.className = "keynum";
@@ -3346,6 +3368,33 @@ def _web_player(raw) -> str:
     return key or default_web_player()
 
 
+def _payload_view_tiles(view_tiles, crops: dict):
+    """Copy tiles for the client and attach an honest progress phrase to crops.
+
+    The live save tiles are left untouched.
+    """
+    from describe import crop_progress_phrase
+    from engine import crop_info
+
+    rows = []
+    for row in view_tiles or []:
+        new_row = []
+        for tile in row:
+            if not isinstance(tile, dict):
+                new_row.append(tile)
+                continue
+            copied = dict(tile)
+            crop = copied.get("crop")
+            if isinstance(crop, dict):
+                crop = dict(crop)
+                info = crop_info(crops, crop.get("kind")) or {}
+                crop["progress_phrase"] = crop_progress_phrase(crop, info)
+                copied["crop"] = crop
+            new_row.append(copied)
+        rows.append(new_row)
+    return rows
+
+
 def api_payload(
     state: dict,
     crops: dict,
@@ -3371,6 +3420,7 @@ def api_payload(
     else:
         view_tiles = state["tiles"]
         view_area = view_area if view_area in (AREA_FARM, AREA_HILLS) else AREA_FARM
+    view_tiles = _payload_view_tiles(view_tiles, crops)
     sprites = [
         [sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)]
         for r, row in enumerate(view_tiles)
