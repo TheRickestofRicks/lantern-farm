@@ -2665,6 +2665,8 @@ class ArtPackAndPage(unittest.TestCase):
             "rhubarb_strawberry_jam", "garden_salad", "roasted_potatoes",
             "pumpkin_soup",
             "axe", "wood", "wild_onion", "wild_berry", "wild_mushroom",
+            "wild_berry_jam", "wild_onion_soup", "mushroom_soup",
+            "oyster_mushroom", "pickaxe",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():

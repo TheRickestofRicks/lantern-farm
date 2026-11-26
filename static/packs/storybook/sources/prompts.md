@@ -106,6 +106,9 @@ Overlay prompts (subject only on a flat vivid magenta-rose field, no soil, no po
 - **forage_wild_berry** — A low leafy bush with a few ripe red berries.
 - **forage_wild_mushroom** — Three woodland mushrooms with tawny caps and pale stems.
 
+- **zucchini_growing** — A young zucchini plant with lobed leaves and small fruits attached to the stems near the base, each with a yellow blossom at the fruit tip (real zucchini). Earlier takes with a floating flower and bare fruit tips were discarded. Wet and dry variants share this overlay.
+- **zucchini_mature** — The same plant at harvest, with much larger plump fruits still attached at the stem and a blossom at each tip. Wet and dry variants share this overlay.
+
 Item-icon prompts (single centered object on magenta, same style as the hoe and shovel):
 
 - **axe** — A woodcutter's felling axe with a curved wooden haft and a wedge-shaped steel head. Early takes that followed the hoe reference too closely were discarded.
@@ -113,3 +116,9 @@ Item-icon prompts (single centered object on magenta, same style as the hoe and 
 - **wild_onion** — One small onion bulb with a short tuft of green leaves.
 - **wild_berry** — A cluster of ripe red berries with a couple of green leaves.
 - **wild_mushroom** — Two or three woodland mushrooms with tawny-brown caps.
+
+- **wild_berry_jam** — A glass jar of dark crimson-purple wild berry jam with a red gingham cloth lid tied with twine, a small cluster of ripe berries beside it.
+- **wild_onion_soup** — A beige bowl of golden-brown onion soup, with onion rings and a few green onion tops on top.
+- **mushroom_soup** — A beige bowl of creamy brown mushroom bisque, sliced mushrooms and a swirl of cream on top.
+- **oyster_mushroom** — A cluster of fan-shaped cream and grey-beige oyster mushrooms with visible gills.
+- **pickaxe** — A classic wooden-haft miner's pickaxe with a steel double-pointed head. One icon covers every forge tier.

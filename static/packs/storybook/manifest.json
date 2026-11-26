@@ -232,6 +232,11 @@
     "wood": "items/wood.png",
     "wild_onion": "items/wild_onion.png",
     "wild_berry": "items/wild_berry.png",
-    "wild_mushroom": "items/wild_mushroom.png"
+    "wild_mushroom": "items/wild_mushroom.png",
+    "wild_berry_jam": "items/wild_berry_jam.png",
+    "wild_onion_soup": "items/wild_onion_soup.png",
+    "mushroom_soup": "items/mushroom_soup.png",
+    "oyster_mushroom": "items/oyster_mushroom.png",
+    "pickaxe": "items/pickaxe.png"
   }
 }
