@@ -17,7 +17,14 @@
     "fertilize": 5,
     "unearth": 5,
     "chop": 10,
-    "forage": 5
+    "forage": 5,
+    "mine": 10,
+    "climb_down": 10,
+    "climb_up": 5,
+    "enter_mine": 5,
+    "rest": 0,
+    "elevator": 5,
+    "forge": 5
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -219,5 +226,20 @@
     "forage_cap": 2,
     "forage_min": 0,
     "forage_max": 2
+  },
+  "mine": {
+    "max_floor": 25,
+    "safe_floors": [
+      5,
+      10,
+      15,
+      20,
+      25
+    ],
+    "rest_energy": 25,
+    "pickaxe_price": 40,
+    "upgrade_ore": 5,
+    "copper_energy": 5,
+    "iron_bonus": 1
   }
 }

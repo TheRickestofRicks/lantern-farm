@@ -1,13 +1,14 @@
 """Hills area, trees, forage, and area-aware places for Lantern Farm.
 
-Phase 1 of docs/plan-hills-and-mine.md. The mine mouth is boarded.
+Phase 1 of docs/plan-hills-and-mine.md. Phase 2 opens the mine mouth.
 """
 
 from __future__ import annotations
 
 AREA_FARM = "farm"
 AREA_HILLS = "hills"
-AREAS = (AREA_FARM, AREA_HILLS)
+AREA_MINE = "mine"
+AREAS = (AREA_FARM, AREA_HILLS, AREA_MINE)
 
 HILLS_ROWS = 3
 HILLS_COLS = 3
@@ -398,7 +399,14 @@ def player_area(state: dict, player: str) -> str:
     return normalize_area(slot.get("area"))
 
 
-def set_player_place(state: dict, player: str, area: str, row: int, col: int) -> None:
+def set_player_place(
+    state: dict,
+    player: str,
+    area: str,
+    row: int,
+    col: int,
+    floor: int | None = None,
+) -> None:
     from engine import player_slot, in_bounds, CABIN_ROW, CABIN_COL
 
     slot = player_slot(state, player)
@@ -414,6 +422,13 @@ def set_player_place(state: dict, player: str, area: str, row: int, col: int) ->
     slot["area"] = area
     slot["row"] = row
     slot["col"] = col
+    if area == AREA_MINE:
+        try:
+            slot["floor"] = max(1, int(floor or slot.get("floor") or 1))
+        except (TypeError, ValueError):
+            slot["floor"] = 1
+    else:
+        slot.pop("floor", None)
     mark_entrance_found(state, area, row, col)
 
 
@@ -505,9 +520,11 @@ def path_places(src_area: str, src: tuple[int, int], dest_area: str, dest: tuple
 
     src_area = normalize_area(src_area)
     dest_area = normalize_area(dest_area)
+    if src_area == AREA_MINE or dest_area == AREA_MINE:
+        return []
     if src_area == dest_area:
         return [(src_area, r, c) for r, c in path_steps(src, dest)]
-    # Only the cabin ↔ hills r3c3 crossing is legal in Phase 1.
+    # Only the cabin ↔ hills r3c3 crossing is legal.
     if src_area == AREA_FARM and dest_area == AREA_HILLS:
         to_cabin = path_steps(src, (CABIN_ROW, CABIN_COL))
         places = [(AREA_FARM, r, c) for r, c in to_cabin]
@@ -540,12 +557,18 @@ def area_crossing(area: str, row: int, col: int, direction: str) -> tuple[str, i
     return None
 
 
-def area_title(area: str | None) -> str:
+def area_title(area: str | None, floor: int | None = None) -> str:
     area = normalize_area(area)
-    return "the hills" if area == AREA_HILLS else "the farm"
+    if area == AREA_HILLS:
+        return "the hills"
+    if area == AREA_MINE:
+        if floor:
+            return f"the mine, floor {int(floor)}"
+        return "the mine"
+    return "the farm"
 
 
-def describe_place(area: str, row: int, col: int) -> str:
+def describe_place(area: str, row: int, col: int, floor: int | None = None) -> str:
     from engine import CABIN_ROW, CABIN_COL, position_name
 
     area = normalize_area(area)
@@ -556,10 +579,14 @@ def describe_place(area: str, row: int, col: int) -> str:
         if is_mine_entrance_tile(row, col):
             return f"the mine entrance ({here} in the hills)"
         return f"{here} in the hills"
+    if area == AREA_MINE:
+        if floor:
+            return f"{here} on mine floor {int(floor)}"
+        return f"{here} in the mine"
     return here
 
 
-def describe_where(area: str, row: int, col: int) -> str:
+def describe_where(area: str, row: int, col: int, floor: int | None = None) -> str:
     from engine import position_name
 
     area = normalize_area(area)
@@ -570,6 +597,10 @@ def describe_where(area: str, row: int, col: int) -> str:
         if is_mine_entrance_tile(row, col):
             return f"at the mine entrance ({here} in the hills)"
         return f"at {here} in the hills"
+    if area == AREA_MINE:
+        if floor:
+            return f"at {here} on mine floor {int(floor)}"
+        return f"at {here} in the mine"
     return f"at {here}"
 
 
@@ -602,14 +633,18 @@ def describe_hills_tile(state: dict, row: int, col: int, weather: str | None = N
         names = ", ".join(display_name(n) for n in who_here)
         who_bit = f" {names} standing here."
     if tile.get("type") == "mine_entrance":
-        hint = (
-            "A boarded mine entrance is set into the hill. "
-            "The way in isn't open yet — a pickaxe would be needed, later."
-        )
-        if state.get("mine_entrance_found"):
+        from mine import is_entrance_open
+        if is_entrance_open(state) or tile.get("closed") is False:
+            hint = "The mine entrance is open. Enter the mine from here."
+        elif state.get("mine_entrance_found"):
             hint = (
                 "The boarded mine entrance you found is still shut. "
-                "The way in isn't open yet."
+                "Buy a pickaxe from the shop, then enter mine to pry it open."
+            )
+        else:
+            hint = (
+                "A boarded mine entrance is set into the hill. "
+                "The way in isn't open yet — a pickaxe would be needed."
             )
         return f"  {here} in the hills — {hint}{who_bit} (sprite: {key})"
     bits = []
@@ -660,8 +695,11 @@ def hills_summary(state: dict) -> str:
         bits.append("forage available (" + ", ".join(parts) + ")")
     if not bits:
         bits.append("quiet grass and hillside, nothing ready to take")
+    from mine import is_entrance_open
     mouth = "The mine entrance is boarded."
-    if state.get("mine_entrance_found"):
+    if is_entrance_open(state):
+        mouth = "The mine entrance is open."
+    elif state.get("mine_entrance_found"):
         mouth = "The boarded mine entrance has been found; the way in isn't open yet."
     return "The hills: " + "; ".join(bits) + ". " + mouth
 
@@ -722,26 +760,35 @@ def farm_summary(state: dict, crops: dict | None = None) -> str:
 def exit_summary(area: str) -> str:
     area = normalize_area(area)
     if area == AREA_HILLS:
-        return "Walk south from the bottom-right hill (row 3 col 3) to return to the cabin."
+        return "Walk south from the bottom-right hill (row 3 col 3) to return to the cabin. The mine entrance is at row 1 col 2."
+    if area == AREA_MINE:
+        return "Climb up the shaft, or ride the elevator to the entrance, then walk home from the hills."
     return "Walk north from the cabin to reach the hills (bottom-right, row 3 col 3)."
 
 
 def elsewhere_lines(state: dict, viewer: str | None, crops: dict | None = None) -> list[str]:
     from engine import known_players, display_name, player_where, player_slot
+    from mine import mine_summary, player_floor
 
     lines = ["Elsewhere:"]
     view_area = player_area(state, viewer) if viewer else AREA_FARM
     if view_area == AREA_FARM:
         lines.append("  " + hills_summary(state))
+        lines.append("  " + mine_summary(state))
+    elif view_area == AREA_HILLS:
+        lines.append("  " + farm_summary(state, crops))
+        lines.append("  " + mine_summary(state))
     else:
         lines.append("  " + farm_summary(state, crops))
+        lines.append("  " + hills_summary(state))
     lines.append("  " + exit_summary(view_area))
     for name in known_players():
         if viewer and name == viewer:
             continue
         area = player_area(state, name)
         row, col = player_where(state, name)
-        lines.append(f"  {display_name(name)} is {describe_where(area, row, col)}.")
+        floor = player_floor(state, name) if area == AREA_MINE else None
+        lines.append(f"  {display_name(name)} is {describe_where(area, row, col, floor=floor)}.")
     return lines
 
 
@@ -749,6 +796,8 @@ def map_cell_lines(tile: dict) -> tuple[str, str]:
     """Two short mini-map lines for a hills tile. Labels fit 10 chars."""
     typ = tile.get("type")
     if typ == "mine_entrance":
+        if tile.get("closed") is False:
+            return "MINE", "open"
         return "MINE", "boarded"
     top = "hillside" if typ == "hillside" else "grass"
     bot = ""
@@ -770,6 +819,28 @@ def map_cell_lines(tile: dict) -> tuple[str, str]:
     if not bot:
         bot = "slope" if typ == "hillside" else "path"
     return top, bot
+
+
+def _gold_axe_splash(state: dict, player: str, row: int, col: int, rules: dict | None) -> str:
+    from inventory import pack_space_for, add_to_pack, sync_inventory_view, TOOL_AXE
+    from mine import yield_with_upgrade, tool_tier
+    for dr, dc in ((-1, 0), (0, 1), (1, 0), (0, -1)):
+        rr, cc = int(row) + dr, int(col) + dc
+        if not (1 <= rr <= HILLS_ROWS and 1 <= cc <= HILLS_COLS):
+            continue
+        tile = get_hills_tile(state, rr, cc)
+        if not has_grown_tree(tile):
+            continue
+        wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules)
+        if not pack_space_for(state, player, "wood", wood_n, rules):
+            return ""
+        leftover = add_to_pack(state, player, "wood", wood_n, rules)
+        if leftover:
+            return ""
+        sync_inventory_view(state, rules)
+        tile["tree"] = make_tree("stump", planted_day=int(state.get("day") or 1), days_grown=0)
+        return f", and the gold axe also chops the tree at {describe_place(AREA_HILLS, rr, cc)} for {wood_n} wood."
+    return ""
 
 
 def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -801,7 +872,9 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
             f"{display_name(player)} needs an axe in their backpack to chop. "
             "Take one from the cabin chest."
         )
-    wood_n = chop_wood_count(rules)
+    from mine import yield_with_upgrade
+    from inventory import TOOL_AXE
+    wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules)
     if not pack_space_for(state, player, "wood", wood_n, rules):
         return False, "No room in the backpack for the wood. Drop something at the cabin first."
     leftover = add_to_pack(state, player, "wood", wood_n, rules)
@@ -814,6 +887,11 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         f"{who(player, 'chop', 'chops')} the tree at {describe_place(area, row, col)} "
         f"and {pack_verb} {wood_n} wood."
     )
+    from mine import tool_tier
+    if player and tool_tier(state, TOOL_AXE) == "gold":
+        extra = _gold_axe_splash(state, player, row, col, rules)
+        if extra:
+            msg = msg.rstrip(".") + extra
     log_append(state, msg, player)
     return True, msg
 
@@ -852,6 +930,9 @@ def migrate_hills(state: dict, rules: dict | None = None) -> bool:
         changed = True
     if "mine_entrance_found" not in state:
         state["mine_entrance_found"] = False
+        changed = True
+    from mine import migrate_mine
+    if migrate_mine(state, rules):
         changed = True
     return changed
 

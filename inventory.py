@@ -13,6 +13,7 @@ TOOL_HOE = "hoe"
 TOOL_CAN = "watering_can"
 TOOL_SHOVEL = "shovel"
 TOOL_AXE = "axe"
+TOOL_PICKAXE = "pickaxe"
 
 TOOLS = {
     TOOL_HOE: {
@@ -34,6 +35,11 @@ TOOLS = {
         "name": "axe",
         "name_plural": "axes",
         "starting": 1,
+    },
+    TOOL_PICKAXE: {
+        "name": "pickaxe",
+        "name_plural": "pickaxes",
+        "starting": 0,
     },
 }
 
@@ -80,6 +86,24 @@ MATERIALS = {
         "name_plural": "wood",
         "sell_price": 4,
         "description": "A small bundle of firewood, chopped in the hills.",
+    },
+    "copper_ore": {
+        "name": "copper ore",
+        "name_plural": "copper ore",
+        "sell_price": 8,
+        "description": "A chunk of copper ore, chipped from the upper mine floors.",
+    },
+    "iron_ore": {
+        "name": "iron ore",
+        "name_plural": "iron ore",
+        "sell_price": 12,
+        "description": "A chunk of iron ore, found deeper in the mine.",
+    },
+    "gold_ore": {
+        "name": "gold ore",
+        "name_plural": "gold ore",
+        "sell_price": 20,
+        "description": "A chunk of gold ore, from the deepest mine floors.",
     },
 }
 
@@ -259,7 +283,20 @@ ITEM_ALIASES = {
     "shovels": TOOL_SHOVEL,
     "axe": TOOL_AXE,
     "axes": TOOL_AXE,
+    "pickaxe": TOOL_PICKAXE,
+    "pickaxes": TOOL_PICKAXE,
+    "pick-axe": TOOL_PICKAXE,
+    "pick axe": TOOL_PICKAXE,
+    "pick": TOOL_PICKAXE,
     "wood": "wood",
+    "copper": "copper_ore",
+    "copper ore": "copper_ore",
+    "copper_ore": "copper_ore",
+    "iron": "iron_ore",
+    "iron ore": "iron_ore",
+    "iron_ore": "iron_ore",
+    "gold ore": "gold_ore",
+    "gold_ore": "gold_ore",
     "firewood": "wood",
     "wild_onion": "wild_onion",
     "wild onion": "wild_onion",

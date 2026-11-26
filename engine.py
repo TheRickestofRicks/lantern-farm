@@ -215,14 +215,25 @@ def is_player_in_cabin(state: dict, player: str) -> bool:
     return is_cabin_place(player_area(state, player), row, col)
 
 
-def players_at(state: dict, row: int, col: int, area: str | None = None) -> list[str]:
-    from hills import player_area, AREA_FARM, normalize_area
+def players_at(
+    state: dict,
+    row: int,
+    col: int,
+    area: str | None = None,
+    floor: int | None = None,
+) -> list[str]:
+    from hills import player_area, AREA_FARM, AREA_MINE, normalize_area
     want = normalize_area(area) if area else AREA_FARM
     found = []
     for name in known_players():
         here = player_where(state, name)
-        if here == (int(row), int(col)) and player_area(state, name) == want:
-            found.append(name)
+        if here != (int(row), int(col)) or player_area(state, name) != want:
+            continue
+        if want == AREA_MINE and floor is not None:
+            from mine import player_floor
+            if player_floor(state, name) != int(floor):
+                continue
+        found.append(name)
     return found
 
 
@@ -1158,9 +1169,20 @@ def fertilizer_shop_items(season: str | None = None, rules: dict | None = None) 
     return list(FERTILIZERS.keys())
 
 
-def shop_listing(crops: dict, season: str | None = None, rules: dict | None = None) -> list[str]:
+def shop_listing(
+    crops: dict,
+    season: str | None = None,
+    rules: dict | None = None,
+    state: dict | None = None,
+) -> list[str]:
     from inventory import staple_shop_items
-    return shop_kinds(crops, season) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
+    items = shop_kinds(crops, season) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
+    if state is not None:
+        from mine import pickaxe_unlocked, pickaxe_in_world
+        from inventory import TOOL_PICKAXE
+        if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules) and TOOL_PICKAXE not in items:
+            items.append(TOOL_PICKAXE)
+    return items
 
 
 def is_perennial(info: dict | None) -> bool:
@@ -1548,13 +1570,27 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
         except (TypeError, ValueError):
             row, col = 0, 0
         from hills import (
-            normalize_area, AREA_FARM, is_cabin_place, max_hp as hills_max_hp,
+            normalize_area, AREA_FARM, AREA_MINE, is_cabin_place, max_hp as hills_max_hp,
         )
         area = normalize_area(prev.get("area"))
         if not in_bounds(row, col):
             row, col = CABIN_ROW, CABIN_COL
             area = AREA_FARM
         slept = is_cabin_place(area, row, col)
+        floor = None
+        if (not slept) and area == AREA_MINE:
+            from mine import wake_place_after_mine_passout, mine_of
+            mine = mine_of(state)
+            crops_now = load_crops()
+            new_season = normalize_season(state.get("season")) or "spring"
+            new_year = year_for_day(int(state.get("day") or 1), crops_now)
+            season_changed = (
+                mine.get("season") != new_season
+                or int(mine.get("year") or 0) != new_year
+            )
+            area, row, col, floor = wake_place_after_mine_passout(
+                state, rules, season_changed=season_changed
+            )
         from inventory import empty_pack, normalize_pack
         cap_hp = hills_max_hp(rules)
         try:
@@ -1577,6 +1613,8 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             "snacks_eaten": 0,
             "pack": normalize_pack(prev.get("pack")) if prev.get("pack") is not None else empty_pack(),
         }
+        if (not slept) and area == AREA_MINE and floor:
+            slots[key]["floor"] = int(floor)
     for key in known_players():
         if key not in slots:
             from inventory import empty_pack
@@ -1847,21 +1885,40 @@ def end_turn(
         if name
     )
     night_notes = []
-    from hills import player_area, describe_where as describe_place_where
+    from hills import player_area, describe_where as describe_place_where, AREA_MINE
+    from mine import player_floor, wake_place_after_mine_passout, mine_of
+    next_season_changed = False
+    if everyone_done:
+        nxt_day = int(state.get("day") or 1) + 1
+        next_season_changed = season_for_day(nxt_day, crops) != (state.get("season") or "spring")
     for name in known_players():
+        area = player_area(state, name)
         prow, pcol = player_where(state, name)
-        where = describe_place_where(player_area(state, name), prow, pcol)
+        floor = player_floor(state, name) if area == AREA_MINE else None
+        where = describe_place_where(area, prow, pcol, floor=floor)
         if is_player_in_cabin(state, name):
             night_notes.append(
                 f"{display_name(name)} slept in the cabin and wakes with {max_energy(rules)} energy."
+            )
+        elif area == AREA_MINE:
+            wake_area, wr, wc, wfloor = wake_place_after_mine_passout(
+                state, rules, season_changed=next_season_changed
+            )
+            wake_at = describe_place_where(wake_area, wr, wc, floor=wfloor)
+            night_notes.append(
+                f"{display_name(name)} passed out in the mine and wakes {wake_at} "
+                f"with {pass_out_energy(rules)} energy."
             )
         else:
             night_notes.append(
                 f"{display_name(name)} passed out {where} and wakes with {pass_out_energy(rules)} energy."
             )
     outlook = sleep_outlook(state, player, rules)
-    from hills import player_area, describe_where as describe_place_where
-    here = describe_place_where(player_area(state, player), *player_where(state, player))
+    from hills import player_area, describe_where as describe_place_where, AREA_MINE
+    from mine import player_floor
+    here_area = player_area(state, player)
+    here_floor = player_floor(state, player) if here_area == AREA_MINE else None
+    here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
     if everyone_done:
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
@@ -1894,6 +1951,57 @@ def end_turn(
 
 
 # --- actions -----------------------------------------------------------------
+
+def _neighbor_plots(row: int, col: int):
+    for dr, dc in ((-1, 0), (0, 1), (1, 0), (0, -1)):
+        rr, cc = int(row) + dr, int(col) + dc
+        if in_bounds(rr, cc):
+            yield rr, cc
+
+
+def _gold_tool_splash_till(state: dict, crops: dict, row: int, col: int, player: str | None) -> str:
+    from inventory import TOOL_HOE
+    from mine import tool_tier
+    if not player or tool_tier(state, TOOL_HOE) != "gold":
+        return ""
+    for rr, cc in _neighbor_plots(row, col):
+        tile = get_tile(state, rr, cc)
+        if tile.get("type") == "cabin":
+            continue
+        crop = tile.get("crop")
+        if crop and crop.get("stage") != "withered":
+            continue
+        if tile.get("tilled") and not (crop and crop.get("stage") == "withered"):
+            continue
+        if crop and crop.get("stage") == "withered":
+            tile["crop"] = None
+        tile["tilled"] = True
+        reset_till_hold(tile)
+        return f", and the gold hoe also tills {position_name(rr, cc)}."
+    return ""
+
+
+def _gold_tool_splash_water(state: dict, crops: dict, row: int, col: int, player: str | None) -> str:
+    from inventory import TOOL_CAN
+    from mine import tool_tier
+    if not player or tool_tier(state, TOOL_CAN) != "gold":
+        return ""
+    for rr, cc in _neighbor_plots(row, col):
+        tile = get_tile(state, rr, cc)
+        if tile.get("type") == "cabin":
+            continue
+        if tile.get("watered"):
+            continue
+        crop = tile.get("crop")
+        info = crop_info(crops, crop["kind"]) if crop and crop.get("kind") else {}
+        if crop and crop_is_dormant(crop, info, state.get("season")):
+            continue
+        tile["watered"] = True
+        if not tile_is_living_plant(tile):
+            reset_till_hold(tile)
+        return f", and the gold can also waters {position_name(rr, cc)}."
+    return ""
+
 
 def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple[bool, str]:
     r, c, err = parse_row_col(row, col)
@@ -1928,6 +2036,9 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
     tile["tilled"] = True
     reset_till_hold(tile)
     msg = f"{who(player, 'till', 'tills')} the soil at {here}.{cleared}"
+    extra = _gold_tool_splash_till(state, crops, r, c, player)
+    if extra:
+        msg = msg.rstrip(".") + extra
     log_append(state, msg, player)
     return True, msg
 
@@ -2075,6 +2186,9 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
         msg = f"{who(player, 'water', 'waters')} the {crop['kind']} at {here}."
     else:
         msg = f"{who(player, 'water', 'waters')} the soil at {here}."
+    extra = _gold_tool_splash_water(state, crops, r, c, player)
+    if extra:
+        msg = msg.rstrip(".") + extra
     log_append(state, msg, player)
     return True, msg
 
@@ -2546,13 +2660,46 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         FERTILIZERS,
         FERTILIZER_SHOP_SEASONS,
         is_fertilizer,
+        normalize_item,
+        TOOL_PICKAXE,
     )
     raw_kind = kind
+    picked = normalize_item(str(kind)) or ""
+    if picked == TOOL_PICKAXE:
+        from mine import pickaxe_unlocked, pickaxe_in_world, pickaxe_price
+        if not pickaxe_unlocked(state):
+            return False, (
+                "The shop will sell a pickaxe once someone finds the mine entrance in the hills."
+            )
+        if pickaxe_in_world(state):
+            return False, "There's already a pickaxe on the farm."
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        if count != 1:
+            return False, "The shop only has one pickaxe."
+        price = pickaxe_price()
+        gold = int(state["gold"])
+        if gold < price:
+            return False, f"Not enough gold. A pickaxe costs {price}G; you have {gold}G."
+        if player and not is_player_in_cabin(state, player):
+            return False, "The shop is at the cabin. Walk there to buy."
+        state["gold"] = gold - price
+        prefer = "pack" if player and pack_space_for(state, player, TOOL_PICKAXE, 1) else "chest"
+        store_item(state, TOOL_PICKAXE, 1, player, prefer=prefer if player else "chest")
+        where = "the backpack" if prefer == "pack" and player else "the cabin chest"
+        msg = (
+            f"{who(player, 'buy', 'buys')} a pickaxe for {price}G ({where}). "
+            f"{display_name(player) if player else 'You'} "
+            f"{'has' if player else 'have'} {state['gold']}G left."
+        )
+        log_append(state, msg, player)
+        return True, msg
     fert_item = fertilizer_item_for_kind(str(kind))
     if fert_item:
         season = state.get("season") or "this season"
         if season not in FERTILIZER_SHOP_SEASONS:
-            known = ", ".join(shop_listing(crops, season)) or "nothing right now"
+            known = ", ".join(shop_listing(crops, season, state=state)) or "nothing right now"
             return False, (
                 f"The shop isn't selling fertilizer this {season}. It sells: {known}."
             )
@@ -2587,7 +2734,7 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     if staple and is_staple(staple):
         from inventory import staple_is_sold, item_label as _staple_label
         if not staple_is_sold(staple):
-            known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
+            known = ", ".join(shop_listing(crops, state.get("season"), state=state)) or "nothing right now"
             label = _staple_label(staple, crops) if staple else str(kind)
             return False, f"The shop isn't selling {label}. It sells: {known}."
         count, err = _parse_count(n)
@@ -2619,14 +2766,14 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     kind = normalize_kind(str(kind))
     info = crop_info(crops, kind)
     if not info:
-        known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
+        known = ", ".join(shop_listing(crops, state.get("season"), state=state)) or "nothing right now"
         return False, f"Unknown item {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
-        known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
+        known = ", ".join(shop_listing(crops, state.get("season"), state=state)) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)} yet. It sells: {known}."
     if not crop_in_season(info, state.get("season")):
         season = state.get("season") or "this season"
-        known = ", ".join(shop_listing(crops, season)) or "nothing right now"
+        known = ", ".join(shop_listing(crops, season, state=state)) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)} this {season}. It sells: {known}."
     count, err = _parse_count(n)
     if err:
@@ -3138,9 +3285,10 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
         )
     dest = (row + delta[0], col + delta[1])
     if not in_bounds(*dest):
+        from hills import AREA_MINE
         if area == AREA_FARM and canonical == "up":
             return False, "There's no farm that way. Walk north from the cabin to reach the hills."
-        if area == AREA_HILLS:
+        if area == AREA_HILLS or area == AREA_MINE:
             return False, "There's no path that way."
         return False, "There's no farm that way."
     set_player_place(state, player, area, dest[0], dest[1])
@@ -3190,6 +3338,11 @@ def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     )
     src = player_where(state, player)
     area = player_area(state, player)
+    from hills import AREA_MINE
+    if area == AREA_MINE:
+        return False, (
+            "Leave the mine first. Climb up or take the elevator to the entrance, then walk home."
+        )
     if is_cabin_place(area, *src):
         return True, f"{display_name(player)} is already {describe_area_where(area, *src)}."
     places = path_places(area, src, AREA_FARM, (CABIN_ROW, CABIN_COL))
@@ -3245,6 +3398,24 @@ def do_move_command(
         if not is_cabin_place(area, *here):
             return False, "Walk to the cabin first, then go north into the hills."
         return move_one(state, player, "north", rules)
+    if words and words[0] in {"mine", "mines", "cave"}:
+        from mine import enter_mine
+        from hills import player_area, AREA_MINE
+        if player_area(state, player) == AREA_MINE:
+            return True, f"{display_name(player)} is already in the mine."
+        cost = energy_cost("enter_mine", rules)
+        slot = player_slot(state, player)
+        energy = int(slot["energy"])
+        if cost > energy:
+            return (
+                False,
+                f"Not enough energy. Entering the mine costs {cost}; "
+                f"{display_name(player)} has {energy} left.",
+            )
+        ok, msg = enter_mine(state, player, rules)
+        if ok:
+            slot["energy"] = energy - cost
+        return ok, msg
     if len(words) == 2:
         return move_to(state, player, words[0], words[1], rules)
     return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
@@ -3723,11 +3894,17 @@ def legal_actions(
     actions: list[str] = []
     from hills import (
         player_area, area_crossing, path_places, is_cabin_place,
-        AREA_FARM, AREA_HILLS, iter_hills_tiles, get_hills_tile,
-        has_grown_tree, has_forage, hills_tiles,
+        AREA_FARM, AREA_HILLS, AREA_MINE, iter_hills_tiles, get_hills_tile,
+        has_grown_tree, has_forage, hills_tiles, is_mine_entrance_tile,
+    )
+    from mine import (
+        player_floor, iter_mine_tiles, get_mine_tile, tool_action_cost,
+        pickaxe_unlocked, pickaxe_in_world, pickaxe_price, tool_tier,
+        next_tool_tier, TIER_ORE, upgrade_ore_cost, FORGE_TOOLS, is_entrance_open,
     )
     here = player_where(state, actor) if actor else (CABIN_ROW, CABIN_COL)
     area = player_area(state, actor) if actor else AREA_FARM
+    floor = player_floor(state, actor) if actor and area == AREA_MINE else None
     step = step_energy(rules)
     for direction, delta in MOVE_DELTA.items():
         crossing = area_crossing(area, here[0], here[1], direction)
@@ -3748,6 +3925,8 @@ def legal_actions(
             actions.append("go cabin")
     if area == AREA_HILLS:
         tile_iter = iter_hills_tiles(state) if hills_tiles(state) else []
+    elif area == AREA_MINE and floor:
+        tile_iter = iter_mine_tiles(state, floor, rules)
     else:
         tile_iter = iter_tiles(state)
     for r, c, tile in tile_iter:
@@ -3759,7 +3938,7 @@ def legal_actions(
     r, c = here
     if area == AREA_HILLS:
         tile = get_hills_tile(state, r, c) if hills_tiles(state) else {"type": "grass"}
-        if has_grown_tree(tile) and energy >= energy_cost("chop", rules):
+        if has_grown_tree(tile) and energy >= tool_action_cost(state, actor, "chop", rules):
             from inventory import pack_has, TOOL_AXE
             if not actor or pack_has(state, actor, TOOL_AXE, 1, rules):
                 from inventory import pack_space_for
@@ -3771,8 +3950,34 @@ def legal_actions(
             kind = (tile.get("forage") or {}).get("kind") or "wild_onion"
             if not actor or pack_space_for(state, actor, kind, 1, rules):
                 actions.append("forage")
+        if is_mine_entrance_tile(r, c) and energy >= energy_cost("enter_mine", rules):
+            from inventory import pack_has, TOOL_PICKAXE
+            if is_entrance_open(state) or (actor and pack_has(state, actor, TOOL_PICKAXE, 1, rules)):
+                actions.append("enter mine")
         tile_type = tile.get("type")
         # Fall through: no farm work in the hills.
+    elif area == AREA_MINE and floor:
+        tile = get_mine_tile(state, floor, r, c, rules)
+        tile_type = tile.get("type")
+        from inventory import pack_has, TOOL_PICKAXE, pack_space_for
+        if tile.get("rock") and energy >= tool_action_cost(state, actor, "mine", rules):
+            if not actor or pack_has(state, actor, TOOL_PICKAXE, 1, rules):
+                actions.append("mine")
+        if tile.get("ladder") == "open" and energy >= energy_cost("climb_down", rules):
+            actions.append("climb down")
+        if tile.get("exit") and energy >= energy_cost("climb_up", rules):
+            actions.append("climb up")
+            if floor == 1:
+                actions.append("leave mine")
+        if tile.get("lantern"):
+            actions.append("rest")
+        if tile.get("elevator") and energy >= energy_cost("elevator", rules):
+            actions.append("elevator")
+            from mine import mine_of
+            for stop in (mine_of(state).get("checkpoints") or []):
+                if int(stop) != int(floor):
+                    actions.append(f"elevator {int(stop)}")
+            actions.append("elevator entrance")
     else:
         tile = get_tile(state, r, c)
         tile_type = tile.get("type")
@@ -3780,7 +3985,7 @@ def legal_actions(
         crop = tile.get("crop")
         withered = bool(crop and crop.get("stage") == "withered")
         if (not crop or withered) and (not tile.get("tilled") or withered):
-            if energy >= energy_cost("till", rules):
+            if energy >= tool_action_cost(state, actor, "till", rules):
                 from inventory import pack_has, TOOL_HOE
                 if not actor or pack_has(state, actor, TOOL_HOE, 1, rules):
                     actions.append(f"till {r} {c}")
@@ -3795,7 +4000,7 @@ def legal_actions(
         if not tile.get("watered"):
             info = crop_info(crops, crop["kind"]) if crop and crop.get("kind") else {}
             dormant = crop_is_dormant(crop, info, state.get("season")) if crop else False
-            if (not dormant) and energy >= energy_cost("water", rules):
+            if (not dormant) and energy >= tool_action_cost(state, actor, "water", rules):
                 from inventory import pack_has, TOOL_CAN
                 if not actor or pack_has(state, actor, TOOL_CAN, 1, rules):
                     actions.append(f"water {r} {c}")
@@ -3854,6 +4059,22 @@ def legal_actions(
             info = staple_info(item, rules)
             if info and int(state["gold"]) >= int(info["price"]):
                 actions.append(f"buy {item} 1")
+        from inventory import TOOL_PICKAXE, item_count, item_label
+        if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules):
+            if int(state["gold"]) >= pickaxe_price(rules):
+                actions.append("buy pickaxe 1")
+        if actor and energy >= energy_cost("forge", rules):
+            for tool in FORGE_TOOLS:
+                nxt = next_tool_tier(tool_tier(state, tool))
+                if not nxt:
+                    continue
+                if tool == TOOL_PICKAXE and not pickaxe_in_world(state, rules):
+                    continue
+                if tool != TOOL_PICKAXE and item_count(state, tool, rules) < 1:
+                    continue
+                ore = TIER_ORE[nxt]
+                if item_count(state, ore, rules) >= upgrade_ore_cost(rules):
+                    actions.append(f"forge {tool}")
         sellable = {}
         if actor:
             for slot in (pack_of(state, actor, rules) + chest_of(state, rules)):
@@ -4424,7 +4645,22 @@ def do_action(
             if stood:
                 return False, stood
 
-    cost = energy_cost(verb, rules)
+    cost_verb = verb
+    if verb == "enter":
+        cost_verb = "enter_mine"
+    elif verb == "leave":
+        cost_verb = "climb_up"
+    elif verb == "climb" and args and args[0].lower() in {"down", "south"}:
+        cost_verb = "climb_down"
+    elif verb == "climb":
+        cost_verb = "climb_up"
+    elif verb in {"mine", "break"}:
+        cost_verb = "mine"
+    if cost_verb in {"till", "water", "chop", "mine"}:
+        from mine import tool_action_cost
+        cost = tool_action_cost(state, actor, cost_verb, rules)
+    else:
+        cost = energy_cost(cost_verb, rules)
     energy = int(player_slot(state, actor)["energy"])
     if cost > energy:
         return (
@@ -4479,11 +4715,55 @@ def do_action(
             if stood:
                 return False, stood
         ok, msg = forage_tile(state, actor, rules)
+    elif verb == "enter":
+        if not args or args[0].lower() != "mine":
+            return False, "Usage: enter mine"
+        from mine import enter_mine
+        ok, msg = enter_mine(state, actor, rules)
+    elif verb == "leave":
+        if args and args[0].lower() not in {"mine", "mines"}:
+            return False, "Usage: leave mine"
+        from mine import leave_mine
+        ok, msg = leave_mine(state, actor, rules)
+    elif verb == "climb":
+        from mine import climb_up, climb_down
+        direction = (args[0].lower() if args else "")
+        if direction in {"down", "south"}:
+            ok, msg = climb_down(state, actor, rules)
+        elif direction in {"up", "out", "north", ""}:
+            ok, msg = climb_up(state, actor, rules)
+        else:
+            return False, "Usage: climb up   or: climb down"
+    elif verb in {"mine", "break"}:
+        from mine import mine_rock
+        ok, msg = mine_rock(state, actor, rules)
+    elif verb == "rest":
+        from mine import rest_at_lantern
+        ok, msg = rest_at_lantern(state, actor, rules)
+    elif verb == "elevator":
+        from mine import take_elevator
+        dest = " ".join(args) if args else "entrance"
+        # Bare "elevator" rides to the entrance by default? Better require dest or default entrance.
+        if not args:
+            dest = "entrance"
+        ok, msg = take_elevator(state, actor, dest, rules)
+    elif verb == "forge":
+        from mine import forge_tool
+        if not args:
+            return False, "Usage: forge <tool>   example: forge hoe"
+        words = list(args)
+        want = None
+        if words[-1].lower() in {"copper", "iron", "gold"}:
+            want = words.pop().lower()
+        if not words:
+            return False, "Usage: forge <tool>   example: forge hoe"
+        ok, msg = forge_tool(state, actor, " ".join(words), want, rules)
     else:
         return (
             False,
-            "Unknown action. Try look, move, go cabin, go north, till, plant, water, harvest, "
-            "pluck, unearth, fertilize, chop, forage, eat, buy, sell, take, drop, craft, recipes, or end turn.",
+            "Unknown action. Try look, move, go cabin, go north, enter mine, climb, mine, rest, "
+            "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
+            "eat, buy, sell, take, drop, craft, recipes, or end turn.",
         )
 
     if ok and cost:

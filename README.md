@@ -37,18 +37,32 @@ Walk **north from the cabin** (row 1 col 3) to reach a second 3×3: the hills.
 You arrive at the **bottom-right** hill (row 3 col 3). Walk south from that
 tile to come home. Trees grow there on their own (sapling, young, grown);
 `chop` a grown tree with an axe in your backpack (10 energy) for wood. Wild
-plants can be `forage`d (5 energy) in season. The boarded mine entrance on
-the north-centre hill is not open yet.
+plants can be `forage`d (5 energy) in season. Find the boarded mine
+entrance on the north-centre hill (row 1 col 2); the shop then sells a
+pickaxe (40G, one in the world). `enter mine` with the pickaxe in your
+pack pries the boards. Floors 1–25 re-roll each season. Break rocks
+for copper, iron, and gold ore as you go deeper (the ladder down is
+hidden under a rock). Every fifth floor has a lantern (`rest` once a
+day) and an elevator checkpoint. The forge at the cabin upgrades the
+hoe, watering can, axe, and pickaxe with 5 ore of the next tier.
+`go cabin` does not work from inside the mine — climb or take the
+elevator out first. Ending a turn in the mine wakes at the last
+elevator (or the entrance if the season just changed) with 50 energy;
+0 HP still wakes at the hills entrance with 25 energy.
 
-`look` and the web page always name the area you are in, summarise the other
-area (trees ready to chop, crops that need water, and so on), and say where
-the other player is standing.
+`look` always names the area you are in, summarises the other areas,
+and says where the other player is standing. The web page keeps those
+Elsewhere hints off the board; player locations sit in the Overview
+panel, and the top bar uses weather, energy, and HP icons.
 
 ## Turns and energy
 
 Two players, configured in `config.local.json`. After a night in the cabin you
-wake with **100 energy**. Till, plant, and water cost **10** each; each step
-(including a diagonal) costs **5**. Crafting at the kitchen costs **5**. Harvest, buy, sell, take, drop, and eat are free.
+wake with **100 energy**. Till, plant, and water cost **10** each (5 once
+the tool is copper or better); each step (including a diagonal) costs
+**5**. Crafting at the kitchen and forging at the cabin cost **5**.
+Entering the mine costs **5**, climbing down **10**, climbing up **5**,
+and the elevator **5**. Harvest, buy, sell, take, drop, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 

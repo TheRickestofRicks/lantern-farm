@@ -220,12 +220,14 @@ def _avatar_mark(state: dict, row: int, col: int, area: str | None = None) -> st
 
 def ascii_map(state: dict, area: str | None = None, viewer: str | None = None) -> str:
     from hills import (
-        AREA_HILLS, AREA_FARM, normalize_area, player_area, hills_tiles,
+        AREA_HILLS, AREA_FARM, AREA_MINE, normalize_area, player_area, hills_tiles,
         get_hills_tile, map_cell_lines, area_title,
     )
+    from mine import get_mine_tile, player_floor, map_cell_lines as mine_map_cell_lines
     if area is None and viewer:
         area = player_area(state, viewer)
     area = normalize_area(area)
+    floor = player_floor(state, viewer) if viewer and area == AREA_MINE else None
     widths = [10, 10, 10]
     # compute from content
     cells = []
@@ -235,6 +237,9 @@ def ascii_map(state: dict, area: str | None = None, viewer: str | None = None) -
             if area == AREA_HILLS:
                 tile = get_hills_tile(state, r, c) if hills_tiles(state) else {"type": "grass"}
                 a, b = map_cell_lines(tile)
+            elif area == AREA_MINE and floor:
+                tile = get_mine_tile(state, floor, r, c)
+                a, b = mine_map_cell_lines(tile)
             else:
                 a, b = _ascii_cell(get_tile(state, r, c))
             mark = _avatar_mark(state, r, c, area=area)
@@ -518,10 +523,12 @@ def describe_state(
     if forecast:
         lines += [""] + forecast
     from hills import (
-        player_area, AREA_HILLS, AREA_FARM, area_title, elsewhere_lines,
+        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, area_title, elsewhere_lines,
         describe_hills_tile, hills_tiles, normalize_area,
     )
+    from mine import describe_mine_tile, player_floor
     view_area = player_area(state, viewer) if viewer else AREA_FARM
+    view_floor = player_floor(state, viewer) if viewer and view_area == AREA_MINE else None
     lines += [
         "",
         "Backpack:",
@@ -529,7 +536,7 @@ def describe_state(
         "Cabin chest:",
         _chest_line(state, crops),
         "",
-        f"Mini map — {area_title(view_area)}:",
+        f"Mini map — {area_title(view_area, floor=player_floor(state, viewer) if viewer and view_area == AREA_MINE else None)}:",
         ascii_map(state, area=view_area, viewer=viewer),
         "",
     ]
@@ -542,6 +549,8 @@ def describe_state(
         for c in range(1, COLS + 1):
             if view_area == AREA_HILLS:
                 lines.append(describe_hills_tile(state, r, c, state.get("weather")))
+            elif view_area == AREA_MINE and view_floor:
+                lines.append(describe_mine_tile(state, view_floor, r, c))
             else:
                 lines.append(describe_tile(state, crops, r, c))
 

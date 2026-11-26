@@ -112,26 +112,52 @@ energy are untouched. Players gain `area` (default `farm`) and `hp`
 to the current day. The axe is added to the chest only if missing.
 
 
-## Phase 2 — mine, ores, and the forge (later)
+## Phase 2 — mine, ores, and the forge
 
-`enter mine` from the (now open) hills entrance starts or joins the
-season’s mine. The layout is seeded from `weather_seed` and the current
-season, and it **persists until the season changes**, then re-rolls.
-Both players share the same rocks and ores all season.
+`enter mine` (or `go mine`) from the hills entrance at r1c2 opens the
+season’s mine. The first entry needs a pickaxe in the pack to pry the
+boards; that opening is permanent. Later visits do not need the
+pickaxe, but breaking rocks still does. The pickaxe is a shop item
+(40G, only one in the world) unlocked once someone steps on the
+entrance tile (`mine_entrance_found`).
 
-The way down is under a **random rock** on each ordinary floor (not
-fixed to the centre). You arrive on a clear tile. Climbing down costs
-**10**. Breaking the hiding rock reveals the ladder. Floors run **1–25**.
-Ore by depth, pickaxe rules, the forge, tool upgrades, safe floors,
-and the elevator stay as previously sketched, except the pickaxe is
-bought from the shop after the entrance has been found, and fainting
-from 0 HP wakes at the mine entrance with 25 energy.
+Floors run **1–25**. The layout is seeded from `weather_seed` plus the
+current season and year (no RNG), and it **persists until the season
+changes**, then re-rolls. Both players share the same rocks, ores,
+ladders, and elevator checkpoints all season. You arrive on a clear
+exit/shaft tile. The way down is hidden under a random rock that is
+not the centre and not the arrival tile; `mine` / `break` reveals the
+ladder. Climbing down costs **10**; climbing up costs **5**. `go cabin`
+from inside the mine is refused until you climb or take the elevator
+out to the hills entrance.
 
-Safe floors (5, 10, 15, 20, 25): no rocks or slimes, a lantern (`rest`
-restores 25 energy, once per player per that floor per day), and an
-elevator checkpoint. Passing out by ending a turn in the mine (not 0
-HP) should still wake at the last elevator or the entrance with 50
-energy, pack kept.
+Ore bands (remainder is plain stone): floors 1–4 copper 40%; 6–9
+copper 50% iron 15%; 11–14 copper 20% iron 45% gold 5%; 16–19 copper
+10% iron 35% gold 25%; 21–24 iron 20% gold 45%. Items are
+`copper_ore`, `iron_ore`, and `gold_ore` (aliases copper, iron, and
+“gold ore” — not bare “gold”), selling for 8 / 12 / 20G.
+
+Safe floors (5, 10, 15, 20, 25): no rocks, a lantern (`rest` restores
+25 energy, once per player per that floor per day, cost 0), a visible
+down ladder (none on 25), and an elevator checkpoint. The elevator
+(cost 5) runs from the elevator tile to any reached checkpoint or the
+entrance.
+
+The forge is at the cabin (cost 5). Upgrade a hoe, watering can, axe,
+or pickaxe one tier at a time (copper, then iron, then gold) with 5 of
+that tier’s ore. Copper reduces till / water / chop / mine energy to
+5. Iron and gold add +1 wood or ore. Gold also splashes one adjacent
+eligible NESW tile.
+
+0 HP still wakes at the hills mine entrance with 25 energy (and full
+HP). Ending a turn in the mine (not 0 HP) wakes at the last elevator
+or the entrance with 50 energy, pack kept; if the season changes at
+that dawn, wake at the hills entrance. Slimes and combat stay Phase 3.
+
+The web view stays free of Elsewhere hints (CLI look may keep them).
+Tile labels stay `r*c*`. The header shows weather / energy / HP icons;
+player locations live in an Overview panel above This Tile, not in the
+top bar.
 
 
 ## Phase 3 — slimes and combat (later)
@@ -165,17 +191,21 @@ grounds / overlays / item icons — the same 512 square PNGs and manifest
 pattern as crops.
 
 - **Grounds:** hills grass (and snow), hillside (and snow), boarded
-  mine entrance (and snow).
-- **Overlays:** tree sapling / young / grown / stump, each wild plant.
-- **Items:** axe, wood, wild onion, wild berry, wild mushroom.
-  The three forage dishes use Classic SVG placeholders until Storybook
-  icons are painted.
+  and open mine entrance (and snow), mine floor, safe-floor stone.
+- **Overlays:** tree sapling / young / grown / stump, each wild plant,
+  rocks and ore rocks, an open ladder, a shaft, a lantern, an elevator.
+- **Items:** axe, wood, wild onion, wild berry, wild mushroom, plus
+  Classic SVG placeholders for the pickaxe and copper / iron / gold
+  ore (Storybook item icons come later; do not add manifest entries
+  without PNGs). The three forage dishes use Classic SVG placeholders
+  until Storybook icons are painted.
 
-Mini-map: the same 3×3 ASCII, headed “Mini map — the farm” or “Mini
-map — the hills”. New labels must fit `MAP_LABEL_WIDTH` (10). The web
-page keeps the 3×3 `.grid`, titled with the area, and an Elsewhere
-note for the off-screen place and the other player. Keys: C chop, G
-forage.
+Mini-map: the same 3×3 ASCII, headed “Mini map — the farm”, “Mini
+map — the hills”, or “Mini map — the mine, floor N”. New labels must
+fit `MAP_LABEL_WIDTH` (10). The web page keeps the 3×3 `.grid`, titled
+with the area. Elsewhere hints stay in the CLI look and in the
+payload for that output; they are not shown on the page. Keys: C chop,
+G forage, and in the mine, mine / climb / rest / elevator.
 
 
 ## Save format and migration
@@ -189,8 +219,13 @@ and a basic axe added to the chest only if missing.
 
 `apply_new_day_turns` must copy `area`, `floor`, `hp`, and `pack`. A
 player who slept in the real cabin wakes there with full HP; one who
-passed out in the hills wakes on that tile. Day turn ticks farm crops
-and weeds as today, then tree growth and forage.
+passed out in the hills wakes on that tile; one who passed out in the
+mine wakes at the last elevator or the hills entrance (the hills
+entrance if the season just changed). Existing farms get a `mine`
+block on first load; that migration does not touch farm tiles, gold,
+packs, the chest, mid-turn energy, or whose turn it is. Day turn ticks
+farm crops and weeds as today, then tree growth and forage, then
+re-rolls the mine when the season changes (the entrance stays open).
 
 
 ## Tests
@@ -212,16 +247,30 @@ Elsewhere note. First Farm is never loaded or written by this work.
 - Snacks heal HP; HP starts at 100; cabin sleep fills HP.
 - Mini-map labels fit; sprite keys round-trip; new pack art is square
   with a transparent item background.
+- Phase 2: the entrance stays boarded until a pickaxe pries it; the
+  shop hides the pickaxe until the entrance is found, then sells one;
+  enter arrives on a clear floor-1 tile; layouts are deterministic for
+  the same seed and season and re-roll when the season changes; the
+  ladder is not on the centre, is hidden under a rock, and is revealed
+  when mined; climb down costs 10; ores follow the depth bands; safe
+  floors have no rocks, a once-a-day rest, and an elevator; passing
+  out in the mine wakes at the last elevator or the entrance (the
+  entrance if the season changes); 0 HP still wakes at the hills
+  entrance with 25 energy; forge upgrades reduce tool energy; legal
+  actions and short names execute; `go cabin` is refused from the
+  mine; migration does not touch farm tiles, gold, packs, energy, or
+  whose turn it is. First Farm is never loaded or written.
 
 
 ## Build order
 
 1. This document, with the decisions above folded in.
-2. **Phase 1 (this pass).** Areas, cabin ↔ hills r3c3, hills, trees,
-   forage, axe, wood, HP, off-screen context, look / mini-map / web,
-   migration, Storybook art, unit and jsdom tests.
-3. **Phase 2.** Open the mine, seasonal floors, random-rock ladder,
-   ores, pickaxe shop unlock, forge, upgrades, safe floors, elevator.
+2. **Phase 1.** Areas, cabin ↔ hills r3c3, hills, trees, forage, axe,
+   wood, HP, off-screen context, look / mini-map / web, migration,
+   Storybook art, unit and jsdom tests.
+3. **Phase 2 (this pass).** Open the mine, seasonal floors,
+   random-rock ladder, ores, pickaxe shop unlock, forge, upgrades,
+   safe floors, elevator, web mine view, status icons, and Overview.
 4. **Phase 3.** Slimes, strike / flee, goo, and one recipe.
 
 Each phase should be its own playable stretch, not one giant commit.
@@ -229,14 +278,14 @@ Each phase should be its own playable stretch, not one giant commit.
 
 ## Open questions (still, for later phases)
 
-1. Is 25 a good deepest floor, or would we rather cap at 20 or leave
-   it open?
-2. Forge at the cabin (recommended, matches craft) or at the mine
-   mouth?
-3. Are the hoe / can upgrade effects (energy drop, then an adjacent
-   tile) the ones we want on a farm this small?
+1. Deepest floor is 25 for this pass (decided).
+2. The forge is at the cabin (decided).
+3. Copper drops till / water / chop / mine to 5 energy; iron adds +1
+   yield; gold also splashes one adjacent NESW tile (decided for this
+   pass).
 4. May we later plant saplings on the hills, or do they stay wild?
 5. Should `go cabin` from inside the mine ever mean “elevator, then
    walk home” in one command, at the combined energy cost?
 6. Does wood have a use beyond selling and later building (for
-   example, forge fuel if coal is short)?
+   example, forge fuel if coal is short)? Cabin comfort (a later
+   pass) already burns chest wood in the fireplace.

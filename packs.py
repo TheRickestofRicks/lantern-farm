@@ -93,8 +93,10 @@ def ground_key_for(parsed: dict) -> str | None:
         return None
     if parsed.get("hills"):
         typ = parsed.get("type") or kind
+        if typ in {"mine_floor", "mine_safe"}:
+            return typ
         if typ == "mine_entrance":
-            base = "mine_entrance_closed"
+            base = "mine_entrance_closed" if parsed.get("closed") else "mine_entrance"
         elif typ == "hillside":
             base = "hillside"
         else:

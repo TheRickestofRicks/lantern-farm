@@ -54,6 +54,24 @@ def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | 
 def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     typ = (tile or {}).get("type")
+    if typ in {"mine_floor", "mine_safe"}:
+        key = "mine_safe" if typ == "mine_safe" else "mine_floor"
+        rock = tile.get("rock")
+        if rock:
+            if rock in {"copper_ore", "iron_ore", "gold_ore"}:
+                key += "_rock_" + rock.replace("_ore", "")
+            else:
+                key += "_rock"
+        else:
+            if tile.get("ladder") == "open":
+                key += "_ladder"
+            if tile.get("exit"):
+                key += "_shaft"
+            if tile.get("lantern"):
+                key += "_lantern"
+            if tile.get("elevator"):
+                key += "_elevator"
+        return key
     if typ in {"grass", "hillside", "mine_entrance"}:
         if typ == "mine_entrance":
             key = "mine_entrance_closed" if tile.get("closed", True) else "mine_entrance"
@@ -138,7 +156,7 @@ def _parse_hills_sprite_key(key: str) -> dict | None:
     return {
         "kind": typ,
         "type": typ,
-        "closed": raw.endswith("closed") or typ == "mine_entrance",
+        "closed": raw.endswith("closed"),
         "tree": tree,
         "forage": forage,
         "snow": snow,
@@ -149,6 +167,9 @@ def _parse_hills_sprite_key(key: str) -> dict | None:
 def parse_sprite_key(key: str) -> dict:
     """Inverse of sprite_key, for the SVG generator."""
     key = (key or "").strip().lower()
+    mine = _parse_mine_sprite_key(key)
+    if mine:
+        return mine
     hills = _parse_hills_sprite_key(key)
     if hills:
         return hills
@@ -1021,6 +1042,121 @@ def _vine_overlay(direction: str) -> str:
 
 
 
+def _parse_mine_sprite_key(key: str) -> dict | None:
+    raw = key or ""
+    rock = None
+    ladder = shaft = lantern = elevator = False
+    for ore, suffix in (("copper", "_rock_copper"), ("iron", "_rock_iron"), ("gold", "_rock_gold")):
+        if raw.endswith(suffix):
+            rock = ore + "_ore"
+            raw = raw[: -len(suffix)]
+            break
+    if raw.endswith("_rock"):
+        rock = "stone"
+        raw = raw[: -len("_rock")]
+    if raw.endswith("_elevator"):
+        elevator = True
+        raw = raw[: -len("_elevator")]
+    if raw.endswith("_lantern"):
+        lantern = True
+        raw = raw[: -len("_lantern")]
+    if raw.endswith("_shaft"):
+        shaft = True
+        raw = raw[: -len("_shaft")]
+    if raw.endswith("_ladder"):
+        ladder = True
+        raw = raw[: -len("_ladder")]
+    if raw not in {"mine_floor", "mine_safe"}:
+        return None
+    return {
+        "kind": raw,
+        "type": raw,
+        "rock": rock,
+        "ladder": "open" if ladder else None,
+        "exit": shaft,
+        "lantern": lantern,
+        "elevator": elevator,
+        "mine": True,
+    }
+
+
+def _mine_ground(safe: bool = False) -> str:
+    fill, dark, fleck = ("#4a4034", "#2a241c", "#6a5a44") if not safe else ("#4a4638", "#3a3428", "#c9a227")
+    bits = [
+        f'<rect width="160" height="160" fill="{fill}"/>',
+        f'<path d="M0 30 L 40 0 L 80 24 L 120 4 L 160 28 L 160 0 L 0 0 Z" fill="{dark}" opacity="0.35"/>',
+        f'<circle cx="28" cy="48" r="3" fill="{fleck}" opacity="0.5"/>',
+        f'<circle cx="120" cy="90" r="2.5" fill="{fleck}" opacity="0.45"/>',
+        f'<circle cx="70" cy="130" r="3" fill="{fleck}" opacity="0.4"/>',
+    ]
+    return "\n".join(bits)
+
+
+def _rock_overlay(kind: str | None) -> str:
+    body = (
+        '<ellipse cx="80" cy="108" rx="28" ry="18" fill="#5a5348"/>'
+        '<ellipse cx="70" cy="100" rx="16" ry="12" fill="#6e675c"/>'
+        '<ellipse cx="92" cy="102" rx="14" ry="11" fill="#4a443c"/>'
+    )
+    if kind == "copper_ore":
+        body += '<circle cx="72" cy="100" r="4" fill="#b87333"/><circle cx="90" cy="108" r="3" fill="#c9843a"/>'
+    elif kind == "iron_ore":
+        body += '<circle cx="72" cy="100" r="4" fill="#8a96a0"/><circle cx="90" cy="108" r="3" fill="#6a7380"/>'
+    elif kind == "gold_ore":
+        body += '<circle cx="72" cy="100" r="4" fill="#e8b86a"/><circle cx="90" cy="108" r="3" fill="#ffcc66"/>'
+    return body
+
+
+def _ladder_overlay() -> str:
+    return (
+        '<rect x="62" y="48" width="8" height="90" fill="#6b4a2b"/>'
+        '<rect x="90" y="48" width="8" height="90" fill="#6b4a2b"/>'
+        '<rect x="62" y="64" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="62" y="88" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="62" y="112" width="36" height="6" fill="#8a6a44"/>'
+    )
+
+
+def _shaft_overlay() -> str:
+    return (
+        '<ellipse cx="80" cy="88" rx="26" ry="16" fill="#1a1612"/>'
+        '<ellipse cx="80" cy="84" rx="18" ry="10" fill="#0e0c0a"/>'
+    )
+
+
+def _lantern_overlay() -> str:
+    return (
+        '<rect x="74" y="70" width="12" height="8" fill="#4a3a28"/>'
+        '<rect x="72" y="78" width="16" height="22" rx="2" fill="#e8b86a"/>'
+        '<rect x="76" y="100" width="8" height="10" fill="#4a3a28"/>'
+        '<circle cx="80" cy="88" r="5" fill="#fff4c8" opacity="0.9"/>'
+    )
+
+
+def _elevator_overlay() -> str:
+    return (
+        '<rect x="52" y="50" width="56" height="70" rx="4" fill="#3a4a52"/>'
+        '<rect x="58" y="56" width="44" height="52" fill="#1f2a30"/>'
+        '<rect x="70" y="74" width="20" height="6" fill="#c9a227"/>'
+        '<rect x="64" y="120" width="32" height="8" fill="#2a241c"/>'
+    )
+
+
+def svg_mine_tile(info: dict) -> str:
+    layers = [_mine_ground(safe=info.get("type") == "mine_safe" or info.get("kind") == "mine_safe")]
+    if info.get("rock"):
+        layers.append(_rock_overlay(info.get("rock")))
+    if info.get("ladder") == "open":
+        layers.append(_ladder_overlay())
+    if info.get("exit"):
+        layers.append(_shaft_overlay())
+    if info.get("lantern"):
+        layers.append(_lantern_overlay())
+    if info.get("elevator"):
+        layers.append(_elevator_overlay())
+    return _svg("\n".join(layers))
+
+
 def _hills_ground(kind: str, snow: bool = False) -> str:
     # Warm grassy hillside, slightly greener than farm soil.
     if kind == "hillside":
@@ -1135,6 +1271,8 @@ def svg_for_key(key: str) -> str:
     kind = info.get("kind")
     if info.get("hills"):
         return svg_hills_tile(info)
+    if info.get("mine") or kind in {"mine_floor", "mine_safe"}:
+        return svg_mine_tile(info)
     if kind == "cabin":
         return svg_cabin(info.get("weather") or "sun")
     if kind == "unknown":
@@ -1167,7 +1305,11 @@ _ITEM_LABELS = {
     "watering_can": "CAN",
     "shovel": "SHVL",
     "axe": "AXE",
+    "pickaxe": "PICK",
     "wood": "WOOD",
+    "copper_ore": "COPPER",
+    "iron_ore": "IRON",
+    "gold_ore": "GOLD",
     "wild_onion": "ONION",
     "wild_berry": "BERRY",
     "wild_mushroom": "SHROOM",
@@ -1200,7 +1342,11 @@ _ITEM_COLORS = {
     "watering_can": ("#3d5c6e", "#9ec3d4"),
     "shovel": ("#4a5560", "#c4a574"),
     "axe": ("#4a3a28", "#d4c09a"),
+    "pickaxe": ("#4a5560", "#c4a574"),
     "wood": ("#6b4a2b", "#e2c48a"),
+    "copper_ore": ("#8a4a1a", "#e2b07a"),
+    "iron_ore": ("#4a5560", "#c0c8d0"),
+    "gold_ore": ("#c9a227", "#fff4c8"),
     "wild_onion": ("#3d6b38", "#d7e8b0"),
     "wild_berry": ("#8b1e2d", "#f2d4a3"),
     "wild_mushroom": ("#5a3a22", "#e2c48a"),
