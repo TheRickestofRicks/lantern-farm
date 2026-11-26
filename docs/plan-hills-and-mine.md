@@ -287,5 +287,7 @@ Each phase should be its own playable stretch, not one giant commit.
 5. Should `go cabin` from inside the mine ever mean “elevator, then
    walk home” in one command, at the combined energy cost?
 6. Does wood have a use beyond selling and later building (for
-   example, forge fuel if coal is short)? Cabin comfort (a later
-   pass) already burns chest wood in the fireplace.
+   example, forge fuel if coal is short)? Cabin comfort now burns one
+   chest wood in the fireplace when someone sleeps in the cabin
+   (+10 wake energy, and +10 more if that player ate that day, up to
+   120). Forge fuel can still wait.

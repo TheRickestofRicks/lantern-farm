@@ -241,5 +241,10 @@
     "upgrade_ore": 5,
     "copper_energy": 5,
     "iron_bonus": 1
+  },
+  "cabin_comfort": {
+    "fire_bonus": 10,
+    "fed_bonus": 10,
+    "fire_wood": 1
   }
 }

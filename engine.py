@@ -138,9 +138,129 @@ def snacks_per_turn(rules: dict | None = None) -> int:
     return int(rules.get("snacks_per_turn", 2))
 
 
+
 def pass_out_energy(rules: dict | None = None) -> int:
     rules = rules or load_rules()
     return int(rules.get("pass_out_energy", 50))
+
+
+def _comfort_cfg(rules: dict | None = None) -> dict:
+    rules = rules or load_rules()
+    cfg = rules.get("cabin_comfort") if isinstance(rules, dict) else None
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def comfort_fire_bonus(rules: dict | None = None) -> int:
+    try:
+        return max(0, int(_comfort_cfg(rules).get("fire_bonus", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
+def comfort_fed_bonus(rules: dict | None = None) -> int:
+    try:
+        return max(0, int(_comfort_cfg(rules).get("fed_bonus", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
+def comfort_fire_wood(rules: dict | None = None) -> int:
+    try:
+        return max(1, int(_comfort_cfg(rules).get("fire_wood", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def chest_wood_count(state: dict, rules: dict | None = None) -> int:
+    from inventory import stack_count, normalize_chest
+
+    # Read only. chest_of() would create an empty chest and skip the one-time
+    # move of starting goods (seeds, etc.) into the chest on a fresh farm.
+    if "chest" not in state:
+        return 0
+    return int(stack_count(normalize_chest(state.get("chest"), rules), "wood") or 0)
+
+
+def cabin_fire_will_burn(state: dict, rules: dict | None = None) -> bool:
+    """True if at least one player will sleep in the cabin and the chest has wood."""
+    if chest_wood_count(state, rules) < comfort_fire_wood(rules):
+        return False
+    return any(is_player_in_cabin(state, name) for name in known_players())
+
+
+def player_ate_today(state: dict, player: str) -> bool:
+    return bool(player_slot(state, player).get("ate_today"))
+
+
+def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
+    """Energy a player would wake with if the day turned right now."""
+    rules = rules or load_rules()
+    if not is_player_in_cabin(state, player):
+        return pass_out_energy(rules)
+    cap = max_energy(rules)
+    if cabin_fire_will_burn(state, rules):
+        cap += comfort_fire_bonus(rules)
+    if player_ate_today(state, player):
+        cap += comfort_fed_bonus(rules)
+    return cap
+
+
+def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> int:
+    """Today's energy cap for this player (may be 110 or 120 after a comfortable night)."""
+    rules = rules or load_rules()
+    slot = player_slot(state, player)
+    try:
+        cap = int(slot.get("energy_max") or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if cap > 0:
+        return cap
+    return max_energy(rules)
+
+
+def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
+    """Burn fireplace wood once if anyone slept in the cabin. Call before slots are rebuilt.
+
+    Returns {fire: bool, fed: {player: bool}, wake: {player: int}}.
+    """
+    rules = rules or load_rules()
+    from inventory import remove_from_chest, sync_inventory_view
+
+    sleepers = [name for name in known_players() if is_player_in_cabin(state, name)]
+    need = comfort_fire_wood(rules)
+    fire = bool(sleepers) and chest_wood_count(state, rules) >= need
+    if fire:
+        remove_from_chest(state, "wood", need, rules)
+        sync_inventory_view(state, rules)
+    base = max_energy(rules)
+    faint = pass_out_energy(rules)
+    fed = {}
+    wake = {}
+    for name in known_players():
+        ate = player_ate_today(state, name)
+        slept = name in sleepers
+        fed[name] = bool(ate and slept)
+        if slept:
+            wake[name] = (
+                base
+                + (comfort_fire_bonus(rules) if fire else 0)
+                + (comfort_fed_bonus(rules) if ate else 0)
+            )
+        else:
+            wake[name] = faint
+    return {"fire": fire, "fed": fed, "wake": wake}
+
+
+def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool) -> str:
+    who = display_name(name)
+    line = f"{who} slept in the cabin and wakes with {energy} energy."
+    if fire and fed:
+        line += " The fire crackled all night, and a full belly helped."
+    elif fire:
+        line += " The fire crackled all night."
+    elif fed:
+        line = f"{who} slept in the cabin and wakes with {energy} energy, a full belly."
+    return line
 
 
 def eat_energy_for(crops: dict | None, kind: str) -> int | None:
@@ -257,9 +377,9 @@ def path_cost(src: tuple[int, int], dst: tuple[int, int], rules: dict | None = N
 def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
     """Warning shown before ending a turn, and in the look/UI."""
     rules = rules or load_rules()
-    cap = max_energy(rules)
     faint = pass_out_energy(rules)
     if is_player_in_cabin(state, player):
+        cap = preview_wake_energy(state, player, rules)
         return f"You'll sleep in the cabin — {cap} energy tomorrow"
     from hills import AREA_HILLS
     area = str(player_slot(state, player).get("area") or "").strip().lower()
@@ -1580,6 +1700,7 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
     starter = normalize_player(config_starting_player()) or normalize_player(rules.get("starting_player"))
     names = list(known_players()) or [p for p in (rules.get("players") or [])]
     existing = state.get("players") or {}
+    comfort = apply_cabin_comfort(state, rules)
     slots = {}
     for name in names:
         key = normalize_player(name) or (str(name).strip().lower() if name else None)
@@ -1624,8 +1745,13 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
         if slept:
             hp = hp_max
 
+        if key in comfort["wake"]:
+            wake = int(comfort["wake"][key])
+        else:
+            wake = cap if slept else faint
         slots[key] = {
-            "energy": cap if slept else faint,
+            "energy": wake,
+            "energy_max": wake if slept else cap,
             "ended_turn": False,
             "row": CABIN_ROW if slept else row,
             "col": CABIN_COL if slept else col,
@@ -1644,6 +1770,7 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             from hills import AREA_FARM, max_hp as hills_max_hp
             slots[key] = {
                 "energy": cap,
+                "energy_max": cap,
                 "ended_turn": False,
                 "row": CABIN_ROW,
                 "col": CABIN_COL,
@@ -1920,7 +2047,12 @@ def end_turn(
         where = describe_place_where(area, prow, pcol, floor=floor)
         if is_player_in_cabin(state, name):
             night_notes.append(
-                f"{display_name(name)} slept in the cabin and wakes with {max_energy(rules)} energy."
+                cabin_sleep_note(
+                    name,
+                    preview_wake_energy(state, name, rules),
+                    cabin_fire_will_burn(state, rules),
+                    player_ate_today(state, name),
+                )
             )
         elif area == AREA_MINE:
             wake_area, wr, wc, wfloor = wake_place_after_mine_passout(
@@ -1945,7 +2077,7 @@ def end_turn(
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
         nxt = state["current_player"]
-        cap = max_energy(rules)
+        cap = player_energy_cap(state, nxt, rules)
         night = " ".join(night_notes)
         header = (
             f"{display_name(player)} ends the turn {here}. {outlook}. "
@@ -3512,7 +3644,7 @@ def eat(
     if eaten >= cap_snacks:
         return False, f"{display_name(player)} already had {cap_snacks} snacks this turn."
     from hills import player_hp, heal_hp, max_hp as hills_max_hp
-    cap_e = max_energy(rules)
+    cap_e = player_energy_cap(state, player, rules)
     energy = int(slot["energy"])
     hp, cap_hp = player_hp(state, player, rules)
     if energy >= cap_e and hp >= cap_hp:
@@ -4153,7 +4285,7 @@ def legal_actions(
     if actor:
         can_snack = (
             int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
-            and energy < max_energy(rules)
+            and energy < player_energy_cap(state, actor, rules)
         )
         if can_snack:
             for slot in pack_of(state, actor, rules):
@@ -4501,7 +4633,7 @@ def action_descriptor(
         if restore is None:
             return ""
         if actor:
-            cap = max_energy(rules)
+            cap = player_energy_cap(state, actor, rules)
             energy = int(player_slot(state, actor)["energy"])
             gained = min(int(restore), max(0, cap - energy))
         else:
@@ -4518,9 +4650,9 @@ def action_descriptor(
         used = ", ".join(bits) if bits else "ingredients"
         return f"{_energy_word(cost)}, uses {used}"
     if verb == "end" and args and args[0].lower() == "turn":
-        cap = max_energy(rules)
         faint = pass_out_energy(rules)
         if actor and is_player_in_cabin(state, actor):
+            cap = preview_wake_energy(state, actor, rules)
             return f"sleep in cabin, {cap} energy tomorrow"
         return f"pass out, {faint} energy"
     return ""
