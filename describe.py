@@ -191,6 +191,10 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
         kind = crop.get("kind", "?")
         stage = crop.get("stage", "?")
         label = map_crop_label(kind)
+        if stage in {"withered", "frost_bitten"}:
+            short = "frost" if stage == "frost_bitten" else "wilt"
+            mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
+            return label, f"{short}{mark}"
         short = {
             "seed": "seed",
             "sprouting": "sprout",
@@ -281,7 +285,7 @@ def crop_progress_phrase(crop: dict | None, info: dict | None) -> str:
     if not crop:
         return ""
     stage = crop.get("stage")
-    if stage in {"withered", "dormant"}:
+    if stage in {"withered", "dormant", "frost_bitten"}:
         return ""
     info = info or {}
     after_dormancy = info.get("fruiting_after_dormancy", True) is not False
@@ -349,10 +353,16 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     stage = crop.get("stage", "seed")
     if stage == "withered":
         return (
-            f"  {here} — {tilled} soil, {moist}. "
-            f"A withered {kind} (planted on day {crop.get('planted_day', '?')}, "
-            f"grew {crop.get('days_grown', 0)} day(s) before it died, "
-            f"{crop.get('dry_days', 0)} dry day(s)).{till_hold_phrase(tile)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+            f"  {here} — a withered {kind} (planted on day {crop.get('planted_day', '?')}, "
+            f"grew {crop.get('days_grown', 0)} day(s) before it died"
+            f").{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+        )
+    if stage == "frost_bitten":
+        return (
+            f"  {here} — a frost-bitten {kind}. "
+            "The fruit can still be harvested once, then the plant must be cleared."
+            f" Planted on day {crop.get('planted_day', '?')}."
+            f"{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
         )
     if info and (stage == "dormant" or (crop_is_dormant(crop, info, state.get("season")) and stage != "mature")):
         return (

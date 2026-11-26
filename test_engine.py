@@ -85,7 +85,11 @@ from engine import (
     is_wet_weather,
     weed_hash,
     new_weed_count_for_day,
+    compact_dawn_event_notes,
+    crop_can_be_harvested,
+    get_tile,
 )
+from describe import describe_tile
 from hey_notify import turn_ping_message
 from sprites import sprite_key, svg_for_key
 
@@ -8234,6 +8238,160 @@ class CabinInterior(unittest.TestCase):
         self.assertNotIn("ends with no note", data["keysText"])
         self.assertIn("end turn", " ".join(data["commandsAfterShiftEEnter"]))
         self.assertNotIn("enter cabin", data.get("commandsAfterPlainEnter") or [])
+
+
+class FrostAndWitheredDisplay(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+
+    def _plot(self, state, row, col, kind, stage, growth=100, days_grown=10):
+        till(state, self.crops, row, col)
+        tile = get_tile(state, row, col)
+        tile["crop"] = {
+            "kind": kind,
+            "planted_day": 1,
+            "days_grown": days_grown,
+            "stage": stage,
+            "dry_days": 0,
+            "growth": growth,
+            "health": 100,
+        }
+        tile["watered"] = True
+        tile["untilled_in"] = 3
+        return tile
+
+    def test_first_winter_dawn_frosts_even_when_sunny(self):
+        seed = find_weather_seed({45: "sun", 46: "sun"}, self.rules, self.crops)
+        state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+        state["day"] = 45
+        state["season"] = "autumn"
+        state["weather"] = "sun"
+        self._plot(state, 1, 1, "tomato", "growing", growth=40, days_grown=4)
+        self._plot(state, 1, 2, "tomato", "mature", growth=100, days_grown=16)
+        self._plot(state, 2, 1, "carrot", "growing", growth=40, days_grown=4)
+        self._plot(state, 2, 2, "turnip", "mature", growth=100, days_grown=9)
+        self._plot(state, 2, 3, "radish", "growing", growth=40, days_grown=3)
+        self._plot(state, 3, 1, "beet", "growing", growth=40, days_grown=4)
+        self._plot(state, 3, 2, "kabocha", "mature", growth=100, days_grown=20)
+        self._plot(state, 3, 3, "strawberry", "dormant", growth=0, days_grown=7)
+        get_tile(state, 3, 3)["crop"]["overwintered"] = True
+        ok, msg = sleep(state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(state["day"], 46)
+        self.assertEqual(state["season"], "winter")
+        self.assertEqual(state["weather"], "sun")
+        self.assertEqual(get_tile(state, 1, 1)["crop"]["stage"], "withered")
+        self.assertEqual(get_tile(state, 1, 2)["crop"]["stage"], "frost_bitten")
+        for row, col, kind in ((2, 1, "carrot"), (2, 2, "turnip"), (2, 3, "radish"), (3, 1, "beet"), (3, 2, "kabocha")):
+            crop = get_tile(state, row, col)["crop"]
+            self.assertEqual(crop["kind"], kind)
+            self.assertNotIn(crop["stage"], {"withered", "frost_bitten"})
+        self.assertEqual(get_tile(state, 3, 3)["crop"]["stage"], "dormant")
+        self.assertIn("frost", msg.lower())
+        compact = compact_dawn_event_notes([
+            "The tomato at row 1 col 1 was killed by frost.",
+            "The tomato at row 1 col 2 was bitten by frost; the fruit can still be harvested once.",
+        ])
+        self.assertEqual(compact, ["Frost killed 1 plant; 1 frost-bitten harvest remains."])
+
+    def test_autumn_snow_frosts_non_hardy_crops(self):
+        seed = find_weather_seed({40: "snow"}, self.rules, self.crops)
+        state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+        state["day"] = 39
+        state["season"] = "autumn"
+        state["weather"] = "sun"
+        self._plot(state, 1, 1, "lettuce", "growing", growth=40, days_grown=4)
+        self._plot(state, 1, 2, "lettuce", "mature", growth=100, days_grown=8)
+        self._plot(state, 2, 1, "kabocha", "growing", growth=50, days_grown=10)
+        ok, msg = sleep(state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(state["day"], 40)
+        self.assertEqual(state["weather"], "snow")
+        self.assertEqual(get_tile(state, 1, 1)["crop"]["stage"], "withered")
+        self.assertEqual(get_tile(state, 1, 2)["crop"]["stage"], "frost_bitten")
+        self.assertEqual(get_tile(state, 2, 1)["crop"]["stage"], "growing")
+
+    def test_hardy_crops_do_not_wither_from_winter_air(self):
+        seed = find_weather_seed(
+            {46: "sun", 47: "sun", 48: "sun", 49: "sun"},
+            self.rules,
+            self.crops,
+        )
+        state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+        state["day"] = 45
+        state["season"] = "autumn"
+        state["weather"] = "sun"
+        spots = ((1, 1, "turnip"), (1, 2, "radish"), (2, 1, "carrot"), (2, 2, "beet"), (2, 3, "kabocha"))
+        for row, col, kind in spots:
+            self._plot(state, row, col, kind, "growing", growth=40, days_grown=4)
+        for _ in range(4):
+            ok, msg = sleep(state, self.crops, self.rules)
+            self.assertTrue(ok, msg)
+        self.assertEqual(state["day"], 49)
+        self.assertEqual(state["season"], "winter")
+        for row, col, kind in spots:
+            crop = get_tile(state, row, col)["crop"]
+            self.assertEqual(crop["kind"], kind)
+            self.assertNotIn(crop["stage"], {"withered", "frost_bitten"}, crop)
+            self.assertEqual(int(crop.get("off_season_days") or 0), 0)
+
+    def test_frost_bitten_fruit_harvests_once_then_must_be_cleared(self):
+        state = fresh_state(self.crops, rules=self.rules)
+        tile = self._plot(state, 1, 1, "tomato", "frost_bitten", growth=100, days_grown=16)
+        self.assertTrue(crop_can_be_harvested(tile["crop"], crop_info(self.crops, "tomato"), state, self.crops))
+        before = int(state["inventory"].get("tomato") or 0)
+        ok, msg = harvest(state, self.crops, 1, 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("frost-bitten", msg)
+        self.assertIn("cleared", msg.lower())
+        self.assertGreaterEqual(int(state["inventory"].get("tomato") or 0), before + 1)
+        crop = get_tile(state, 1, 1)["crop"]
+        self.assertIsNotNone(crop)
+        self.assertEqual(crop["stage"], "withered")
+        self.assertNotEqual(crop["stage"], "regrowing")
+        ok, msg = harvest(state, self.crops, 1, 1)
+        self.assertTrue(ok, msg)
+        self.assertIn("withered", msg.lower())
+        self.assertIsNone(get_tile(state, 1, 1)["crop"])
+
+    def test_withered_and_frost_bitten_look_hides_water_and_revert(self):
+        state = fresh_state(self.crops, rules=self.rules)
+        self._plot(state, 1, 1, "lettuce", "withered", growth=40, days_grown=4)
+        self._plot(state, 1, 2, "tomato", "frost_bitten", growth=100, days_grown=16)
+        wilt = describe_tile(state, self.crops, 1, 1)
+        bite = describe_tile(state, self.crops, 1, 2)
+        self.assertIn("withered", wilt)
+        self.assertNotIn("watered today", wilt)
+        self.assertNotIn("dry today", wilt)
+        self.assertNotIn("reverts", wilt)
+        self.assertNotIn("untilled_in", wilt)
+        self.assertIn("frost-bitten", bite)
+        self.assertNotIn("watered today", bite)
+        self.assertNotIn("dry today", bite)
+        self.assertNotIn("reverts", bite)
+        # Bare soil still names the revert countdown and today's water.
+        till(state, self.crops, 2, 1)
+        get_tile(state, 2, 1)["watered"] = True
+        get_tile(state, 2, 1)["untilled_in"] = 4
+        empty = describe_tile(state, self.crops, 2, 1)
+        self.assertIn("watered today", empty)
+        self.assertIn("reverts", empty)
+
+    def test_spinach_is_not_frost_hardy(self):
+        info = crop_info(self.crops, "spinach")
+        self.assertFalse(bool(info.get("frost_hardy")))
+        seed = find_weather_seed({46: "sun"}, self.rules, self.crops)
+        state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+        state["day"] = 45
+        state["season"] = "autumn"
+        state["weather"] = "sun"
+        self._plot(state, 1, 1, "spinach", "growing", growth=40, days_grown=3)
+        ok, msg = sleep(state, self.crops, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(get_tile(state, 1, 1)["crop"]["stage"], "withered")
+
+
 
 
 if __name__ == "__main__":

@@ -156,6 +156,7 @@
     },
     "turnip": {
       "name": "turnip",
+      "frost_hardy": true,
       "grow_days": 9,
       "seed_price": 8,
       "sell_price": 22,
@@ -199,6 +200,7 @@
     },
     "radish": {
       "name": "radish",
+      "frost_hardy": true,
       "name_plural": "radishes",
       "grow_days": 4,
       "seed_price": 6,
@@ -376,6 +378,7 @@
     },
     "carrot": {
       "name": "carrot",
+      "frost_hardy": true,
       "grow_days": 12,
       "seed_price": 12,
       "sell_price": 32,
@@ -421,6 +424,7 @@
     },
     "beet": {
       "name": "beet",
+      "frost_hardy": true,
       "name_plural": "beets",
       "grow_days": 11,
       "seed_price": 10,
@@ -690,6 +694,7 @@
     },
     "kabocha": {
       "name": "kabocha",
+      "frost_hardy": true,
       "grow_days": 30,
       "seed_price": 20,
       "sell_price": 50,
@@ -722,7 +727,7 @@
         }
       ],
       "eat_energy": 25,
-      "description": "A hefty winter squash with nutty, sweet flesh. Planted in spring, it grows through summer and ripens in early autumn. A hard frost at the end of autumn will kill it.",
+      "description": "A hefty winter squash with nutty, sweet flesh. Planted in spring, it grows through summer and ripens in early autumn. It stands up to frost and can wait in the field through the first snows.",
       "shop_seasons": [
         "spring"
       ],

@@ -690,8 +690,23 @@ def _dormant_plant(x: int, y: int, kind: str) -> str:
     return _withered_plant(x, y)
 
 
+def _frost_rime(x: int, y: int) -> str:
+    """Pale ice crystals over a ripe plant that frost has bitten."""
+    return (
+        f'<ellipse cx="{x-10}" cy="{y-18}" rx="4" ry="2.4" fill="#eef7ff" opacity="0.9"/>'
+        f'<ellipse cx="{x+8}" cy="{y-22}" rx="3.2" ry="2" fill="#f7fbff" opacity="0.85"/>'
+        f'<circle cx="{x-2}" cy="{y-8}" r="1.6" fill="#ffffff" opacity="0.95"/>'
+        f'<circle cx="{x+14}" cy="{y-4}" r="1.3" fill="#e8f2ff" opacity="0.9"/>'
+        f'<circle cx="{x-16}" cy="{y+2}" r="1.2" fill="#ffffff" opacity="0.9"/>'
+        f'<path d="M{x-6},{y-14} L{x-2},{y-20} L{x+2},{y-14}" '
+        f'stroke="#d8e8f8" stroke-width="1.2" fill="none" opacity="0.85"/>'
+    )
+
+
 def _crop_layer(kind: str, stage: str) -> str:
     x, y = 80, 100
+    if stage == "frost_bitten":
+        return _crop_layer(kind, "mature") + _frost_rime(x, y)
     if stage == "withered":
         return _withered_plant(x, y)
     if stage == "dormant":

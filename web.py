@@ -1437,7 +1437,9 @@ PAGE = r"""<!DOCTYPE html>
       }
       if (parsed.hills) {
         if (parsed.tree) {
-          const tfile = pack.overlays && pack.overlays["tree_" + parsed.tree];
+          const snowName = parsed.snow ? ("tree_" + parsed.tree + "_snow") : null;
+          const tfile = (snowName && pack.overlays && pack.overlays[snowName])
+            || (pack.overlays && pack.overlays["tree_" + parsed.tree]);
           if (!tfile) return null;
           layers.push("/static/packs/" + pack.id + "/" + tfile);
         }
@@ -1449,7 +1451,11 @@ PAGE = r"""<!DOCTYPE html>
         return layers;
       }
       if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {
-        const crop = pack.overlays && pack.overlays[parsed.kind + "_" + parsed.stage];
+        const overlays = pack.overlays || {};
+        let crop = overlays[parsed.kind + "_" + parsed.stage];
+        if (!crop && parsed.stage === "frost_bitten") {
+          crop = overlays[parsed.kind + "_withered"] || overlays[parsed.kind + "_mature"];
+        }
         if (!crop) return null;
         layers.push("/static/packs/" + pack.id + "/" + crop);
       }
@@ -1709,7 +1715,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function cropHint(tile, crop) {
-      if (!crop || crop.stage === "withered" || crop.stage === "dormant") return "";
+      if (!crop || crop.stage === "withered" || crop.stage === "dormant" || crop.stage === "frost_bitten") return "";
       const growth = (crop.growth != null) ? Number(crop.growth) : (crop.stage === "mature" ? 100 : 0);
       const health = (crop.health != null) ? Number(crop.health) : 100;
       const bits = [];
@@ -1809,14 +1815,13 @@ PAGE = r"""<!DOCTYPE html>
         const n = Number(tile.untilled_in);
         if (n <= 0) hold = " It will go untilled at nightfall if it stays empty.";
         else hold = " " + n + (n === 1 ? " day" : " days") + " left until it reverts if left unwatered.";
-      } else if (tile.tilled && (tile.untilled_in != null) && crop && crop.stage === "withered") {
-        const n = Number(tile.untilled_in);
-        if (n <= 0) hold = " It will go untilled at nightfall if it stays empty.";
-        else hold = " " + n + (n === 1 ? " day" : " days") + " left until it reverts if left unwatered.";
       }
       if (!crop) return tileName(r, c) + " — " + tilled + " soil, " + moist + ". Empty." + hold + fertilizerPhrase(tile) + weed;
       if (crop.stage === "withered") {
-        return tileName(r, c) + " — a withered " + crop.kind + ", " + moist + "." + hold + fertilizerPhrase(tile) + weed;
+        return tileName(r, c) + " — a withered " + crop.kind + "." + fertilizerPhrase(tile) + weed;
+      }
+      if (crop.stage === "frost_bitten") {
+        return tileName(r, c) + " — a frost-bitten " + crop.kind + ". The fruit can still be harvested once, then the plant must be cleared." + fertilizerPhrase(tile) + weed;
       }
       if (crop.stage === "dormant") {
         return tileName(r, c) + " — a dormant " + crop.kind + ", resting until spring. It needs no water." + fertilizerPhrase(tile) + weed;
@@ -1839,7 +1844,7 @@ PAGE = r"""<!DOCTYPE html>
     function cropProgressPhrase(crop, info) {
       if (!crop) return "";
       if (crop.progress_phrase) return crop.progress_phrase;
-      if (crop.stage === "withered" || crop.stage === "dormant") return "";
+      if (crop.stage === "withered" || crop.stage === "dormant" || crop.stage === "frost_bitten") return "";
       info = info || {};
       const afterDormancy = info.fruiting_after_dormancy !== false;
       if (info.perennial && afterDormancy && !crop.overwintered && !crop.fruiting_started && crop.stage !== "mature") {
