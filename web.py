@@ -1130,11 +1130,19 @@ PAGE = r"""<!DOCTYPE html>
     }
     function itemIconSrc(item, fallback) {
       const pack = packById(artPackId);
-      const rel = pack && pack.items && pack.items[item];
+      let key = String(item || "");
+      const src = lastData || {};
+      const tier = src.tool_tiers && src.tool_tiers[key];
+      if (tier && tier !== "basic") {
+        const tierKey = key + "_" + tier;
+        if (pack && pack.items && pack.items[tierKey]) key = tierKey;
+        else if (!pack || pack.id === "classic") key = tierKey;
+      }
+      const rel = pack && pack.items && pack.items[key];
       if (rel && typeof rel === "string" && /^[a-z0-9_./-]+$/i.test(rel) && rel.indexOf("..") < 0) {
         return "/static/packs/" + pack.id + "/" + rel;
       }
-      return fallback || ("/item/" + item + ".svg");
+      return fallback || ("/item/" + key + ".svg");
     }
     function parseMineSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
@@ -2804,6 +2812,12 @@ PAGE = r"""<!DOCTYPE html>
         const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
         addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
       }
+      if (slot.item === "herbal_tea") {
+        const me = (opts.data && opts.data.players && opts.data.players[PLAYER]) || {};
+        const drank = !!me.herbal_tea;
+        const drinkCmd = opts.take ? "drink herbal_tea chest" : "drink herbal_tea";
+        addBtn("Drink (+10 tomorrow)", drinkCmd, !drank && (opts.take ? cabinTurn : yourTurn));
+      }
       if (slot.item === "wood" && opts.data && opts.data.in_cabin) {
         const viewers = (opts.data.players || {});
         const me = viewers[PLAYER] || {};
@@ -2915,7 +2929,10 @@ PAGE = r"""<!DOCTYPE html>
       const forSale = [];
       for (const [kind, info] of Object.entries(crops)) {
         const shopSeasons = (info.shop_seasons && info.shop_seasons.length) ? info.shop_seasons : (info.seasons || []);
-        const inSeason = info.available !== false && shopSeasons.indexOf(season) !== -1;
+        const flagged = info.for_sale;
+        const inSeason = info.available !== false && (
+          flagged === true || (flagged == null && shopSeasons.indexOf(season) !== -1)
+        );
         if (inSeason) forSale.push([kind, info]);
       }
       if (!forSale.length) {
@@ -3760,7 +3777,14 @@ def render_page(viewer: str | None = None) -> str:
     return html
 
 
-def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
+def _tool_tiers_payload(state: dict | None) -> dict:
+    from mine import FORGE_TOOLS, tool_tier
+    if not state:
+        return {item: "basic" for item in FORGE_TOOLS}
+    return {item: tool_tier(state, item) for item in FORGE_TOOLS}
+
+
+def _item_name_catalog(crops: dict, rules: dict | None = None, state: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
     from inventory import FERTILIZERS, TOOLS, recipes, item_name
     from engine import stock_key
@@ -3771,8 +3795,8 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
         keys.append(stock_key(kind, info))
     out = {}
     for key in keys:
-        one = item_name(key, 1, crops, rules)
-        many = item_name(key, 2, crops, rules)
+        one = item_name(key, 1, crops, rules, state=state)
+        many = item_name(key, 2, crops, rules, state=state)
         # item_name prefixes the count ("1 strawberry jam").
         name = one.split(" ", 1)[-1] if one else key.replace("_", " ")
         name_plural = many.split(" ", 1)[-1] if many else name + "s"
@@ -3922,9 +3946,11 @@ def _fertilizer_catalog(rules: dict | None = None) -> dict:
     return out
 
 
-def _crop_catalog(crops: dict) -> dict:
-    from engine import shop_name
+def _crop_catalog(crops: dict, state: dict | None = None) -> dict:
+    from engine import shop_name, crop_for_sale
     out = {}
+    season = (state or {}).get("season")
+    day = (state or {}).get("day")
     for kind, info in crops.get("crops", {}).items():
         out[kind] = {
             "name": info.get("name") or kind,
@@ -3938,6 +3964,7 @@ def _crop_catalog(crops: dict) -> dict:
             "available": info.get("available", True) is not False,
             "seasons": list(info["seasons"]),
             "shop_seasons": list(info.get("shop_seasons") or info.get("seasons") or []),
+            "for_sale": crop_for_sale(info, season, day=day, crops=crops),
             "description": info.get("description") or "",
             "sprite": f"{kind}_mature_dry",
             "perennial": bool(info.get("perennial")),
@@ -4050,7 +4077,7 @@ def api_payload(
         },
         "saves": __import__("saves").public_payload(),
         "look": describe_state(state, crops, viewer=viewer),
-        "crops": _crop_catalog(crops),
+        "crops": _crop_catalog(crops, state),
         "viewer": viewer,
         "current_player": current,
         "players": state.get("players") or {},
@@ -4066,7 +4093,8 @@ def api_payload(
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
         "chest": state.get("chest") or [],
         "fertilizers": _fertilizer_catalog(rules),
-        "item_names": _item_name_catalog(crops, rules),
+        "item_names": _item_name_catalog(crops, rules, state),
+        "tool_tiers": _tool_tiers_payload(state),
         "recipes": _recipe_catalog(rules),
         "staples": _staple_catalog(rules),
         "tools": _tool_shop_catalog(state, rules),

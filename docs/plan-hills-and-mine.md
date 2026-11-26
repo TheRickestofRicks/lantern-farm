@@ -318,3 +318,6 @@ well. Design notes only; not built yet.
 - **Yearly wet/dry season variants**, with hints so the year-to-year
   change is readable.
 
+- **Coffee** (+40 energy now, with a sleep penalty). Herbal tea is in
+  the shop already: one cup a day, +10 at the next cabin wake.
+

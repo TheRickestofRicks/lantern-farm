@@ -399,9 +399,9 @@ class GrowthRules(unittest.TestCase):
         ok, msg = buy(self.state, self.crops, "carrot", 1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["inventory"]["carrot_seed"], 1)
-        # Out of season, the same seed is not restocked.
+        # Out of season, a spring-and-summer seed is not restocked.
         self.state["season"] = "winter"
-        ok, msg = buy(self.state, self.crops, "carrot", 1)
+        ok, msg = buy(self.state, self.crops, "strawberry", 1)
         self.assertFalse(ok, msg)
         self.assertIn("winter", msg.lower())
 
@@ -1986,20 +1986,34 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_shop_sells_strawberry_in_summer_but_not_autumn(self):
         from engine import shop_kinds, legal_actions, buy
+        # Season-only (no day) is treated as day 1 of that season.
+        summer_open = shop_kinds(self.crops, "summer")
+        self.assertIn("strawberry", summer_open)
+        self.assertIn("everbearing", summer_open)
+        self.assertIn("kabocha", summer_open)  # 30d, summer day 1 exactly
+        self.assertNotIn("pumpkin", summer_open)  # 33d
+        self.assertNotIn("turnip", summer_open)
+        # State is summer day 2, so kabocha no longer fits.
         self.state["day"] = 17
         self.state["season"] = "summer"
-        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry", "everbearing"])
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
         self.assertIn("buy everbearing 1", actions)
+        self.assertNotIn("buy kabocha 1", actions)
         ok, msg = buy(self.state, self.crops, "strawberry", 1)
         self.assertTrue(ok, msg)
         self.state["day"] = 31
         self.state["season"] = "autumn"
-        self.assertEqual(shop_kinds(self.crops, "autumn"), [])
+        autumn = shop_kinds(self.crops, "autumn")
+        self.assertIn("turnip", autumn)
+        self.assertIn("carrot", autumn)
+        self.assertNotIn("strawberry", autumn)
+        self.assertNotIn("everbearing", autumn)
+        self.assertNotIn("kabocha", autumn)
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertNotIn("buy strawberry 1", actions)
         self.assertNotIn("buy everbearing 1", actions)
+        self.assertIn("buy turnip 1", actions)
         ok, msg = buy(self.state, self.crops, "strawberry", 1)
         self.assertFalse(ok, msg)
         self.assertIn("autumn", msg.lower())
@@ -2669,6 +2683,11 @@ class ArtPackAndPage(unittest.TestCase):
             "oyster_mushroom", "pickaxe",
             "stone", "copper_ore", "iron_ore", "gold_ore",
             "sugar",
+            "herbal_tea",
+            "hoe_copper", "hoe_iron", "hoe_gold",
+            "watering_can_copper", "watering_can_iron", "watering_can_gold",
+            "axe_copper", "axe_iron", "axe_gold",
+            "pickaxe_copper", "pickaxe_iron", "pickaxe_gold",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -3440,6 +3459,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
             self.assertIn("butter", listing)
             self.assertIn("milk", listing)
             self.assertIn("sugar", listing)
+            self.assertIn("herbal_tea", listing)
         self.state["season"] = "winter"
         gold = int(self.state["gold"])
         ok, msg = do_action(self.state, self.crops, "buy bread 1", player=P1, rules=self.rules)
@@ -3454,6 +3474,14 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["gold"]), gold - 5)
         self.assertTrue(pack_has(self.state, P1, "sugar", 1, self.rules))
+
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "buy herbal tea 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["gold"]), gold - 15)
+        self.assertTrue(pack_has(self.state, P1, "herbal_tea", 1, self.rules))
+        self.assertIn("herbal tea", msg.lower())
+        self.assertNotIn("_", msg)
 
     def test_jam_cannot_be_crafted_without_sugar(self):
         from inventory import pack_has, recipes, ingredient_cost, item_sell_price
@@ -4038,18 +4066,37 @@ class SpringPlantedCrops(unittest.TestCase):
             ok, msg = sleep(self.state, self.crops, self.rules)
             self.assertTrue(ok, msg)
 
-    def test_summer_shop_is_still_only_strawberries(self):
-        from engine import shop_kinds, legal_actions, buy
+    def test_summer_shop_follows_the_remaining_grow_window(self):
+        from engine import shop_kinds, legal_actions, buy, crop_for_sale, crop_info
+        # Summer day 1: corn (28d) and kabocha (30d) fit; pumpkin (33d) does not.
         self.state["day"] = 16
         self.state["season"] = "summer"
-        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry", "everbearing"])
+        summer = shop_kinds(self.crops, "summer", day=16)
+        self.assertIn("strawberry", summer)
+        self.assertIn("everbearing", summer)
+        self.assertIn("carrot", summer)
+        self.assertIn("lettuce", summer)
+        self.assertIn("kabocha", summer)
+        self.assertIn("corn", summer)
+        self.assertNotIn("pumpkin", summer)
+        self.assertNotIn("turnip", summer)
+        self.assertNotIn("rhubarb", summer)  # crown, shop_seasons spring only
+        self.assertTrue(crop_for_sale(crop_info(self.crops, "corn"), "summer", day=16, crops=self.crops))
+        self.assertFalse(crop_for_sale(crop_info(self.crops, "corn"), "summer", day=19, crops=self.crops))
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
+        self.assertIn("buy kabocha 1", actions)
+        self.assertIn("buy carrot 1", actions)
         self.assertNotIn("buy turnip 1", actions)
-        self.assertNotIn("buy kabocha 1", actions)
-        ok, msg = buy(self.state, self.crops, "carrot", 1)
+        self.assertNotIn("buy pumpkin 1", actions)
+        ok, msg = buy(self.state, self.crops, "turnip", 1)
         self.assertFalse(ok)
         self.assertIn("summer", msg.lower())
+        # Summer day 4: corn no longer fits.
+        self.state["day"] = 19
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn("buy corn 1", actions)
+        self.assertNotIn("buy kabocha 1", actions)
 
     def test_quick_and_regrow_crops_harvest_in_their_window(self):
         from engine import grow_days, regrow_days, crop_info, yield_range_for
@@ -4652,7 +4699,7 @@ class ForageFood(unittest.TestCase):
         self.assertTrue(pack_has(self.state, P1, "wild_onion_soup", 1, self.rules) or pack_has(self.state, P1, "wild_onion_soup", 1))
         self.assertFalse(pack_has(self.state, P1, "wild_onion", 1, self.rules))
 
-        give_item(self.state, "wild_berry", 2, player=P1)
+        give_item(self.state, "wild_berry", 3, player=P1)
         give_item(self.state, "sugar", 1, player=P1)
         ok, msg = do_action(self.state, self.crops, "craft wild berry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -6435,6 +6482,191 @@ class CabinComfort(unittest.TestCase):
         self.assertTrue(payload.get("fireplace_fueled"))
         self.assertEqual(payload.get("fuel_fireplace_energy"), 5)
 
+    def test_herbal_tea_banks_10_energy_and_stacks_to_130(self):
+        from inventory import add_to_pack, add_to_chest, pack_has, stack_count, chest_of, sync_inventory_view
+        add_to_pack(self.state, P1, "herbal_tea", 2, self.rules)
+        self.assertIn("drink herbal_tea", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "drink herbal tea", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(self.state["players"][P1].get("herbal_tea"))
+        self.assertTrue(pack_has(self.state, P1, "herbal_tea", 1, self.rules))
+        self.assertFalse(pack_has(self.state, P1, "herbal_tea", 2, self.rules))
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        self.assertEqual(sleep_outlook(self.state, P2, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
+        ok, msg = do_action(self.state, self.crops, "drink herbal tea", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("already", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "herbal_tea", 1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "eat herbal tea", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("drink", msg.lower())
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
+        self.state["players"][P1]["energy"] = 40
+        add_to_pack(self.state, P1, "carrot", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 130 energy tomorrow")
+        self.assertIn(
+            "end turn (sleep in cabin, 130 energy tomorrow)",
+            __import__("engine").format_legal_action("end turn", self.state, self.crops, P1, self.rules),
+        )
+        _msg1, msg2 = self._end_both()
+        self.assertEqual(self.state["players"][P1]["energy"], 130)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 130)
+        self.assertEqual(self.state["players"][P2]["energy"], 110)
+        self.assertIn("wakes with 130 energy", msg2)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.assertFalse(self.state["players"][P1].get("herbal_tea"))
+        self.assertIn("drink herbal_tea", legal_actions(self.state, self.crops, P1, self.rules))
+
+    def test_herbal_tea_does_not_help_if_you_pass_out(self):
+        from inventory import add_to_pack
+        from hills import set_player_place, AREA_FARM
+        add_to_pack(self.state, P1, "herbal_tea", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "drink herbal tea", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        set_player_place(self.state, P1, AREA_FARM, 3, 1)
+        self.assertIn("pass out", sleep_outlook(self.state, P1, self.rules).lower())
+        self.assertIn("50", sleep_outlook(self.state, P1, self.rules))
+        self.assertNotIn("110", sleep_outlook(self.state, P1, self.rules))
+        _msg1, msg2 = self._end_both()
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1].get("energy_max"), 100)
+
+    def test_herbal_tea_from_the_chest_at_the_cabin(self):
+        from inventory import add_to_chest, pack_has, stack_count, chest_of, sync_inventory_view
+        add_to_chest(self.state, "herbal_tea", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self.assertIn("drink herbal_tea chest", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "drink herbal tea chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "herbal_tea"), 0)
+        self.assertFalse(pack_has(self.state, P1, "herbal_tea", 1, self.rules))
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+
+
+class SeedShopWindow(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+
+    def test_turnip_closes_mid_spring_and_reopens_in_autumn(self):
+        from engine import crop_for_sale, crop_info, shop_kinds
+        info = crop_info(self.crops, "turnip")
+        self.assertTrue(crop_for_sale(info, "spring", day=7, crops=self.crops))
+        self.assertFalse(crop_for_sale(info, "spring", day=8, crops=self.crops))
+        self.assertTrue(crop_for_sale(info, "autumn", day=31, crops=self.crops))
+        self.assertFalse(crop_for_sale(info, "autumn", day=38, crops=self.crops))
+        self.assertNotIn("turnip", shop_kinds(self.crops, "summer"))
+
+    def test_lettuce_stays_on_sale_through_late_spring(self):
+        from engine import crop_for_sale, crop_info
+        info = crop_info(self.crops, "lettuce")
+        self.assertIn("summer", info["seasons"])
+        self.assertTrue(crop_for_sale(info, "spring", day=15, crops=self.crops))
+
+    def test_kabocha_and_pumpkin_and_corn_windows(self):
+        from engine import crop_for_sale, crop_info
+        kabocha = crop_info(self.crops, "kabocha")
+        pumpkin = crop_info(self.crops, "pumpkin")
+        corn = crop_info(self.crops, "corn")
+        self.assertTrue(crop_for_sale(kabocha, "summer", day=16, crops=self.crops))
+        self.assertFalse(crop_for_sale(kabocha, "summer", day=17, crops=self.crops))
+        self.assertFalse(crop_for_sale(pumpkin, "summer", day=16, crops=self.crops))
+        self.assertTrue(crop_for_sale(pumpkin, "spring", day=13, crops=self.crops))
+        self.assertFalse(crop_for_sale(pumpkin, "spring", day=14, crops=self.crops))
+        self.assertTrue(crop_for_sale(corn, "summer", day=16, crops=self.crops))
+        self.assertTrue(crop_for_sale(corn, "summer", day=18, crops=self.crops))
+        self.assertFalse(crop_for_sale(corn, "summer", day=19, crops=self.crops))
+
+    def test_crowns_use_shop_seasons_and_carrot_sells_in_winter(self):
+        from engine import crop_for_sale, crop_info, shop_kinds
+        self.assertTrue(crop_for_sale(crop_info(self.crops, "rhubarb"), "spring", day=1, crops=self.crops))
+        self.assertFalse(crop_for_sale(crop_info(self.crops, "rhubarb"), "summer", day=16, crops=self.crops))
+        self.assertFalse(crop_for_sale(crop_info(self.crops, "asparagus"), "summer", day=16, crops=self.crops))
+        self.assertIn("carrot", shop_kinds(self.crops, "winter"))
+        self.assertTrue(crop_for_sale(crop_info(self.crops, "carrot"), "winter", day=46, crops=self.crops))
+
+    def test_season_name_alone_is_day_one_and_mismatched_day_does_not_refuse(self):
+        from engine import crop_for_sale, crop_info, shop_kinds, shop_day_in_season
+        self.assertEqual(shop_kinds(self.crops, "summer"), shop_kinds(self.crops, "summer", day=16))
+        self.assertEqual(shop_day_in_season("autumn", None, self.crops), 1)
+        self.assertEqual(shop_day_in_season("autumn", 1, self.crops), 1)
+        info = crop_info(self.crops, "turnip")
+        self.assertTrue(crop_for_sale(info, "autumn", day=1, crops=self.crops))
+
+    def test_web_payload_marks_for_sale_from_the_current_day(self):
+        import web
+        self.state["day"] = 17
+        self.state["season"] = "summer"
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        crops = payload["crops"]
+        self.assertTrue(crops["strawberry"]["for_sale"])
+        self.assertTrue(crops["carrot"]["for_sale"])
+        self.assertFalse(crops["kabocha"]["for_sale"])
+        self.assertFalse(crops["pumpkin"]["for_sale"])
+        self.assertFalse(crops["turnip"]["for_sale"])
+        self.assertFalse(crops["rhubarb"]["for_sale"])
+
+
+class ForgedToolDisplay(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+
+    def test_forged_tools_use_tiered_names_and_payload_icons(self):
+        from inventory import item_name, item_label, indefinite, add_to_pack, TOOL_PICKAXE, TOOL_HOE, TOOL_AXE, TOOL_CAN
+        from mine import set_tool_tier
+        import web
+        from sprites import svg_for_item
+        self.assertEqual(item_label(TOOL_PICKAXE, state=self.state), "pickaxe")
+        self.assertEqual(indefinite(item_label(TOOL_AXE, state=self.state)), "an axe")
+        set_tool_tier(self.state, TOOL_PICKAXE, "copper")
+        set_tool_tier(self.state, TOOL_HOE, "iron")
+        set_tool_tier(self.state, TOOL_AXE, "gold")
+        set_tool_tier(self.state, TOOL_CAN, "copper")
+        self.assertEqual(item_label(TOOL_PICKAXE, state=self.state), "copper pickaxe")
+        self.assertEqual(item_name(TOOL_HOE, 1, state=self.state), "1 iron hoe")
+        self.assertEqual(item_label(TOOL_CAN, state=self.state), "copper watering can")
+        self.assertEqual(indefinite(item_label(TOOL_AXE, state=self.state)), "a gold axe")
+        self.assertEqual(indefinite(item_label(TOOL_HOE, state=self.state)), "an iron hoe")
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload["tool_tiers"]["pickaxe"], "copper")
+        self.assertEqual(payload["tool_tiers"]["hoe"], "iron")
+        self.assertEqual(payload["item_names"]["pickaxe"]["name"], "copper pickaxe")
+        self.assertEqual(payload["item_names"]["hoe"]["name"], "iron hoe")
+        self.assertIn("#8a4a1a", svg_for_item("pickaxe_copper"))
+        self.assertIn("PICK", svg_for_item("pickaxe_copper"))
+        self.assertIn("TEA", svg_for_item("herbal_tea"))
+
+    def test_need_messages_use_the_forged_article(self):
+        from inventory import TOOL_HOE, TOOL_AXE, TOOL_PICKAXE
+        from mine import set_tool_tier
+        from engine import till
+        from hills import chop, set_player_place, AREA_HILLS, ensure_hills, get_hills_tile, make_tree
+        set_tool_tier(self.state, TOOL_HOE, "iron")
+        set_tool_tier(self.state, TOOL_AXE, "copper")
+        set_tool_tier(self.state, TOOL_PICKAXE, "gold")
+        stand(self.state, P1, 2, 2)
+        self.state["players"][P1]["pack"] = []
+        ok, msg = till(self.state, self.crops, 2, 2, player=P1)
+        self.assertFalse(ok)
+        self.assertIn("an iron hoe", msg)
+        self.assertNotIn("a iron hoe", msg)
+        ensure_hills(self.state, self.rules)
+        tile = get_hills_tile(self.state, 2, 2)
+        tile["tree"] = make_tree("grown", planted_day=1, days_grown=0)
+        set_player_place(self.state, P1, AREA_HILLS, 2, 2)
+        ok, msg = chop(self.state, P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("a copper axe", msg)
+        self.assertNotIn("an copper axe", msg)
 
 
 if __name__ == "__main__":

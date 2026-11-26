@@ -253,6 +253,19 @@
     "copper_ore": "items/copper_ore.png",
     "iron_ore": "items/iron_ore.png",
     "gold_ore": "items/gold_ore.png",
-    "sugar": "items/sugar.png"
+    "sugar": "items/sugar.png",
+    "hoe_copper": "items/hoe_copper.png",
+    "hoe_iron": "items/hoe_iron.png",
+    "hoe_gold": "items/hoe_gold.png",
+    "watering_can_copper": "items/watering_can_copper.png",
+    "watering_can_iron": "items/watering_can_iron.png",
+    "watering_can_gold": "items/watering_can_gold.png",
+    "axe_copper": "items/axe_copper.png",
+    "axe_iron": "items/axe_iron.png",
+    "axe_gold": "items/axe_gold.png",
+    "pickaxe_copper": "items/pickaxe_copper.png",
+    "pickaxe_iron": "items/pickaxe_iron.png",
+    "pickaxe_gold": "items/pickaxe_gold.png",
+    "herbal_tea": "items/herbal_tea.png"
   }
 }

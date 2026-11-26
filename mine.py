@@ -556,7 +556,7 @@ def leave_mine(state: dict, player: str, rules: dict | None = None) -> tuple[boo
 
 def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
     from engine import player_where, display_name, log_append, who
-    from inventory import pack_has, TOOL_PICKAXE, pack_space_for, add_to_pack, sync_inventory_view, item_name
+    from inventory import pack_has, TOOL_PICKAXE, pack_space_for, add_to_pack, sync_inventory_view, item_name, item_label, indefinite
 
     if player_area(state, player) != AREA_MINE:
         return False, "There are no rocks to break on the farm. Enter the mine first."
@@ -570,7 +570,7 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
         return False, "There is no rock here to break."
     if not pack_has(state, player, TOOL_PICKAXE, 1, rules):
         return False, (
-            f"{display_name(player)} needs a pickaxe in their backpack to break rock. "
+            f"{display_name(player)} needs {indefinite(item_label(TOOL_PICKAXE, state=state))} in their backpack to break rock. "
             "Buy one from the shop after finding the mine entrance."
         )
     got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)

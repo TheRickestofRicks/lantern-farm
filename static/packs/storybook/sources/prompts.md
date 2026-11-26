@@ -134,10 +134,16 @@ Item-icon prompts (single centered object on magenta, same style as the hoe and 
 - **wild_onion_soup** — A beige bowl of golden-brown onion soup, with onion rings and a few green onion tops on top.
 - **mushroom_soup** — A beige bowl of creamy brown mushroom bisque, sliced mushrooms and a swirl of cream on top.
 - **oyster_mushroom** — A cluster of fan-shaped cream and grey-beige oyster mushrooms with visible gills.
-- **pickaxe** — A classic wooden-haft miner's pickaxe with a steel double-pointed head. One icon covers every forge tier.
+- **pickaxe** — A classic wooden-haft miner's pickaxe with a steel double-pointed head. The unforged / basic sprite.
 
 - **stone** — A small pile of broken grey stone, a cheap mine material, single centered object on magenta.
 - **copper_ore** — A chunk of rock with copper-green and orange mineral, single centered object on magenta.
 - **iron_ore** — A chunk of rock with visible silver-grey iron crystals, single centered object on magenta.
 - **gold_ore** — A chunk of rock with bright gold flecks, single centered object on magenta.
-- **sugar** — A small brown paper sack of white sugar, maybe with a short wooden scoop and a little spilled sugar, single centered object on magenta. A glass jar of sugar nestled in the sack is fine.
+- **sugar** — A small rustic cloth sugar sack of coarse beige canvas, tied with twine, the open mouth showing a mound of loose white sugar crystals, a short wooden scoop and a little spilled sugar, subject only on magenta. No glass jar, no bottle, no milk bottle, no lid, no other container inside the sack.
+
+- **hoe_copper**, **hoe_iron**, **hoe_gold** — The hoe with a copper, cool grey-blue iron, or gold blade. Same wooden haft as the basic hoe, subject only on magenta.
+- **watering_can_copper**, **watering_can_iron**, **watering_can_gold** — The watering can in hammered copper, cool grey-blue iron, or gold, subject only on magenta.
+- **axe_copper**, **axe_iron**, **axe_gold** — The felling axe with a copper, iron, or gold head and the same curved wooden haft, subject only on magenta.
+- **pickaxe_copper**, **pickaxe_iron**, **pickaxe_gold** — The miner's pickaxe with a copper, iron, or gold head, subject only on magenta.
+- **herbal_tea** — A handmade cream ceramic mug of golden-amber herbal tea on a saucer, a wisp of steam, a mint sprig and a couple of dried herb buds, subject only on magenta.

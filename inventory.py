@@ -84,6 +84,17 @@ STAPLES = {
         "sell_price": 2,
         "description": "A small bag of sugar from the village shop. Needed when you cook jam.",
     },
+    "herbal_tea": {
+        "name": "herbal tea",
+        "name_plural": "cups of herbal tea",
+        "price": 15,
+        "sell_price": 7,
+        "description": (
+            "A warm cup of herbs from the village shop. Drink one a day; "
+            "if you sleep in the cabin, you wake with +10 energy. "
+            "Stacks with the fire and a good meal."
+        ),
+    },
 }
 
 # Forage and gathered materials (hills). Not shop stock.
@@ -246,10 +257,10 @@ DEFAULT_RECIPES = {
     },
     "wild_berry_jam": {
         "name": "wild berry jam",
-        "ingredients": {"wild_berry": 2, "sugar": 1},
+        "ingredients": {"wild_berry": 3, "sugar": 1},
         "eat_energy": 32,
         "sell_price": 55,
-        "description": "Two handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw.",
+        "description": "Three handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw.",
     },
     "mushroom_soup": {
         "name": "mushroom soup",
@@ -408,6 +419,13 @@ ITEM_ALIASES = {
     "growth fert": "fertilizer_growth",
     "fertilizer growth": "fertilizer_growth",
     "fert growth": "fertilizer_growth",
+    "herbal_tea": "herbal_tea",
+    "herbal tea": "herbal_tea",
+    "tea": "herbal_tea",
+    "cup of tea": "herbal_tea",
+    "cups of tea": "herbal_tea",
+    "cup of herbal tea": "herbal_tea",
+    "cups of herbal tea": "herbal_tea",
 }
 
 
@@ -723,16 +741,42 @@ def prefer_available_stock(item: str, containers: list, crops: dict | None = Non
     return item
 
 
-def item_label(item: str, crops: dict | None = None, rules: dict | None = None) -> str:
+def item_label(item: str, crops: dict | None = None, rules: dict | None = None, state: dict | None = None) -> str:
     """Singular display name with spaces and no leading count."""
-    text = item_name(item, 1, crops, rules)
+    text = item_name(item, 1, crops, rules, state=state)
     return text[2:] if text.startswith("1 ") else text
 
 
-def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict | None = None) -> str:
+def indefinite(noun: str) -> str:
+    """'a copper axe', 'an iron hoe', 'an axe'."""
+    text = " ".join(str(noun or "").split())
+    if not text:
+        return "a"
+    initial = text.split()[0][:1].lower()
+    article = "an" if initial in "aeiou" else "a"
+    return f"{article} {text}"
+
+
+def tool_display_noun(item: str, count: int = 1, state: dict | None = None) -> str:
+    """Tool noun, with a copper/iron/gold prefix when the farm has forged that tool."""
+    info = TOOLS.get(item) or {}
+    noun = info.get("name") if count == 1 else (info.get("name_plural") or info.get("name") or item)
+    noun = noun or item.replace("_", " ")
+    if not state:
+        return noun
+    from mine import FORGE_TOOLS, tool_tier
+    if item not in FORGE_TOOLS:
+        return noun
+    tier = tool_tier(state, item)
+    if tier and tier not in {"basic", ""}:
+        return f"{tier} {noun}"
+    return noun
+
+
+def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict | None = None, state: dict | None = None) -> str:
     item = item or ""
     if item in TOOLS:
-        noun = TOOLS[item]["name"] if count == 1 else TOOLS[item]["name_plural"]
+        noun = tool_display_noun(item, count, state)
         return f"{count} {noun}"
     if item in STAPLES:
         info = staple_info(item, rules) or STAPLES[item]

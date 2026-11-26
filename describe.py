@@ -107,7 +107,7 @@ def _pack_line(state: dict, crops: dict | None, viewer: str | None) -> str:
     parts = []
     for slot in pack_of(state, viewer):
         if slot and slot.get("item"):
-            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops))
+            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops, state=state))
     empty = 4 - len(parts)
     if not parts:
         return "  (empty, 4 slots)"
@@ -119,7 +119,7 @@ def _chest_line(state: dict, crops: dict | None) -> str:
     parts = []
     for slot in chest_of(state):
         if slot and slot.get("item"):
-            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops))
+            parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops, state=state))
     if not parts:
         return "  (empty)"
     return "  " + ", ".join(parts)
@@ -619,14 +619,17 @@ def describe_state(
         "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
         "carry it home to share or sell. `take` and `drop` at the cabin move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). `buy`, `sell`, and `craft` only work at the cabin too. "
         "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). "
-        "The shop sells June-bearing strawberry seeds and everbearing strawberry seedlings "
-        "in spring and summer. June-bearing plants establish in their first year and fruit "
+        "The shop sells a seed when the days left in this season plus the following "
+        "consecutive growing seasons are enough for it to finish (planting today still "
+        "gets tonight's growth). June-bearing strawberry seeds and everbearing strawberry "
+        "seedlings follow that window; everbearing also uses a spring-and-summer shop list. "
+        "June-bearing plants establish in their first year and fruit "
         "every 7 days through spring into early summer after their first winter, then rest "
         "through autumn and winter. Everbearing seedlings are already started: they settle "
         "in 4 days and fruit every 7 days from spring through summer into early autumn, "
         "resting only in winter. Both live two years and may send runners into a neighbouring "
-        "tilled empty plot. In autumn and winter the shop has nothing to sell for now. "
-        "Later crops stay in the backpack if you already grew them. "
+        "tilled empty plot. Staples stay year-round, including herbal tea (drink one a day "
+        "for +10 energy tomorrow if you sleep in the cabin). "
         "Till, plant, and water cost energy (see rules.json); crafting at the kitchen costs 5. Harvest, buy, sell, take, drop, and eat are free. "
         "The day advances when both players have ended their turn."
     )

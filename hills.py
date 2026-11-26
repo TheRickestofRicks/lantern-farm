@@ -852,7 +852,7 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         log_append,
         who,
     )
-    from inventory import pack_has, TOOL_AXE, pack_space_for, add_to_pack, sync_inventory_view
+    from inventory import pack_has, TOOL_AXE, pack_space_for, add_to_pack, sync_inventory_view, item_label, indefinite
 
     rules = rules or None
     area = player_area(state, player)
@@ -869,7 +869,7 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         return False, "There is no grown tree here to chop."
     if not pack_has(state, player, TOOL_AXE, 1, rules):
         return False, (
-            f"{display_name(player)} needs an axe in their backpack to chop. "
+            f"{display_name(player)} needs {indefinite(item_label(TOOL_AXE, state=state))} in their backpack to chop. "
             "Take one from the cabin chest."
         )
     from mine import yield_with_upgrade

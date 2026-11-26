@@ -1390,6 +1390,7 @@ _ITEM_LABELS = {
     "wild_onion_soup": "OSOUP",
     "wild_berry_jam": "BJAM",
     "mushroom_soup": "MSOUP",
+    "herbal_tea": "TEA",
     "fertilizer_general": "FERT",
     "fertilizer_yield": "YLD",
     "fertilizer_growth": "GRW",
@@ -1429,17 +1430,38 @@ _ITEM_COLORS = {
     "wild_onion_soup": ("#3d6b38", "#f0d4a0"),
     "wild_berry_jam": ("#6b1a4a", "#f2d4a3"),
     "mushroom_soup": ("#5a3a22", "#f0d4a0"),
+    "herbal_tea": ("#3d6b38", "#f0e4c8"),
     "fertilizer_general": ("#1f6b5a", "#7dcec0"),
     "fertilizer_yield": ("#2a6b2a", "#9ad48a"),
     "fertilizer_growth": ("#2a5a6b", "#8ad4ce"),
 }
 
 
+_TIER_COLORS = {
+    "copper": ("#8a4a1a", "#e2b07a"),
+    "iron": ("#4a5560", "#c0c8d0"),
+    "gold": ("#c9a227", "#fff4c8"),
+}
+
+
 def svg_for_item(item: str) -> str:
     """A small placeholder icon for a tool, food, or bag."""
     item = (item or "").strip().lower()
-    label = _ITEM_LABELS.get(item)
-    fill, ink = _ITEM_COLORS.get(item, ("#5a4a38", "#f0e4c8"))
+    tier = None
+    base = item
+    for name in ("copper", "iron", "gold"):
+        suffix = "_" + name
+        if item.endswith(suffix):
+            tier = name
+            base = item[: -len(suffix)]
+            break
+    label = _ITEM_LABELS.get(item) or _ITEM_LABELS.get(base)
+    if tier:
+        fill, ink = _TIER_COLORS[tier]
+        if not label:
+            label = (base[:4].upper() or "ITEM")
+    else:
+        fill, ink = _ITEM_COLORS.get(item, ("#5a4a38", "#f0e4c8"))
     if not label:
         if item.endswith("_seed") or item.endswith("_seedling") or item.endswith("_crown"):
             label, fill, ink = ("CRWN" if item.endswith("_crown") else "SEED"), "#3d6b38", "#d7e8b0"

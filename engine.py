@@ -164,6 +164,13 @@ def comfort_fed_bonus(rules: dict | None = None) -> int:
         return 10
 
 
+def comfort_tea_bonus(rules: dict | None = None) -> int:
+    try:
+        return max(0, int(_comfort_cfg(rules).get("tea_bonus", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
 def comfort_fed_energy(rules: dict | None = None) -> int:
     """Total eat_energy a player must eat in a day to earn the fed bonus."""
     try:
@@ -240,6 +247,11 @@ def player_ate_today(state: dict, player: str, rules: dict | None = None) -> boo
     return player_ate_energy_today(state, player) >= comfort_fed_energy(rules)
 
 
+def player_drank_herbal_tea(state: dict, player: str) -> bool:
+    """True when this player already drank today's cup of herbal tea."""
+    return bool(player_slot(state, player).get("herbal_tea"))
+
+
 def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
     """Energy a player would wake with if the day turned right now."""
     rules = rules or load_rules()
@@ -250,11 +262,13 @@ def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> 
         cap += comfort_fire_bonus(rules)
     if player_ate_today(state, player, rules):
         cap += comfort_fed_bonus(rules)
+    if player_drank_herbal_tea(state, player):
+        cap += comfort_tea_bonus(rules)
     return cap
 
 
 def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> int:
-    """Today's energy cap for this player (may be 110 or 120 after a comfortable night)."""
+    """Today's energy cap for this player (may be 110, 120, or 130 after a comfortable night)."""
     rules = rules or load_rules()
     slot = player_slot(state, player)
     try:
@@ -267,10 +281,10 @@ def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> in
 
 
 def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
-    """Apply last night's fire and fed bonuses, then clear the fireplace.
+    """Apply last night's fire, fed, and herbal-tea bonuses, then clear the fireplace.
 
     Wood is spent when someone fuels the fireplace, not at dawn.
-    Returns {fire: bool, fed: {player: bool}, wake: {player: int}}.
+    Returns {fire: bool, fed: {player: bool}, tea: {player: bool}, wake: {player: int}}.
     """
     rules = rules or load_rules()
     sleepers = [name for name in known_players() if is_player_in_cabin(state, name)]
@@ -278,22 +292,26 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
     base = max_energy(rules)
     faint = pass_out_energy(rules)
     fed = {}
+    tea = {}
     wake = {}
     for name in known_players():
         ate = player_ate_today(state, name, rules)
+        drank = player_drank_herbal_tea(state, name)
         slept = name in sleepers
         fed[name] = bool(ate and slept)
+        tea[name] = bool(drank and slept)
         if slept:
             wake[name] = (
                 base
                 + (comfort_fire_bonus(rules) if fire else 0)
                 + (comfort_fed_bonus(rules) if ate else 0)
+                + (comfort_tea_bonus(rules) if drank else 0)
             )
         else:
             wake[name] = faint
     # The fuel was for this night, whether or not anyone slept in the cabin.
     set_cabin_fire(state, False)
-    return {"fire": fire, "fed": fed, "wake": wake}
+    return {"fire": fire, "fed": fed, "tea": tea, "wake": wake}
 
 
 def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -1367,29 +1385,98 @@ def crop_in_shop(info: dict) -> bool:
 
 
 def crop_shop_seasons(info: dict | None) -> list:
+    """Seasons the shop lists for a crop.
+
+    ``shop_seasons`` is only an override for perennials and crowns. Annuals
+    use their growing ``seasons``.
+    """
     if not info:
         return []
-    return list(info.get("shop_seasons") or info.get("seasons") or [])
+    if crop_shop_uses_override(info):
+        return list(info.get("shop_seasons") or info.get("seasons") or [])
+    return list(info.get("seasons") or [])
 
 
-def crop_in_season(info: dict, season: str | None) -> bool:
-    """Whether the shop sells this crop in the given season."""
+def crop_shop_uses_override(info: dict | None) -> bool:
+    """True when shop_seasons should gate sales (perennials and crowns)."""
+    if not info or not info.get("shop_seasons"):
+        return False
+    stock = str(info.get("stock") or "").lower()
+    return is_perennial(info) or stock in {"crown", "crowns"}
+
+
+def shop_day_in_season(season: str | None, day: int | None, crops: dict | None = None) -> int:
+    """Day-of-season (1-indexed) for the shop clock.
+
+    If ``day`` falls in ``season``, use it. Otherwise (or if day is omitted)
+    treat this as the first day of the named season, so season-only callers
+    get the full window.
+    """
+    n = days_per_season(crops)
+    if day is not None and season and season_for_day(int(day), crops) == season:
+        return day_in_season(int(day), crops)
+    return 1
+
+
+def crop_viable_days_left(
+    info: dict | None,
+    season: str | None,
+    day: int | None = None,
+    crops: dict | None = None,
+) -> int:
+    """Days left in the current season plus following consecutive viable seasons."""
+    if not info or not season:
+        return 0
+    seasons = list(info.get("seasons") or [])
+    if season not in seasons:
+        return 0
+    n = days_per_season(crops)
+    left = n - shop_day_in_season(season, day, crops) + 1
+    idx = SEASONS.index(season)
+    for step in range(1, len(SEASONS)):
+        nxt = SEASONS[(idx + step) % len(SEASONS)]
+        if nxt not in seasons:
+            break
+        left += n
+    return left
+
+
+def crop_in_season(
+    info: dict,
+    season: str | None,
+    day: int | None = None,
+    crops: dict | None = None,
+) -> bool:
+    """Whether the shop sells this crop on this day of the season."""
     if not info:
         return False
     if not season:
         return True
-    return season in crop_shop_seasons(info)
+    if crop_shop_uses_override(info):
+        return season in list(info.get("shop_seasons") or [])
+    if season not in (info.get("seasons") or []):
+        return False
+    try:
+        needed = grow_days(info)
+    except (TypeError, ValueError, KeyError):
+        needed = 0
+    return crop_viable_days_left(info, season, day, crops) >= needed
 
 
-def crop_for_sale(info: dict, season: str | None = None) -> bool:
-    return crop_in_shop(info) and crop_in_season(info, season)
+def crop_for_sale(
+    info: dict,
+    season: str | None = None,
+    day: int | None = None,
+    crops: dict | None = None,
+) -> bool:
+    return crop_in_shop(info) and crop_in_season(info, season, day=day, crops=crops)
 
 
-def shop_kinds(crops: dict, season: str | None = None) -> list[str]:
+def shop_kinds(crops: dict, season: str | None = None, day: int | None = None) -> list[str]:
     return [
         kind
         for kind, info in (crops.get("crops") or {}).items()
-        if crop_for_sale(info, season)
+        if crop_for_sale(info, season, day=day, crops=crops)
     ]
 
 
@@ -1407,7 +1494,15 @@ def shop_listing(
     state: dict | None = None,
 ) -> list[str]:
     from inventory import staple_shop_items
-    items = shop_kinds(crops, season) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
+    day = None
+    if state is not None:
+        try:
+            day = int(state.get("day") or 0) or None
+        except (TypeError, ValueError):
+            day = None
+        if not season:
+            season = state.get("season")
+    items = shop_kinds(crops, season, day=day) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
     if state is not None:
         from mine import pickaxe_unlocked, pickaxe_in_world
         from inventory import TOOL_PICKAXE
@@ -2295,10 +2390,10 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
     if tile.get("tilled") and not cleared:
         return False, f"{here[0].upper() + here[1:]} is already tilled."
     if player:
-        from inventory import pack_has, TOOL_HOE, sync_inventory_view, item_name
+        from inventory import pack_has, TOOL_HOE, sync_inventory_view, item_name, item_label, indefinite
         if not pack_has(state, player, TOOL_HOE):
             return False, (
-                f"{display_name(player)} needs a hoe in their backpack to till. "
+                f"{display_name(player)} needs {indefinite(item_label(TOOL_HOE, state=state))} in their backpack to till. "
                 "Take one from the cabin chest."
             )
     tile["tilled"] = True
@@ -2450,10 +2545,10 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     if tile.get("watered"):
         return False, f"{here[0].upper() + here[1:]} is already watered today."
     if player:
-        from inventory import pack_has, TOOL_CAN
+        from inventory import pack_has, TOOL_CAN, item_label, indefinite
         if not pack_has(state, player, TOOL_CAN):
             return False, (
-                f"{display_name(player)} needs a watering can in their backpack. "
+                f"{display_name(player)} needs {indefinite(item_label(TOOL_CAN, state=state))} in their backpack. "
                 "Take one from the cabin chest."
             )
     tile["watered"] = True
@@ -2906,10 +3001,10 @@ def fertilize(
             return False, f"Which bag? You are carrying {names}. Try: fertilize general."
         item = found[0]
     if player and not pack_has(state, player, item, 1, rules):
-        return False, f"You need {item_name(item, 1, crops, rules)} in your backpack."
+        return False, f"You need {item_name(item, 1, crops, rules, state=state)} in your backpack."
     taken = take_available(state, item, 1, player, pack_only=bool(player), rules=rules)
     if taken < 1:
-        return False, f"You need {item_name(item, 1, crops, rules)} in your backpack."
+        return False, f"You need {item_name(item, 1, crops, rules, state=state)} in your backpack."
     info = fertilizer_info(item, rules) or FERTILIZERS[item]
     bag_kind = info["kind"]
     tile["fertilizer"] = {
@@ -3054,7 +3149,7 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
     if not crop_in_shop(info):
         known = ", ".join(shop_listing(crops, state.get("season"), state=state)) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)} yet. It sells: {known}."
-    if not crop_in_season(info, state.get("season")):
+    if not crop_in_season(info, state.get("season"), day=state.get("day"), crops=crops):
         season = state.get("season") or "this season"
         known = ", ".join(shop_listing(crops, season, state=state)) or "nothing right now"
         return False, f"The shop isn't selling {shop_name(kind, info)} this {season}. It sells: {known}."
@@ -3130,7 +3225,7 @@ def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: di
         return False, f"You only have {taken} to sell."
     gold = int(price) * count
     state["gold"] = int(state["gold"]) + gold
-    noun = item_name(item, count, crops, rules)
+    noun = item_name(item, count, crops, rules, state=state)
     # item_name already includes the count
     msg = (
         f"{who(player, 'sell', 'sells')} {noun} for {gold}G. "
@@ -3734,6 +3829,8 @@ def eat(
     if raw_kind.endswith("_seed") or raw_kind.endswith(" seed") or raw_kind.endswith("_seedling") or raw_kind.endswith(" seedling"):
         return False, "Seeds aren't a snack. Eat a harvested crop, like: eat carrot"
     item = normalize_item(kind) or normalize_kind(kind)
+    if item == "herbal_tea":
+        return False, "Herbal tea is for drinking. Try: drink herbal tea"
     restore = item_eat_energy(item, crops, rules)
     if restore is None:
         label = item_label(item, crops, rules) if item else str(kind)
@@ -3808,6 +3905,66 @@ def eat(
     )
 
 
+def drink(
+    state: dict,
+    crops: dict,
+    kind,
+    player: str,
+    rules: dict | None = None,
+    *,
+    from_chest: bool = False,
+) -> tuple[bool, str]:
+    """Drink herbal tea from the pack, or from the chest when at the cabin.
+
+    One cup per player per day. The +10 energy arrives at the next wake if
+    they sleep in the cabin, stacking with the fire and fed bonuses (cap 130).
+    """
+    from inventory import (
+        normalize_item,
+        pack_has,
+        take_available,
+        item_label,
+        chest_of,
+        stack_count,
+    )
+
+    rules = rules or load_rules()
+    item = normalize_item(kind) or normalize_kind(kind)
+    if item != "herbal_tea":
+        label = item_label(item, crops, rules) if item else str(kind)
+        return False, f"{label} isn't something you drink. Try: drink herbal tea"
+    label = item_label(item, crops, rules, state=state)
+    if player_drank_herbal_tea(state, player):
+        return False, "You've already had herbal tea today."
+    if from_chest:
+        if not is_player_in_cabin(state, player):
+            return False, "Drink from the chest at the cabin."
+        if stack_count(chest_of(state, rules), item) < 1:
+            return False, f"No {label} in the chest."
+    elif not pack_has(state, player, item, 1, rules):
+        return False, f"No {label} in the backpack."
+    taken = take_available(
+        state,
+        item,
+        1,
+        player,
+        pack_only=not from_chest,
+        chest_only=from_chest,
+        rules=rules,
+    )
+    if taken < 1:
+        where = "chest" if from_chest else "backpack"
+        return False, f"No {label} in the {where}."
+    slot = player_slot(state, player)
+    slot["herbal_tea"] = True
+    msg = (
+        f"{display_name(player)} drinks {label}. "
+        "You'll have +10 energy tomorrow if you sleep in the cabin."
+    )
+    log_append(state, msg, player)
+    return True, msg
+
+
 # --- dispatcher --------------------------------------------------------------
 
 
@@ -3874,9 +4031,9 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     if n < 1 or have < 1:
         return False, "The chest doesn't have that item."
     if not pack_space_for(state, player, item, n, rules):
-        return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules)}."
+        return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
     if have < n:
-        return False, f"The chest only has {item_name(item, have, crops, rules)}."
+        return False, f"The chest only has {item_name(item, have, crops, rules, state=state)}."
     removed = remove_from_chest(state, item, n, rules)
     leftover = add_to_pack(state, player, item, removed, rules)
     if leftover:
@@ -3887,7 +4044,7 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     sync_inventory_view(state, rules)
     if removed <= 0:
         return False, "Nothing was taken."
-    msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules)} from the chest."
+    msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules, state=state)} from the chest."
     log_append(state, msg, player)
     return True, msg
 
@@ -3923,13 +4080,13 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     if _is_all_count(n):
         n = have
     if n < 1 or have < 1:
-        return False, f"No {item_name(item, 1, crops, rules)} in the backpack."
+        return False, f"No {item_name(item, 1, crops, rules, state=state)} in the backpack."
     if not pack_has(state, player, item, n, rules):
-        return False, f"No {item_name(item, n, crops, rules)} in the backpack."
+        return False, f"No {item_name(item, n, crops, rules, state=state)} in the backpack."
     removed = remove_from_pack(state, player, item, n, rules)
     add_to_chest(state, item, removed, rules)
     sync_inventory_view(state, rules)
-    msg = f"{display_name(player)} puts {item_name(item, removed, crops, rules)} in the chest."
+    msg = f"{display_name(player)} puts {item_name(item, removed, crops, rules, state=state)} in the chest."
     log_append(state, msg, player)
     return True, msg
 
@@ -4324,6 +4481,7 @@ def legal_actions(
                     actions.append(f"fertilize {r} {c} {kind}")
     from inventory import (
         pack_of,
+        pack_has,
         chest_of,
         recipes,
         item_eat_energy,
@@ -4333,7 +4491,7 @@ def legal_actions(
     at_cabin = is_cabin_place(area, *here)
     if at_cabin:
         for kind, info in crops.get("crops", {}).items():
-            if crop_for_sale(info, state.get("season")):
+            if crop_for_sale(info, state.get("season"), day=state.get("day"), crops=crops):
                 price = int(info["seed_price"])
                 if int(state["gold"]) >= price:
                     actions.append(f"buy {kind} 1")
@@ -4421,6 +4579,12 @@ def legal_actions(
                     item = slot.get("item")
                     if item and item_eat_energy(item, crops, rules) is not None:
                         actions.append(f"eat {item} chest")
+        if not player_drank_herbal_tea(state, actor):
+            if pack_has(state, actor, "herbal_tea", 1, rules):
+                actions.append("drink herbal_tea")
+            if is_player_in_cabin(state, actor):
+                if stack_count(chest_of(state, rules), "herbal_tea") >= 1:
+                    actions.append("drink herbal_tea chest")
     actions.append("end turn")
     return actions
 
@@ -4440,6 +4604,7 @@ def action_item_phrase(
     count: int = 1,
     *,
     stock: bool = False,
+    state: dict | None = None,
 ) -> str:
     """Command wording for an item. Buy/plant use stock=True so 'radish' is 'radish seed'."""
     from inventory import normalize_item, item_label, item_name, is_staple
@@ -4459,12 +4624,12 @@ def action_item_phrase(
     if (crops or {}).get("crops", {}).get(key) and not is_staple(key):
         if stock:
             return stock_label(key, crop_info(crops, key), n)
-        labeled = item_name(key, n, crops, rules)
+        labeled = item_name(key, n, crops, rules, state=state)
         return labeled.split(" ", 1)[-1] if labeled else key.replace("_", " ")
-    return item_label(key, crops, rules)
+    return item_label(key, crops, rules, state=state)
 
 
-def humanize_action_command(command: str, crops: dict | None = None, rules: dict | None = None) -> str:
+def humanize_action_command(command: str, crops: dict | None = None, rules: dict | None = None, state: dict | None = None) -> str:
     """Spaced, crop-specific wording for the command part of a look line."""
     raw = strip_action_descriptor(command)
     parts = raw.split()
@@ -4511,21 +4676,26 @@ def humanize_action_command(command: str, crops: dict | None = None, rules: dict
             return verb
         count = args[-1] if args[-1].isdigit() or args[-1].lower() == "all" else None
         item = " ".join(args[:-1] if count is not None else args)
-        phrase = action_item_phrase(item, crops, rules, _phrase_count(count))
+        phrase = action_item_phrase(item, crops, rules, _phrase_count(count), state=state)
         return f"{verb} {phrase} {count}" if count is not None else f"{verb} {phrase}"
     if verb == "eat":
         from_chest = bool(args and args[-1].lower() == "chest")
         item = " ".join(args[:-1] if from_chest else args)
-        phrase = action_item_phrase(item, crops, rules, 1)
+        phrase = action_item_phrase(item, crops, rules, 1, state=state)
         return f"eat {phrase} chest" if from_chest else f"eat {phrase}"
+    if verb == "drink":
+        from_chest = bool(args and args[-1].lower() == "chest")
+        item = " ".join(args[:-1] if from_chest else args)
+        phrase = action_item_phrase(item, crops, rules, 1, state=state)
+        return f"drink {phrase} chest" if from_chest else f"drink {phrase}"
     if verb == "buy":
         count = args[-1] if args and (args[-1].isdigit() or args[-1].lower() == "all") else None
         item = " ".join(args[:-1] if count is not None else args)
-        phrase = action_item_phrase(item, crops, rules, _phrase_count(count), stock=True)
+        phrase = action_item_phrase(item, crops, rules, _phrase_count(count), stock=True, state=state)
         return f"buy {phrase} {count}" if count is not None else f"{verb} {phrase}"
     if verb == "craft":
         item = " ".join(args)
-        phrase = action_item_phrase(item, crops, rules, 1)
+        phrase = action_item_phrase(item, crops, rules, 1, state=state)
         return f"craft {phrase}"
     return raw
 
@@ -4758,6 +4928,8 @@ def action_descriptor(
         else:
             gained = int(restore)
         return f"+{gained} energy"
+    if verb == "drink":
+        return "+10 energy tomorrow if you sleep in the cabin"
     if verb == "craft":
         rec_id = normalize_item(" ".join(args)) or " ".join(args)
         rec = recipes(rules).get(rec_id) or {}
@@ -4789,7 +4961,7 @@ def format_legal_action(
     player: str | None = None,
     rules: dict | None = None,
 ) -> str:
-    display = humanize_action_command(command, crops, rules)
+    display = humanize_action_command(command, crops, rules, state=state)
     desc = action_descriptor(command, state, crops, player, rules)
     if desc:
         return f"{display} ({desc})"
@@ -4874,6 +5046,27 @@ def do_action(
         if not parts:
             return False, "Usage: eat <food>   example: eat strawberry jam"
         return eat(state, crops, " ".join(parts), actor, rules, from_chest=from_chest)
+
+    if verb == "drink":
+        parts = list(args)
+        from_chest = False
+        if len(parts) >= 2 and parts[-2].lower() == "from" and parts[-1].lower() == "chest":
+            from_chest = True
+            parts = parts[:-2]
+        elif parts and parts[-1].lower() == "chest":
+            from_chest = True
+            parts = parts[:-1]
+        elif (
+            (len(parts) >= 2 and parts[-2].lower() == "from" and parts[-1].lower() == "shop")
+            or (parts and parts[-1].lower() == "shop")
+        ):
+            return False, (
+                "You can't drink from the shop. Buy it first, then drink it "
+                "from your backpack or the chest."
+            )
+        if not parts:
+            return False, "Usage: drink herbal tea"
+        return drink(state, crops, " ".join(parts), actor, rules, from_chest=from_chest)
 
     if verb in {"take", "drop", "put", "stow", "craft"}:
         if verb in {"put", "stow"}:
