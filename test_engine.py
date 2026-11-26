@@ -5204,5 +5204,90 @@ class WebHudAndOverview(unittest.TestCase):
 
 
 
+class EatButtonsWeb(unittest.TestCase):
+    """Web eat buttons must use the engine edible list, not crops.json alone."""
+
+    def _run(self, payload, html):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "eat-buttons.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-eat-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_catalog_includes_non_crop_eat_energy(self):
+        import web
+        catalog = web._item_name_catalog(load_crops(), load_rules())
+        self.assertEqual(catalog["bread_half"].get("eat_energy"), 5)
+        self.assertEqual(catalog["wild_onion"].get("eat_energy"), 6)
+        self.assertEqual(catalog["wild_berry"].get("eat_energy"), 8)
+        self.assertNotIn("eat_energy", catalog["wild_mushroom"])
+        self.assertIn("named.eat_energy", web.PAGE)
+
+    def test_web_eat_buttons_show_for_half_loaf_and_wild_onion_at_partial_energy(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from inventory import add_to_pack, add_to_chest
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        # Below full, matching the live report (eat works in the CLI at 85/100).
+        state["players"][P1]["energy"] = 85
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        state["players"][P1]["pack"] = [None, None, None, None]
+        add_to_pack(state, P1, "bread_half", 1, rules)
+        add_to_chest(state, "wild_onion", 2, rules)
+        actions = legal_actions(state, crops, P1, rules)
+        self.assertIn("eat bread_half", actions)
+        self.assertIn("eat wild_onion chest", actions)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertEqual(payload["item_names"]["bread_half"].get("eat_energy"), 5)
+        self.assertEqual(payload["item_names"]["wild_onion"].get("eat_energy"), 6)
+        html = web.render_page(viewer=P1)
+        data = self._run(payload, html)
+        self.assertTrue(data["packHalf"]["present"], data.get("invText"))
+        self.assertTrue(
+            any(t.lower().startswith("eat") and "5" in t for t in data["packHalf"]["buttons"]),
+            data["packHalf"],
+        )
+        self.assertTrue(data["shopOnion"]["present"], data.get("shopText"))
+        self.assertTrue(
+            any(t.lower().startswith("eat") and "6" in t for t in data["shopOnion"]["buttons"]),
+            data["shopOnion"],
+        )
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2397,11 +2397,14 @@ PAGE = r"""<!DOCTYPE html>
       return item.endsWith("_seed") || item.endsWith("_seedling") || item.endsWith("_crown") || item.endsWith("_crowns");
     }
     function snackEnergy(item, data) {
-      // Recipes and staples first; harvested crop fruit after. Seeds/crowns and
-      // cook-only crops (no eat_energy) are not snacks. Shop rows never use this.
+      // Same edible list as the engine (item_eat_energy): recipes and staples,
+      // then any catalog item with eat_energy (half loaf, wild onion, wild berry,
+      // harvested crops). Seeds/crowns and cook-only foods stay hidden.
       const rec = recipeInfo(item, data);
       if (rec && rec.eat_energy) return rec.eat_energy;
       if (isStockItem(item)) return 0;
+      const named = data && data.item_names && data.item_names[item];
+      if (named && named.eat_energy) return named.eat_energy;
       const info = (data && data.crops && data.crops[item]) || {};
       return info.eat_energy || 0;
     }
@@ -3267,7 +3270,7 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
     from inventory import FERTILIZERS, TOOLS, recipes, item_name
     from engine import stock_key
-    from inventory import STAPLES, MATERIALS, FORAGE_ITEMS
+    from inventory import STAPLES, MATERIALS, FORAGE_ITEMS, item_eat_energy
     keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
@@ -3279,7 +3282,11 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
         # item_name prefixes the count ("1 strawberry jam").
         name = one.split(" ", 1)[-1] if one else key.replace("_", " ")
         name_plural = many.split(" ", 1)[-1] if many else name + "s"
-        out[key] = {"name": name, "name_plural": name_plural}
+        entry = {"name": name, "name_plural": name_plural}
+        energy = item_eat_energy(key, crops, rules)
+        if energy:
+            entry["eat_energy"] = int(energy)
+        out[key] = entry
     return out
 
 
