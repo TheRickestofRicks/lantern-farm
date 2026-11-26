@@ -5671,34 +5671,114 @@ class CabinComfort(unittest.TestCase):
         self.assertNotIn("full belly", msg2)
         self.assertIn("wakes with 100 energy", msg2)
 
-    def test_fireplace_burns_one_wood_and_raises_wake_energy(self):
+    def test_wood_in_the_chest_does_not_auto_burn(self):
         from inventory import add_to_chest, stack_count, chest_of, sync_inventory_view
         add_to_chest(self.state, "wood", 3, self.rules)
         sync_inventory_view(self.state, self.rules)
-        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
+        self.assertIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
         _msg1, msg2 = self._end_both()
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 3)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P2]["energy"], 100)
+        self.assertNotIn("fire crackled", msg2)
+        self.assertFalse(self.state.get("fireplace_fueled"))
+
+    def _fuel(self, player=None):
+        player = player or P1
+        self.state["current_player"] = player
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=player, rules=self.rules)
+        self.assertTrue(ok, msg)
+        return msg
+
+    def test_fuel_fireplace_spends_wood_and_energy_and_raises_outlook(self):
+        from inventory import add_to_chest, stack_count, chest_of, sync_inventory_view
+        from engine import format_legal_action, energy_cost
+        add_to_chest(self.state, "wood", 2, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self.state["players"][P1]["energy"] = 100
+        line = format_legal_action("fuel fireplace", self.state, self.crops, P1, self.rules)
+        self.assertIn("5 energy", line)
+        self.assertIn("1 wood", line)
+        msg = self._fuel(P1)
+        self.assertIn("fireplace", msg.lower())
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 1)
+        self.assertEqual(self.state["players"][P1]["energy"], 100 - energy_cost("fuel_fireplace", self.rules))
+        self.assertTrue(self.state.get("fireplace_fueled"))
+        self.assertTrue(self.state["tiles"][CABIN_ROW - 1][CABIN_COL - 1].get("fire"))
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        self.assertEqual(sleep_outlook(self.state, P2, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("already", msg.lower())
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 1)
+
+    def test_fuel_uses_pack_wood_before_chest(self):
+        from inventory import add_to_chest, add_to_pack, stack_count, chest_of, pack_of, sync_inventory_view
+        add_to_chest(self.state, "wood", 2, self.rules)
+        add_to_pack(self.state, P1, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "wood"), 0)
         self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 2)
+
+    def test_fuel_requires_cabin_energy_and_wood(self):
+        from inventory import add_to_chest, sync_inventory_view
+        from hills import set_player_place, AREA_FARM
+        # No wood.
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("wood", msg.lower())
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        # Exhausted.
+        self.state["players"][P1]["energy"] = 3
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("energy", msg.lower())
+        self.assertIn("5", msg)
+        self.assertFalse(self.state.get("fireplace_fueled"))
+        # Not in the cabin.
+        self.state["players"][P1]["energy"] = 20
+        set_player_place(self.state, P1, AREA_FARM, 3, 1)
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+
+    def test_fueled_fire_warms_everyone_who_sleeps_in_the_cabin(self):
+        from inventory import add_to_chest, stack_count, chest_of, sync_inventory_view
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
+        _msg1, msg2 = self._end_both()
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 0)
         self.assertEqual(self.state["players"][P1]["energy"], 110)
         self.assertEqual(self.state["players"][P1]["energy_max"], 110)
         self.assertEqual(self.state["players"][P2]["energy"], 110)
-        self.assertEqual(self.state["players"][P2]["energy_max"], 110)
         self.assertIn("The fire crackled all night", msg2)
         self.assertIn("wakes with 110 energy", msg2)
         self.assertNotIn("+10", msg2)
-        # Wood already burned; the next outlook is 100 unless more is assumed — chest still has 2.
+        self.assertFalse(self.state.get("fireplace_fueled"))
+        # Next day the fire has to be laid again.
         self.state["current_player"] = P1
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
-        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
 
-    def test_eating_that_day_adds_a_full_belly_bonus(self):
-        from inventory import add_to_pack
+    def test_one_small_snack_is_not_enough_for_a_full_belly(self):
+        from inventory import add_to_pack, add_to_chest, sync_inventory_view
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["energy"] = 50
         add_to_pack(self.state, P1, "bread_half", 1, self.rules)
         ok, msg = do_action(self.state, self.crops, "eat half loaf", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(self.state["players"][P1].get("ate_today"))
-        self.assertFalse(self.state["players"][P2].get("ate_today"))
+        self.assertEqual(self.state["players"][P1].get("ate_energy_today"), 5)
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
+        add_to_pack(self.state, P1, "bread_half", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat half loaf", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1].get("ate_energy_today"), 10)
         self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
         self.assertEqual(sleep_outlook(self.state, P2, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
         _msg1, msg2 = self._end_both()
@@ -5709,14 +5789,26 @@ class CabinComfort(unittest.TestCase):
         self.assertIn(f"{N1} slept in the cabin and wakes with 110 energy, a full belly", msg2)
         self.assertNotIn("fire crackled", msg2)
         self.assertFalse(self.state["players"][P1].get("ate_today"))
+        self.assertFalse(self.state["players"][P1].get("ate_energy_today"))
+
+    def test_one_hearty_snack_earns_the_fed_bonus(self):
+        from inventory import add_to_pack
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 40
+        add_to_pack(self.state, P1, "carrot", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1].get("ate_energy_today"), 10)
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
 
     def test_fire_and_food_together_reach_120(self):
         from inventory import add_to_chest, add_to_pack, stack_count, chest_of, sync_inventory_view
         add_to_chest(self.state, "wood", 1, self.rules)
         sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
         self.state["players"][P1]["energy"] = 40
-        add_to_pack(self.state, P1, "bread", 1, self.rules)
-        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        add_to_pack(self.state, P1, "carrot", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 120 energy tomorrow")
         _msg1, msg2 = self._end_both()
@@ -5727,7 +5819,6 @@ class CabinComfort(unittest.TestCase):
         self.assertIn("The fire crackled all night, and a full belly helped", msg2)
         self.assertIn("wakes with 120 energy", msg2)
         self.assertIn("wakes with 110 energy", msg2)
-        # Elevated cap lasts through the day: a snack can fill back toward 120.
         self.state["current_player"] = P1
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["energy"] = 110
@@ -5738,20 +5829,20 @@ class CabinComfort(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 115)
         self.assertIn("115/120", msg)
 
-    def test_passing_out_skips_comfort_even_if_fed_and_wood_is_in_the_chest(self):
+    def test_passing_out_skips_comfort_even_if_fed_and_the_fire_is_fueled(self):
         from inventory import add_to_chest, add_to_pack, stack_count, chest_of, sync_inventory_view
         from hills import set_player_place, AREA_FARM
         add_to_chest(self.state, "wood", 2, self.rules)
         sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
         self.state["players"][P1]["energy"] = 40
         add_to_pack(self.state, P1, "carrot", 1, self.rules)
-        # Eat in the cabin, then walk out so the night is a pass-out.
         ok, msg = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         set_player_place(self.state, P1, AREA_FARM, 3, 1)
         self.assertIn("pass out", sleep_outlook(self.state, P1, self.rules).lower())
         self.assertIn("50", sleep_outlook(self.state, P1, self.rules))
-        # P2 is still in the cabin, so the house fire still burns for them.
+        # P2 is still in the cabin, so the laid fire warms them.
         _msg1, msg2 = self._end_both()
         self.assertEqual(self.state["players"][P1]["energy"], 50)
         self.assertEqual(self.state["players"][P1].get("energy_max"), 100)
@@ -5762,20 +5853,39 @@ class CabinComfort(unittest.TestCase):
         self.assertIn("The fire crackled all night", msg2)
         self.assertNotIn(f"{N1} slept in the cabin and wakes with 50 energy, a full belly", msg2)
 
-    def test_no_cabin_sleeper_leaves_the_wood_and_grants_no_fire(self):
+    def test_no_cabin_sleeper_gets_no_fire_bonus_after_fueling(self):
         from inventory import add_to_chest, stack_count, chest_of, sync_inventory_view
         from hills import set_player_place, AREA_FARM, AREA_HILLS
         add_to_chest(self.state, "wood", 1, self.rules)
         sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
         set_player_place(self.state, P1, AREA_FARM, 3, 1)
         set_player_place(self.state, P2, AREA_HILLS, 3, 3)
         _msg1, msg2 = self._end_both()
-        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 1)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 0)
         self.assertEqual(self.state["players"][P1]["energy"], 50)
         self.assertEqual(self.state["players"][P2]["energy"], 50)
         self.assertNotIn("fire crackled", msg2)
         self.assertIn("passed out", msg2)
+        self.assertFalse(self.state.get("fireplace_fueled"))
 
+    def test_cabin_narration_and_sprite_show_the_fire(self):
+        from inventory import add_to_chest, sync_inventory_view
+        from sprites import sprite_key
+        from describe import describe_tile
+        import web
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self._fuel(P1)
+        tile = self.state["tiles"][CABIN_ROW - 1][CABIN_COL - 1]
+        self.assertTrue(tile.get("fire"))
+        key = sprite_key(tile, self.state.get("weather"), CABIN_ROW, CABIN_COL)
+        self.assertTrue(key.endswith("_fire") or key == "cabin_fire", key)
+        text = describe_tile(self.state, self.crops, CABIN_ROW, CABIN_COL)
+        self.assertIn("fire is laid", text.lower())
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("fireplace_fueled"))
+        self.assertEqual(payload.get("fuel_fireplace_energy"), 5)
 
 
 

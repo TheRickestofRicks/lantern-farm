@@ -323,6 +323,8 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     if tile.get("type") == "cabin":
         from config import flavor
         cabin = flavor(f"cabin_{weather}") or flavor("cabin") or "the cabin. A warm lantern glows in the window."
+        if state.get("fireplace_fueled") or tile.get("fire"):
+            cabin = cabin.rstrip(".") + ". A fire is laid in the fireplace for tonight."
         return (
             f"  {here} — {cabin}{who_bit} "
             f"(sprite: {key})"

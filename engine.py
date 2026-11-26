@@ -164,6 +164,14 @@ def comfort_fed_bonus(rules: dict | None = None) -> int:
         return 10
 
 
+def comfort_fed_energy(rules: dict | None = None) -> int:
+    """Total eat_energy a player must eat in a day to earn the fed bonus."""
+    try:
+        return max(0, int(_comfort_cfg(rules).get("fed_energy", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
 def comfort_fire_wood(rules: dict | None = None) -> int:
     try:
         return max(1, int(_comfort_cfg(rules).get("fire_wood", 1)))
@@ -181,15 +189,55 @@ def chest_wood_count(state: dict, rules: dict | None = None) -> int:
     return int(stack_count(normalize_chest(state.get("chest"), rules), "wood") or 0)
 
 
+def fireplace_is_fueled(state: dict) -> bool:
+    return bool(state.get("fireplace_fueled"))
+
+
+def available_wood(state: dict, player: str | None = None, rules: dict | None = None) -> int:
+    """Wood in the pack and chest, without creating a chest on a fresh farm."""
+    from inventory import pack_of, stack_count, normalize_chest
+
+    n = 0
+    if player:
+        n += int(stack_count(pack_of(state, player, rules), "wood") or 0)
+    if "chest" in state:
+        n += int(stack_count(normalize_chest(state.get("chest"), rules), "wood") or 0)
+    return n
+
+
+def set_cabin_fire(state: dict, fueled: bool) -> None:
+    """Record whether the fireplace is fueled and mark the cabin tile for sprites."""
+    state["fireplace_fueled"] = bool(fueled)
+    tiles = state.get("tiles")
+    if not isinstance(tiles, list):
+        return
+    try:
+        tile = tiles[CABIN_ROW - 1][CABIN_COL - 1]
+    except (IndexError, TypeError):
+        return
+    if not isinstance(tile, dict) or tile.get("type") != "cabin":
+        return
+    if fueled:
+        tile["fire"] = True
+    else:
+        tile.pop("fire", None)
+
+
 def cabin_fire_will_burn(state: dict, rules: dict | None = None) -> bool:
-    """True if at least one player will sleep in the cabin and the chest has wood."""
-    if chest_wood_count(state, rules) < comfort_fire_wood(rules):
-        return False
-    return any(is_player_in_cabin(state, name) for name in known_players())
+    """True if the fireplace was already fueled today. Wood is spent when it is fueled."""
+    return fireplace_is_fueled(state)
 
 
-def player_ate_today(state: dict, player: str) -> bool:
-    return bool(player_slot(state, player).get("ate_today"))
+def player_ate_energy_today(state: dict, player: str) -> int:
+    try:
+        return max(0, int(player_slot(state, player).get("ate_energy_today") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def player_ate_today(state: dict, player: str, rules: dict | None = None) -> bool:
+    """True if the player ate enough food today to earn the next-morning fed bonus."""
+    return player_ate_energy_today(state, player) >= comfort_fed_energy(rules)
 
 
 def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
@@ -200,7 +248,7 @@ def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> 
     cap = max_energy(rules)
     if cabin_fire_will_burn(state, rules):
         cap += comfort_fire_bonus(rules)
-    if player_ate_today(state, player):
+    if player_ate_today(state, player, rules):
         cap += comfort_fed_bonus(rules)
     return cap
 
@@ -219,25 +267,20 @@ def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> in
 
 
 def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
-    """Burn fireplace wood once if anyone slept in the cabin. Call before slots are rebuilt.
+    """Apply last night's fire and fed bonuses, then clear the fireplace.
 
+    Wood is spent when someone fuels the fireplace, not at dawn.
     Returns {fire: bool, fed: {player: bool}, wake: {player: int}}.
     """
     rules = rules or load_rules()
-    from inventory import remove_from_chest, sync_inventory_view
-
     sleepers = [name for name in known_players() if is_player_in_cabin(state, name)]
-    need = comfort_fire_wood(rules)
-    fire = bool(sleepers) and chest_wood_count(state, rules) >= need
-    if fire:
-        remove_from_chest(state, "wood", need, rules)
-        sync_inventory_view(state, rules)
+    fire = fireplace_is_fueled(state)
     base = max_energy(rules)
     faint = pass_out_energy(rules)
     fed = {}
     wake = {}
     for name in known_players():
-        ate = player_ate_today(state, name)
+        ate = player_ate_today(state, name, rules)
         slept = name in sleepers
         fed[name] = bool(ate and slept)
         if slept:
@@ -248,7 +291,41 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
             )
         else:
             wake[name] = faint
+    # The fuel was for this night, whether or not anyone slept in the cabin.
+    set_cabin_fire(state, False)
     return {"fire": fire, "fed": fed, "wake": wake}
+
+
+def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Spend 1 wood and 5 energy to lay a fire that lasts until the next dawn."""
+    from inventory import take_available, sync_inventory_view, item_name
+
+    rules = rules or load_rules()
+    player, err = parse_player(player)
+    if err:
+        return False, err
+    if not is_player_in_cabin(state, player):
+        return False, "Fuel the fireplace at the cabin."
+    if fireplace_is_fueled(state):
+        return False, "The fireplace is already fueled for tonight."
+    need = comfort_fire_wood(rules)
+    if available_wood(state, player, rules) < need:
+        return False, (
+            f"Need {item_name('wood', need)} in the backpack or the chest to fuel the fireplace."
+        )
+    taken = take_available(state, "wood", need, player, pack_only=False, rules=rules)
+    if taken < need:
+        return False, (
+            f"Need {item_name('wood', need)} in the backpack or the chest to fuel the fireplace."
+        )
+    sync_inventory_view(state, rules)
+    set_cabin_fire(state, True)
+    msg = (
+        f"{who(player, 'fuel', 'fuels')} the fireplace with "
+        f"{item_name('wood', need)}. It will keep the cabin warm tonight."
+    )
+    log_append(state, msg, player)
+    return True, msg
 
 
 def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool) -> str:
@@ -2051,7 +2128,7 @@ def end_turn(
                     name,
                     preview_wake_energy(state, name, rules),
                     cabin_fire_will_burn(state, rules),
-                    player_ate_today(state, name),
+                    player_ate_today(state, name, rules),
                 )
             )
         elif area == AREA_MINE:
@@ -3666,6 +3743,7 @@ def eat(
     hp_gained = heal_hp(state, player, restore, rules)
     slot["snacks_eaten"] = eaten + 1
     slot["ate_today"] = True
+    slot["ate_energy_today"] = player_ate_energy_today(state, player) + int(restore)
     left = cap_snacks - (eaten + 1)
     snack_bit = "No snacks left this turn." if left <= 0 else f"{left} snack(s) left this turn."
     bits = []
@@ -4240,6 +4318,13 @@ def legal_actions(
             # Always list it once the entrance is found, even if gold is short,
             # so the shop, look, and CLI can show the price.
             actions.append("buy pickaxe 1")
+        if (
+            actor
+            and not fireplace_is_fueled(state)
+            and energy >= energy_cost("fuel_fireplace", rules)
+            and available_wood(state, actor, rules) >= comfort_fire_wood(rules)
+        ):
+            actions.append("fuel fireplace")
         if actor and energy >= energy_cost("forge", rules):
             for tool in FORGE_TOOLS:
                 nxt = next_tool_tier(tool_tier(state, tool))
@@ -4649,6 +4734,11 @@ def action_descriptor(
             bits.append(inv_item_name(item, n, crops, rules))
         used = ", ".join(bits) if bits else "ingredients"
         return f"{_energy_word(cost)}, uses {used}"
+    if verb == "fuel":
+        cost = energy_cost("fuel_fireplace", rules)
+        need = comfort_fire_wood(rules)
+        wood = "1 wood" if need == 1 else f"{need} wood"
+        return f"{_energy_word(cost)}, uses {wood}"
     if verb == "end" and args and args[0].lower() == "turn":
         faint = pass_out_energy(rules)
         if actor and is_player_in_cabin(state, actor):
@@ -4836,6 +4926,8 @@ def do_action(
             return False, refused
 
     cost_verb = verb
+    if verb == "fuel":
+        cost_verb = "fuel_fireplace"
     if verb == "enter":
         cost_verb = "enter_mine"
     elif verb == "leave":
@@ -4853,9 +4945,10 @@ def do_action(
         cost = energy_cost(cost_verb, rules)
     energy = int(player_slot(state, actor)["energy"])
     if cost > energy:
+        label = "fuel fireplace" if verb == "fuel" else verb
         return (
             False,
-            f"Not enough energy. {verb} costs {cost}; "
+            f"Not enough energy. {label} costs {cost}; "
             f"{display_name(actor)} has {energy} left.",
         )
 
@@ -4948,12 +5041,17 @@ def do_action(
         if not words:
             return False, "Usage: forge <tool>   example: forge hoe"
         ok, msg = forge_tool(state, actor, " ".join(words), want, rules)
+    elif verb == "fuel":
+        target = " ".join(args).strip().lower()
+        if target not in {"", "fireplace", "the fireplace", "fire"}:
+            return False, "Usage: fuel fireplace"
+        ok, msg = fuel_fireplace(state, actor, rules)
     else:
         return (
             False,
             "Unknown action. Try look, move, go cabin, go north, enter mine, climb, mine, rest, "
             "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
-            "eat, buy, sell, take, drop, craft, recipes, or end turn.",
+            "eat, buy, sell, take, drop, craft, recipes, fuel fireplace, or end turn.",
         )
 
     if ok and cost:

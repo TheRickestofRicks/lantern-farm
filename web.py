@@ -37,6 +37,7 @@ from engine import (
     normalize_player,
     session,
     sleep_outlook,
+    energy_cost,
     weather_forecast,
 )
 from hey_notify import maybe_notify_after_end_turn
@@ -2527,6 +2528,18 @@ PAGE = r"""<!DOCTYPE html>
         const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
         addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
       }
+      if (slot.item === "wood" && opts.data && opts.data.in_cabin) {
+        const viewers = (opts.data.players || {});
+        const me = viewers[PLAYER] || {};
+        const haveE = (me.energy != null) ? me.energy : 0;
+        const cost = (opts.data.fuel_fireplace_energy != null) ? opts.data.fuel_fireplace_energy : 5;
+        const fueled = !!opts.data.fireplace_fueled;
+        addBtn(
+          fueled ? "Fireplace fueled" : ("Fuel fireplace (" + cost + " energy)"),
+          "fuel fireplace",
+          !fueled && cabinTurn && haveE >= cost
+        );
+      }
       if (btns.childNodes.length) body.appendChild(btns);
       row.appendChild(body);
       parent.appendChild(row);
@@ -3728,6 +3741,8 @@ def api_payload(
         "forecast": weather_forecast(state, crops, rules),
         "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
+        "fireplace_fueled": bool(state.get("fireplace_fueled")),
+        "fuel_fireplace_energy": energy_cost("fuel_fireplace", rules),
         "cabin": [CABIN_ROW, CABIN_COL],
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
         "chest": state.get("chest") or [],

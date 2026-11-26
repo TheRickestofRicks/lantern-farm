@@ -89,8 +89,12 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
     if not tile or tile.get("type") == "cabin":
         w = (weather or "").strip().lower()
         if w in {"rain", "snow", "storm", "cloud"}:
-            return f"cabin_{w}"
-        return "cabin"
+            key = f"cabin_{w}"
+        else:
+            key = "cabin"
+        if tile and tile.get("fire"):
+            key += "_fire"
+        return key
     watered = bool(tile.get("watered"))
     tilled = bool(tile.get("tilled"))
     crop = tile.get("crop")
@@ -175,11 +179,15 @@ def parse_sprite_key(key: str) -> dict:
         return hills
     if key == "cabin" or key.startswith("cabin_"):
         weather = "sun"
-        if key.startswith("cabin_") and len(key) > 6:
-            tail = key[6:]
-            if tail in {"rain", "snow", "storm", "cloud", "sun"}:
-                weather = tail
-        return {"kind": "cabin", "weather": weather}
+        fire = False
+        tail = key[6:] if key.startswith("cabin_") else ""
+        parts = [p for p in tail.split("_") if p]
+        if parts and parts[-1] == "fire":
+            fire = True
+            parts = parts[:-1]
+        if parts and parts[0] in {"rain", "snow", "storm", "cloud", "sun"}:
+            weather = parts[0]
+        return {"kind": "cabin", "weather": weather, "fire": fire}
     weedy = False
     weed = False
     snow = False
@@ -864,12 +872,22 @@ def _cabin_weather_overlay(weather: str) -> str:
     return ""
 
 
-def svg_cabin(weather: str | None = None) -> str:
+def svg_cabin(weather: str | None = None, fire: bool = False) -> str:
     weather = (weather or "sun").strip().lower()
     if weather not in {"rain", "snow", "storm", "cloud", "sun"}:
         weather = "sun"
     ground, sky = _cabin_sky(weather)
     overlay = _cabin_weather_overlay(weather)
+    fire_bit = ""
+    if fire:
+        fire_bit = (
+            f'<ellipse cx="108" cy="88" rx="36" ry="28" fill="#e89030" opacity="0.35"/>'
+            f'<ellipse cx="108" cy="88" rx="18" ry="14" fill="#ffc060" opacity="0.5"/>'
+            f'<path d="M111,24 q8,-16 18,-8" stroke="{P["smoke"]}" stroke-width="4" '
+            f'fill="none" opacity="0.7" stroke-linecap="round"/>'
+            f'<path d="M122,16 q8,-12 14,-4" stroke="{P["smoke"]}" stroke-width="3" '
+            f'fill="none" opacity="0.45" stroke-linecap="round"/>'
+        )
     body = f"""
   <rect width="{SIZE}" height="{SIZE}" fill="{ground}"/>
   <rect width="{SIZE}" height="70" fill="{sky}"/>
@@ -902,6 +920,7 @@ def svg_cabin(weather: str | None = None) -> str:
   <path d="M103,80 v3" stroke="{P["cabin_trim"]}" stroke-width="1"/>
   <path d="M99,83 l8,0 l1,6 l-10,0 z" fill="#e8a020" stroke="#6a3a10" stroke-width="0.7"/>
   <circle cx="103" cy="87" r="2" fill="{P["glow_soft"]}"/>
+  {fire_bit}
   {overlay}
 """
     return _svg(body)
@@ -1274,7 +1293,7 @@ def svg_for_key(key: str) -> str:
     if info.get("mine") or kind in {"mine_floor", "mine_safe"}:
         return svg_mine_tile(info)
     if kind == "cabin":
-        return svg_cabin(info.get("weather") or "sun")
+        return svg_cabin(info.get("weather") or "sun", fire=bool(info.get("fire")))
     if kind == "unknown":
         return svg_unknown(info.get("raw", key))
     tilled = bool(info.get("tilled"))

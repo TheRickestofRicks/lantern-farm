@@ -74,12 +74,14 @@ editing the engine.
 - The CLI plays as the configured CLI player by default (`--player` to override).
 - You can only act on your turn. If it isn't, the game says whose turn it is.
 - **End turn** in the cabin is sleep: next day you wake in the cabin with 100
-  energy. If the cabin chest has at least one wood, the fireplace burns one
-  piece for the house and cabin sleepers wake with 10 more energy. Eating
-  anything that day (a snack, a half loaf, or a meal) adds another 10 the
-  next morning. The morning cap can reach 120. End the turn anywhere else and
-  you pass out, waking where you fell with **50** energy — the fire and a
-  full belly only help a night spent in the cabin.
+  energy. From the cabin, `fuel fireplace` spends 5 energy and one wood (from
+  the backpack or the chest) to lay a fire for the night. Whoever sleeps in
+  the cabin then wakes with 10 more energy. Eating at least 10 energy worth
+  of food that day (two small snacks, or one heartier one) adds another 10
+  the next morning. The morning cap
+  can reach 120. End the turn anywhere else and you pass out, waking where
+  you fell with **50** energy — the fire and a full belly only help a night
+  spent in the cabin.
 - When **both** have ended their turn for the day, the day advances
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.

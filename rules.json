@@ -24,7 +24,8 @@
     "enter_mine": 5,
     "rest": 0,
     "elevator": 5,
-    "forge": 5
+    "forge": 5,
+    "fuel_fireplace": 5
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -245,6 +246,7 @@
   "cabin_comfort": {
     "fire_bonus": 10,
     "fed_bonus": 10,
-    "fire_wood": 1
+    "fire_wood": 1,
+    "fed_energy": 10
   }
 }
