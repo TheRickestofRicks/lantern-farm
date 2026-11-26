@@ -309,12 +309,28 @@ Each phase should be its own playable stretch, not one giant commit.
 These are parked until the current art and engine work is in and playing
 well. Design notes only; not built yet.
 
-- **Cabin interior.** Press E (enter cabin) from the farm cabin tile to
-  open a small interior grid, like the mine. Moving inside is free. The
-  fireplace becomes a tile you fuel by hand, and the cabin chest becomes
-  a real tile. Maybe bed and kitchen tiles too, and a way to decorate
-  the home. The kitchen (currently reachable through the recipe book at
-  the cabin) will be rebuilt into that interior.
+- **Cabin interior.** Next up; not built yet. This is the short plan.
+  Press E (enter cabin) from the farm cabin tile to step into a 3×3
+  interior, same idea as entering the mine. Leaving is from the door
+  tile, back onto the farm cabin tile. Walking inside costs no energy.
+  Being anywhere in the interior still counts as “in the cabin” for
+  sleep, together rest, the fireplace, the chest, and cooking.
+
+  Layout, finalized (rows top to bottom, columns left to right):
+
+      (1,1) double bed    (1,2) chest         (1,3) empty floor
+      (2,1) free floor    (2,2) free floor    (2,3) fireplace
+      (3,1) door          (3,2) kitchen       (3,3) free floor
+
+  The top-right empty tile is reserved for a buildable display case
+  later; it stays plain floor in this pass. Fuel the fireplace from
+  the fireplace tile, open the cabin chest from the chest tile, and
+  cook from the kitchen tile (the recipe book, which currently works
+  anywhere at the cabin, moves there). Ending a turn anywhere inside
+  is still cabin sleep; the bed is the place you see yourselves rest,
+  and the upgraded-bed “well rested” bonus stays parked until that
+  upgrade exists. Decorating the home is a later follow-on, after
+  this interior is in and playing.
 
 - **Tulips.**
 
