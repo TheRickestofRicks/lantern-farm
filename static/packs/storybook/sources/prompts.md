@@ -166,13 +166,17 @@ Furniture overlays have no floor of their own — they sit on `cabin_floor`.
 - **cabin_floor** — Opaque full-bleed interior pine floorboards in honey,
   ochre, and umber, edge to edge, no furniture, no grass, no soil, no rug.
 - **cabin_bed** — A modest wooden double bed from above, two cream pillows
-  at the head, a cozy dusty-blue and cream quilt with a small stitched lantern
-  and a quiet aurora of green-violet-rose needlework. Subject on magenta.
+  at the head, and a cozy even dusty-blue quilt. A glowing lantern is
+  stitched in the centre of the quilt, set over a sweeping aurora that is
+  green on the left and blue on the right. An earlier quilt with the lantern
+  low-left, the aurora above it, and a glitchy pale rectangle near the
+  pillows was replaced. Subject on magenta.
 - **cabin_chest** — A closed rustic farmhouse wooden chest with dull iron
   bands and a hasp, subject on magenta.
 - **cabin_door** — The inside face of a simple wooden cabin door in a short
-  frame, iron latch, sitting at the bottom of the tile (the door is
-  bottom-left in the room). Subject on magenta.
+  frame, iron latch, sitting toward the bottom of the tile (the door is
+  bottom-left in the room) but fully inset so the frame does not clip
+  out of r3c1. The sideways placement is unchanged. Subject on magenta.
 - **cabin_fireplace** — A stone farmhouse fireplace on the right side of the
   tile, unlit firebox with cold logs, subject on magenta.
 - **cabin_fireplace_lit** — The same fireplace with a warm fire in the box.
