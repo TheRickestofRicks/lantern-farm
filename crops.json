@@ -7,12 +7,42 @@
     "strawberry": 0,
     "everbearing_seedling": 0,
     "everbearing": 0,
-    "kabocha_seed": 0,
     "turnip_seed": 0,
-    "carrot_seed": 0,
-    "kabocha": 0,
     "turnip": 0,
-    "carrot": 0
+    "radish_seed": 0,
+    "radish": 0,
+    "lettuce_seed": 0,
+    "lettuce": 0,
+    "spinach_seed": 0,
+    "spinach": 0,
+    "pea_seed": 0,
+    "pea": 0,
+    "carrot_seed": 0,
+    "carrot": 0,
+    "beet_seed": 0,
+    "beet": 0,
+    "potato_seed": 0,
+    "potato": 0,
+    "bush_bean_seed": 0,
+    "bush_bean": 0,
+    "cucumber_seed": 0,
+    "cucumber": 0,
+    "zucchini_seed": 0,
+    "zucchini": 0,
+    "tomato_seed": 0,
+    "tomato": 0,
+    "kabocha_seed": 0,
+    "kabocha": 0,
+    "pumpkin_seed": 0,
+    "pumpkin": 0,
+    "corn_seed": 0,
+    "corn": 0,
+    "onion_seed": 0,
+    "onion": 0,
+    "rhubarb_crown": 0,
+    "rhubarb": 0,
+    "asparagus_crown": 0,
+    "asparagus": 0
   },
   "crops": {
     "strawberry": {
@@ -61,7 +91,12 @@
       ],
       "fruiting_early_summer_days": 5,
       "name_plural": "strawberries",
-      "shop_name": "June-bearing strawberry seed"
+      "shop_name": "June-bearing strawberry seed",
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70
     },
     "everbearing": {
       "name": "everbearing strawberry",
@@ -112,49 +147,19 @@
         "summer",
         "autumn"
       ],
-      "fruiting_early_autumn_days": 5
-    },
-    "kabocha": {
-      "name": "kabocha",
-      "grow_days": 17,
-      "seed_price": 20,
-      "sell_price": 50,
-      "available": false,
-      "seasons": [
-        "spring",
-        "summer"
+      "fruiting_early_autumn_days": 5,
+      "yield_range": [
+        1,
+        3
       ],
-      "stages": [
-        {
-          "id": "seed",
-          "at": 0,
-          "label": "seed"
-        },
-        {
-          "id": "sprouting",
-          "at": 4,
-          "label": "sprouting"
-        },
-        {
-          "id": "growing",
-          "at": 10,
-          "label": "growing"
-        },
-        {
-          "id": "mature",
-          "at": 17,
-          "label": "mature"
-        }
-      ],
-      "eat_energy": 25,
-      "description": "A hefty winter squash with nutty, sweet flesh. Planted in spring, it takes most of the season and ripens in late summer. Frost in autumn will kill it."
+      "min_harvest_growth": 70
     },
     "turnip": {
       "name": "turnip",
       "grow_days": 9,
       "seed_price": 8,
       "sell_price": 22,
-      "available": false,
+      "available": true,
       "seasons": [
         "spring",
         "autumn"
@@ -182,14 +187,197 @@
         }
       ],
       "eat_energy": 12,
-      "description": "A quick, pale root with a peppery bite. A cool-season crop for spring or autumn; summer heat does not suit it."
+      "description": "A quick, pale root with a peppery bite. A cool-season crop for spring or autumn; summer heat does not suit it.",
+      "shop_seasons": [
+        "spring"
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70
+    },
+    "radish": {
+      "name": "radish",
+      "name_plural": "radishes",
+      "grow_days": 4,
+      "seed_price": 6,
+      "sell_price": 14,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 1,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 2,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 4,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "description": "A peppery little root that is up in a handful of days. Best in the cool of spring or autumn; summer heat makes it bolt."
+    },
+    "lettuce": {
+      "name": "lettuce",
+      "grow_days": 7,
+      "seed_price": 7,
+      "sell_price": 18,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 4,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 7,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "A loose head of tender leaves. It likes cool weather and finishes in about a week. Heat will make it bitter."
+    },
+    "spinach": {
+      "name": "spinach",
+      "grow_days": 6,
+      "seed_price": 7,
+      "sell_price": 16,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 1,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 3,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 6,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "Dark, iron-rich leaves that come up quickly in cool soil. A spring or autumn crop; it bolts when the days turn hot."
+    },
+    "pea": {
+      "name": "pea",
+      "name_plural": "peas",
+      "grow_days": 10,
+      "regrow_days": 4,
+      "seed_price": 12,
+      "sell_price": 15,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 5,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 10,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "description": "Climbing spring peas. The first pods are ready in about ten days, then you can pick again every four days into early summer."
     },
     "carrot": {
       "name": "carrot",
       "grow_days": 12,
       "seed_price": 12,
       "sell_price": 32,
-      "available": false,
+      "available": true,
       "seasons": [
         "spring",
         "summer",
@@ -219,7 +407,564 @@
         }
       ],
       "eat_energy": 10,
-      "description": "Crunchy orange roots that don't mind the cold. They take about twelve days, and a spring planting can finish in summer."
+      "description": "Crunchy orange roots that don't mind the cold. They take about twelve days, and a spring planting can finish in summer.",
+      "shop_seasons": [
+        "spring"
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 75
+    },
+    "beet": {
+      "name": "beet",
+      "name_plural": "beets",
+      "grow_days": 11,
+      "seed_price": 10,
+      "sell_price": 24,
+      "eat_energy": 12,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 6,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 11,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "A round crimson root with edible greens. Planted in spring, it is ready in a little over a week, and does not mind finishing in summer."
+    },
+    "potato": {
+      "name": "potato",
+      "name_plural": "potatoes",
+      "shop_name": "seed potato",
+      "grow_days": 14,
+      "seed_price": 14,
+      "sell_price": 20,
+      "eat_energy": 12,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 3,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 8,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 14,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        2,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "description": "A hill of seed potatoes planted in spring. In about two weeks the plants yield a couple of whole potatoes, sometimes three."
+    },
+    "bush_bean": {
+      "name": "bush bean",
+      "name_plural": "bush beans",
+      "grow_days": 10,
+      "regrow_days": 4,
+      "seed_price": 11,
+      "sell_price": 16,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 5,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 10,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "description": "Compact bush beans. The first picking is ready in about ten days, then the plants keep bearing every four days through summer."
+    },
+    "cucumber": {
+      "name": "cucumber",
+      "grow_days": 11,
+      "regrow_days": 3,
+      "seed_price": 13,
+      "sell_price": 20,
+      "eat_energy": 10,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 3,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 6,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 11,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "A vining cucumber planted in spring. The first fruit is ready in about eleven days, then new ones follow every three days in the heat."
+    },
+    "zucchini": {
+      "name": "zucchini",
+      "grow_days": 9,
+      "regrow_days": 3,
+      "seed_price": 13,
+      "sell_price": 18,
+      "eat_energy": 12,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 5,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 9,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "A generous summer squash. The first zucchini is ready in about nine days, and the plant keeps offering more every three days."
+    },
+    "tomato": {
+      "name": "tomato",
+      "name_plural": "tomatoes",
+      "grow_days": 14,
+      "regrow_days": 4,
+      "seed_price": 16,
+      "sell_price": 22,
+      "eat_energy": 12,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 3,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 8,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 14,
+          "label": "ripe"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "description": "A spring-planted tomato that ripens in summer. The first fruit takes about two weeks, then the vine keeps ripening a few more every four days into early autumn."
+    },
+    "kabocha": {
+      "name": "kabocha",
+      "grow_days": 30,
+      "seed_price": 20,
+      "sell_price": 50,
+      "available": true,
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 6,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 16,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 30,
+          "label": "mature"
+        }
+      ],
+      "eat_energy": 25,
+      "description": "A hefty winter squash with nutty, sweet flesh. Planted in spring, it grows through summer and ripens in early autumn. A hard frost at the end of autumn will kill it.",
+      "shop_seasons": [
+        "spring"
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 60
+    },
+    "pumpkin": {
+      "name": "pumpkin",
+      "grow_days": 33,
+      "seed_price": 18,
+      "sell_price": 45,
+      "eat_energy": 20,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 7,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 18,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 33,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 60,
+      "description": "A large autumn pumpkin. Planted in spring, it rambles through summer and is ready early in autumn. One vine gives one or two whole pumpkins."
+    },
+    "corn": {
+      "name": "corn",
+      "grow_days": 28,
+      "seed_price": 14,
+      "sell_price": 24,
+      "eat_energy": 14,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 5,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 14,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 28,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "Tall sweet corn planted in spring. The ears ripen at the turn of autumn, one or two to a stalk."
+    },
+    "onion": {
+      "name": "onion",
+      "grow_days": 31,
+      "seed_price": 9,
+      "sell_price": 20,
+      "eat_energy": 8,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer",
+        "autumn"
+      ],
+      "stages": [
+        {
+          "id": "seed",
+          "at": 0,
+          "label": "seed"
+        },
+        {
+          "id": "sprouting",
+          "at": 6,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 16,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 31,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        2
+      ],
+      "min_harvest_growth": 70,
+      "description": "A long-season onion started from seed in spring. The bulbs cure in early autumn."
+    },
+    "rhubarb": {
+      "name": "rhubarb",
+      "stock": "crown",
+      "shop_name": "rhubarb crown",
+      "grow_days": 10,
+      "regrow_days": 6,
+      "seed_price": 25,
+      "sell_price": 28,
+      "eat_energy": 6,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "crown",
+          "at": 0,
+          "label": "crown"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 5,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 10,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "perennial": true,
+      "lifespan_seasons": 12,
+      "fruiting_after_dormancy": true,
+      "fruiting_seasons": [
+        "spring"
+      ],
+      "description": "A tart perennial started from a crown. The first year is for roots \u2014 it will not be ready to pull until the spring after its first winter, the way June-bearing strawberries wait. Then it offers stalks each spring, rests through autumn and winter, and lives about three years. The raw stalks are a small, sour snack; they shine in jam."
+    },
+    "asparagus": {
+      "name": "asparagus",
+      "stock": "crown",
+      "shop_name": "asparagus crown",
+      "grow_days": 10,
+      "regrow_days": 5,
+      "seed_price": 30,
+      "sell_price": 32,
+      "eat_energy": 10,
+      "available": true,
+      "shop_seasons": [
+        "spring"
+      ],
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "stages": [
+        {
+          "id": "crown",
+          "at": 0,
+          "label": "crown"
+        },
+        {
+          "id": "sprouting",
+          "at": 2,
+          "label": "sprouting"
+        },
+        {
+          "id": "growing",
+          "at": 5,
+          "label": "growing"
+        },
+        {
+          "id": "mature",
+          "at": 10,
+          "label": "mature"
+        }
+      ],
+      "yield_range": [
+        1,
+        3
+      ],
+      "min_harvest_growth": 70,
+      "perennial": true,
+      "lifespan_seasons": 16,
+      "fruiting_after_dormancy": true,
+      "fruiting_seasons": [
+        "spring"
+      ],
+      "description": "A perennial started from a crown. It spends the first year settling in, then returns with harvestable spears each spring after its first winter, like a June-bearing berry. It rests through autumn and winter and can live about four years."
     }
   }
 }

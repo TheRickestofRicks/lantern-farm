@@ -121,6 +121,35 @@ DEFAULT_RECIPES = {
         "sell_price": 88,
         "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen.",
     },
+    "rhubarb_strawberry_jam": {
+        "name": "rhubarb strawberry jam",
+        "ingredients": {"rhubarb": 2, "strawberry": 1},
+        "eat_energy": 45,
+        "sell_price": 95,
+        "description": "Tart rhubarb simmered with a strawberry. A brighter jam than strawberries alone, and worth more than the fruit raw.",
+    },
+    "garden_salad": {
+        "name": "garden salad",
+        "ingredients": {"lettuce": 1, "tomato": 1, "cucumber": 1},
+        "eat_energy": 36,
+        "sell_price": 72,
+        "description": "A bowl of lettuce, tomato, and cucumber. Cooler than eating the vegetables raw, and worth a little more gold.",
+    },
+    "roasted_potatoes": {
+        "name": "roasted potatoes",
+        "name_plural": "servings of roasted potatoes",
+        "ingredients": {"potato": 2, "butter": 1},
+        "eat_energy": 42,
+        "sell_price": 52,
+        "description": "Two potatoes roasted with a pat of butter. Heartier than the potatoes raw, and worth more than selling them apart.",
+    },
+    "pumpkin_soup": {
+        "name": "pumpkin soup",
+        "ingredients": {"pumpkin": 1},
+        "eat_energy": 52,
+        "sell_price": 62,
+        "description": "A bowl of roasted pumpkin soup. Restores more energy than eating the pumpkin raw, and sells for more than the squash alone.",
+    },
 }
 
 FERTILIZERS = {
@@ -194,6 +223,18 @@ ITEM_ALIASES = {
     "kabocha cream soup": "kabocha_cream_soup",
     "kabocha_cream_soup": "kabocha_cream_soup",
     "cream soup": "kabocha_cream_soup",
+    "rhubarb strawberry jam": "rhubarb_strawberry_jam",
+    "rhubarb_strawberry_jam": "rhubarb_strawberry_jam",
+    "rhubarb jam": "rhubarb_strawberry_jam",
+    "strawberry rhubarb jam": "rhubarb_strawberry_jam",
+    "garden salad": "garden_salad",
+    "garden_salad": "garden_salad",
+    "salad": "garden_salad",
+    "roasted potatoes": "roasted_potatoes",
+    "roasted_potatoes": "roasted_potatoes",
+    "roast potatoes": "roasted_potatoes",
+    "pumpkin soup": "pumpkin_soup",
+    "pumpkin_soup": "pumpkin_soup",
     "fertilizer_general": "fertilizer_general",
     "general fertilizer": "fertilizer_general",
     "general fert": "fertilizer_general",
@@ -440,12 +481,22 @@ def normalize_item(raw: str | None) -> str | None:
         info = crop_info(crops, kind)
         if info:
             return stock_key(kind, info)
+    if text.endswith(" crowns"):
+        kind = normalize_kind(text[: -len(" crowns")])
+        info = crop_info(crops, kind)
+        if info:
+            return stock_key(kind, info)
+    if text.endswith(" crown"):
+        kind = normalize_kind(text[: -len(" crown")])
+        info = crop_info(crops, kind)
+        if info:
+            return stock_key(kind, info)
     kind = normalize_kind(text.replace(" ", "_"))
     if crop_info(crops, kind):
         return kind
     # stock keys already ending in _seed / _seedling
     underscored = text.replace(" ", "_")
-    if underscored.endswith("_seed") or underscored.endswith("_seedling"):
+    if underscored.endswith("_seed") or underscored.endswith("_seedling") or underscored.endswith("_crown"):
         kind = underscored.rsplit("_", 1)[0]
         if crop_info(crops, kind):
             return underscored
@@ -496,6 +547,9 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     if item.endswith("_seedling"):
         kind = item[: -len("_seedling")]
         stock = "seedling"
+    elif item.endswith("_crown"):
+        kind = item[: -len("_crown")]
+        stock = "crown"
     elif item.endswith("_seed"):
         kind = item[: -len("_seed")]
         stock = "seed"

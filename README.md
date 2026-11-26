@@ -53,9 +53,10 @@ editing the engine.
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.
 - Eat a harvested crop from the backpack with `eat <crop>` (up to two snacks a
-  turn). A strawberry restores 30, an everbearing strawberry 20. Later crops
-  still snack if you have them (carrot 10, turnip 12, kabocha 25). Eating
-  spends the crop instead of selling it.
+  turn). A strawberry restores 30, an everbearing strawberry 20; leafy and
+  root crops are smaller snacks (radish, lettuce, spinach, and peas 8, carrot 10,
+  turnip and beet 12, kabocha 25, pumpkin 20). Eating spends the crop instead
+  of selling it.
 - If `notify` is set in `config.local.json`, a short ping is sent on the
   configured handoff (for example when player 1 ends and it becomes player
   2's turn). Credentials come from a separate env file named in that
@@ -242,8 +243,8 @@ configured.
   open a whole season. Older years are archived locally and are not shown.
   Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
-- A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (strawberries 1–3, kabocha and roots 1–2, always at least one).
-- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till), a shovel (needed to unearth a plant and return the plot to plain soil; key U), and a watering can (needed to water) each take a slot. One hoe, one shovel, and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, and kabocha cream soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
+- A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (berries, peas, beans, tomatoes, rhubarb and asparagus 1–3, potatoes 2–3, squash and most roots 1–2, always at least the crop's minimum).
+- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till), a shovel (needed to unearth a plant and return the plot to plain soil; key U), and a watering can (needed to water) each take a slot. One hoe, one shovel, and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, kabocha cream soup, rhubarb strawberry jam, garden salad, roasted potatoes, and pumpkin soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
@@ -254,13 +255,14 @@ configured.
 
 ## Crops
 
-Content is added season by season. The shop currently sells June-bearing strawberry seeds and everbearing
-strawberry seedlings in spring and summer. In autumn and winter the shop has
-nothing to sell yet — later seeds for those seasons arrive in a later update. Turnip, carrot, and
-kabocha stay in `crops.json` as later content (`"available": false`). Existing
-plants already in the ground keep growing and can be harvested; harvested later
-crops stay in the backpack and can still be sold or eaten. Seeds you already own
-can still be planted in season.
+Content is added season by season. In spring the shop sells June-bearing
+strawberry seeds, everbearing strawberry seedlings, and a full bed of
+spring-planted crops: quick cool-weather vegetables, summer fruiting crops,
+autumn squash and grain, and perennial rhubarb and asparagus crowns. Those
+longer crops are planted in spring and mature in summer or early autumn.
+In summer the shop keeps the two strawberries. In autumn and winter the
+shop has no seeds yet — later seeds for those seasons arrive in a later
+update.
 
 The shop opens as a window (button or `S`, `Esc` to close). Each item shows
 its picture, a short description, season, grow and regrow time, prices, snack
@@ -269,13 +271,30 @@ energy, and buy or sell controls.
 Crop times follow real life, scaled so one 15-day game season is about one
 real season (~90 days, or ~6 real days per game day).
 
-| Crop       | Days                                      | Seed | Sell | Eat | Seasons                          | Shop   |
-|------------|-------------------------------------------|------|------|-----|----------------------------------|--------|
-| strawberry (June-bearing seed) | 7, then every 7 in its fruiting window | 15G | 25G | 30 | spring, summer (dormant fall/winter) | yes |
-| everbearing strawberry (seedling) | 4 to settle, then every 7 in its fruiting window | 40G | 18G | 20 | spring through early autumn (dormant winter) | yes |
-| kabocha    | 17                                        | 20G  | 50G  | 25  | spring, summer (frost in autumn) | later  |
-| turnip     | 9                                         | 8G   | 22G  | 12  | spring, autumn                   | later  |
-| carrot     | 12                                        | 12G  | 32G  | 10  | spring, summer, autumn, winter   | later  |
+| Crop | Days | Regrow | Seed | Sell | Eat | Yield | Seasons | Shop |
+|------|------|--------|------|------|-----|-------|---------|------|
+| strawberry (June-bearing seed) | 7, then every 7 in its fruiting window | 7 | 15G | 25G | 30 | 1–3 | spring, summer (dormant autumn/winter) | spring, summer |
+| everbearing strawberry (seedling) | 4 to settle, then every 7 | 7 | 40G | 18G | 20 | 1–3 | spring through early autumn (dormant winter) | spring, summer |
+| turnip | 9 | — | 8G | 22G | 12 | 1–2 | spring, autumn | spring |
+| radish | 4 | — | 6G | 14G | 8 | 1–3 | spring, autumn | spring |
+| lettuce | 7 | — | 7G | 18G | 8 | 1–2 | spring, autumn | spring |
+| spinach | 6 | — | 7G | 16G | 8 | 1–2 | spring, autumn | spring |
+| pea | 10 | 4 | 12G | 15G | 8 | 1–3 | spring, summer | spring |
+| carrot | 12 | — | 12G | 32G | 10 | 1–2 | spring–winter | spring |
+| beet | 11 | — | 10G | 24G | 12 | 1–2 | spring, summer, autumn | spring |
+| potato | 14 | — | 14G | 20G | 12 | 2–3 | spring, summer | spring |
+| bush bean | 10 | 4 | 11G | 16G | 8 | 1–3 | spring, summer | spring |
+| cucumber | 11 | 3 | 13G | 20G | 10 | 1–2 | spring, summer | spring |
+| zucchini | 9 | 3 | 13G | 18G | 12 | 1–2 | spring, summer | spring |
+| tomato | 14 | 4 | 16G | 22G | 12 | 1–3 | spring, summer, autumn | spring |
+| kabocha | 30 | — | 20G | 50G | 25 | 1–2 | spring–autumn | spring |
+| pumpkin | 33 | — | 18G | 45G | 20 | 1–2 | spring–autumn | spring |
+| corn | 28 | — | 14G | 24G | 14 | 1–2 | spring–autumn | spring |
+| onion | 31 | — | 9G | 20G | 8 | 1–2 | spring–autumn | spring |
+| rhubarb (crown) | 10 to settle; harvests the next spring | 6 | 25G | 28G | 6 | 1–3 | spring, summer (dormant autumn/winter) | spring |
+| asparagus (crown) | 10 to settle; harvests the next spring | 5 | 30G | 32G | 10 | 1–3 | spring, summer (dormant autumn/winter) | spring |
+
+Rhubarb and asparagus are perennials, started from a crown. Like June-bearing strawberries, they establish in the first year and are ready to harvest the spring after their first winter. Rhubarb lives about three years; asparagus about four.
 
 Strawberries are a perennial "power fruit," grown more for fun than for gold.
 Like real June-bearing plants, the first season is for roots and runners —

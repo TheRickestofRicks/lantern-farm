@@ -198,6 +198,36 @@ P = {
     "carrot": "#e07a3d",
     "carrot_d": "#c45a22",
     "carrot_hi": "#f0a060",
+    "radish": "#d0506a",
+    "radish_tip": "#f2e6d8",
+    "lettuce": "#6aaa4a",
+    "lettuce_hi": "#c6e08a",
+    "spinach": "#2f6b38",
+    "pea": "#7a9a40",
+    "pea_pod": "#5a8a38",
+    "beet": "#7a2040",
+    "beet_hi": "#c05070",
+    "potato": "#d2b07a",
+    "potato_d": "#8a6840",
+    "bean": "#3d8a3a",
+    "bean_pod": "#5aaa48",
+    "cucumber": "#3d8a4a",
+    "cucumber_stripe": "#c8e0a0",
+    "zucchini": "#4a8a28",
+    "zucchini_hi": "#8aba50",
+    "tomato": "#c43c28",
+    "tomato_hi": "#e87850",
+    "pumpkin": "#e07a28",
+    "pumpkin_hi": "#f0a050",
+    "pumpkin_rib": "#b85a18",
+    "corn": "#e8c84a",
+    "corn_husk": "#5a8a38",
+    "onion": "#d8c078",
+    "onion_skin": "#c9a050",
+    "rhubarb": "#c04048",
+    "rhubarb_leaf": "#3d6b3a",
+    "asparagus": "#4a7a38",
+    "asparagus_tip": "#6a9a48",
     "berry": "#c43c3c",
     "berry_hi": "#e07060",
     "berry_seed": "#f2e6c8",
@@ -390,6 +420,106 @@ def _carrot_fruit(x: int, y: int, scale: float = 1.0) -> str:
     )
 
 
+def _round_root(x: int, y: int, fill: str, hi: str, scale: float = 1.0, leaves: bool = True) -> str:
+    body = (
+        f'<ellipse cx="{x}" cy="{y+4}" rx="{15*scale}" ry="{13*scale}" fill="{fill}"/>'
+        f'<ellipse cx="{x-4}" cy="{y+2}" rx="{5*scale}" ry="{4*scale}" fill="{hi}" opacity="0.55"/>'
+    )
+    if leaves:
+        body += (
+            f'<path d="M{x},{y-8*scale} C{x-10},{y-20*scale} {x-16},{y-16*scale} {x-14},{y-10*scale}" '
+            f'stroke="{P["leaf"]}" stroke-width="2" fill="none"/>'
+            f'<path d="M{x},{y-8*scale} C{x+8},{y-22*scale} {x+16},{y-16*scale} {x+12},{y-8*scale}" '
+            f'stroke="{P["leaf3"]}" stroke-width="2" fill="none"/>'
+        )
+    return body
+
+
+def _leafy_head(x: int, y: int, fill: str, hi: str, scale: float = 1.0) -> str:
+    return (
+        f'<ellipse cx="{x}" cy="{y}" rx="{18*scale}" ry="{14*scale}" fill="{fill}"/>'
+        f'<ellipse cx="{x-6}" cy="{y-2}" rx="{8*scale}" ry="{6*scale}" fill="{hi}" opacity="0.55"/>'
+        f'<ellipse cx="{x+8}" cy="{y+3}" rx="{7*scale}" ry="{5*scale}" fill="{P["leaf2"]}" opacity="0.5"/>'
+        f'<ellipse cx="{x}" cy="{y-8*scale}" rx="{10*scale}" ry="{5*scale}" fill="{fill}"/>'
+    )
+
+
+def _pod_cluster(x: int, y: int, fill: str, n: int = 3, scale: float = 1.0) -> str:
+    bits = [_growing_leaves(x, y - 8)]
+    for i, dx in enumerate((-12, 0, 12)[:n]):
+        yy = y + 4 + (i % 2) * 4
+        bits.append(
+            f'<ellipse cx="{x+dx*scale}" cy="{yy}" rx="{8*scale}" ry="{3.5*scale}" '
+            f'fill="{fill}" transform="rotate({-25+i*20} {x+dx*scale} {yy})"/>'
+        )
+    return "".join(bits)
+
+
+def _vine_fruit(x: int, y: int, fill: str, hi: str, rx: float, ry: float, scale: float = 1.0) -> str:
+    return (
+        _growing_leaves(x, y - 10)
+        + f'<ellipse cx="{x}" cy="{y+8}" rx="{rx*scale}" ry="{ry*scale}" fill="{fill}"/>'
+        + f'<ellipse cx="{x-4*scale}" cy="{y+6}" rx="{rx*0.35*scale}" ry="{ry*0.3*scale}" fill="{hi}" opacity="0.5"/>'
+    )
+
+
+def _corn_ear(x: int, y: int, scale: float = 1.0) -> str:
+    return (
+        _growing_leaves(x, y - 16)
+        + f'<rect x="{x-7*scale}" y="{y-6*scale}" width="{14*scale}" height="{28*scale}" rx="{6*scale}" fill="{P["corn_husk"]}"/>'
+        + f'<rect x="{x-5*scale}" y="{y-2*scale}" width="{10*scale}" height="{20*scale}" rx="{4*scale}" fill="{P["corn"]}"/>'
+    )
+
+
+def _onion_bulb(x: int, y: int, scale: float = 1.0) -> str:
+    return (
+        f'<ellipse cx="{x}" cy="{y+6}" rx="{14*scale}" ry="{13*scale}" fill="{P["onion"]}"/>'
+        f'<path d="M{x-10*scale},{y+2} Q{x},{y-4} {x+10*scale},{y+2}" stroke="{P["onion_skin"]}" fill="none" stroke-width="1.2"/>'
+        f'<path d="M{x},{y-6*scale} C{x-4},{y-20*scale} {x-10},{y-18*scale} {x-8},{y-10*scale}" stroke="{P["leaf3"]}" stroke-width="2" fill="none"/>'
+        f'<path d="M{x},{y-6*scale} C{x+6},{y-22*scale} {x+12},{y-16*scale} {x+8},{y-8*scale}" stroke="{P["leaf"]}" stroke-width="2" fill="none"/>'
+    )
+
+
+def _rhubarb_mature(x: int, y: int, scale: float = 1.0) -> str:
+    return (
+        f'<path d="M{x-8},{y+12} L{x-10},{y-8}" stroke="{P["rhubarb"]}" stroke-width="{4*scale}" fill="none" stroke-linecap="round"/>'
+        f'<path d="M{x+2},{y+12} L{x+4},{y-14}" stroke="{P["rhubarb"]}" stroke-width="{4.5*scale}" fill="none" stroke-linecap="round"/>'
+        f'<path d="M{x+10},{y+12} L{x+14},{y-6}" stroke="{P["rhubarb"]}" stroke-width="{3.5*scale}" fill="none" stroke-linecap="round"/>'
+        f'<ellipse cx="{x-12}" cy="{y-12}" rx="{12*scale}" ry="{8*scale}" fill="{P["rhubarb_leaf"]}"/>'
+        f'<ellipse cx="{x+6}" cy="{y-18}" rx="{14*scale}" ry="{9*scale}" fill="{P["leaf"]}"/>'
+        f'<ellipse cx="{x+16}" cy="{y-10}" rx="{11*scale}" ry="{7*scale}" fill="{P["leaf3"]}"/>'
+    )
+
+
+def _asparagus_spears(x: int, y: int, scale: float = 1.0, n: int = 3) -> str:
+    bits = []
+    for i, dx in enumerate((-10, 0, 10)[:n]):
+        bits.append(
+            f'<path d="M{x+dx},{y+14} L{x+dx},{y-10}" stroke="{P["asparagus"]}" '
+            f'stroke-width="{3.2*scale}" fill="none" stroke-linecap="round"/>'
+            f'<ellipse cx="{x+dx}" cy="{y-12}" rx="{3.5*scale}" ry="{5*scale}" fill="{P["asparagus_tip"]}"/>'
+        )
+    return "".join(bits)
+
+
+def _potato_hill(x: int, y: int, scale: float = 1.0) -> str:
+    return (
+        _growing_leaves(x, y - 8)
+        + f'<ellipse cx="{x-10}" cy="{y+10}" rx="{9*scale}" ry="{6*scale}" fill="{P["potato"]}"/>'
+        + f'<ellipse cx="{x+8}" cy="{y+12}" rx="{8*scale}" ry="{5.5*scale}" fill="{P["potato_d"]}"/>'
+        + f'<ellipse cx="{x+2}" cy="{y+6}" rx="{7*scale}" ry="{5*scale}" fill="{P["potato"]}"/>'
+    )
+
+
+def _draw_crown(x: int, y: int) -> str:
+    return (
+        f'<ellipse cx="{x}" cy="{y+8}" rx="18" ry="8" fill="{P["mound"]}"/>'
+        f'<ellipse cx="{x-6}" cy="{y+2}" rx="7" ry="5" fill="{P["seed"]}"/>'
+        f'<ellipse cx="{x+6}" cy="{y+1}" rx="6" ry="4.5" fill="{P["seed_d"]}"/>'
+        f'<path d="M{x},{y+2} L{x},{y-6}" stroke="{P["stem"]}" stroke-width="2" fill="none"/>'
+    )
+
+
 def _withered_plant(x: int, y: int) -> str:
     return (
         f'<path d="M{x},{y+12} C{x+6},{y} {x+14},{y-8} {x+18},{y-6}" '
@@ -460,6 +590,8 @@ def _crop_layer(kind: str, stage: str) -> str:
         return _withered_plant(x, y)
     if stage == "dormant":
         return _dormant_plant(x, y, kind)
+    if stage == "crown":
+        return _draw_crown(x, y)
     if stage == "seed":
         return _draw_seed(x, y)
     if stage in {"sprouting", "regrowing", "seedling"}:
@@ -469,12 +601,29 @@ def _crop_layer(kind: str, stage: str) -> str:
             "carrot": P["leaf"],
             "strawberry": P["leaf3"],
             "everbearing": P["leaf3"],
+            "radish": P["leaf3"],
+            "lettuce": P["lettuce"],
+            "spinach": P["spinach"],
+            "pea": P["pea"],
+            "beet": P["leaf"],
+            "potato": P["leaf"],
+            "bush_bean": P["bean"],
+            "cucumber": P["cucumber"],
+            "zucchini": P["zucchini"],
+            "tomato": P["leaf"],
+            "pumpkin": P["leaf"],
+            "corn": P["corn_husk"],
+            "onion": P["leaf3"],
+            "rhubarb": P["rhubarb_leaf"],
+            "asparagus": P["asparagus"],
         }.get(kind, P["leaf"])
         return _sprout(x, y, leaf)
     if stage == "growing":
         extra = ""
         if kind == "kabocha":
             extra = _kabocha_fruit(x, y + 6, 0.45)
+        elif kind == "pumpkin":
+            extra = f'<ellipse cx="{x}" cy="{y+8}" rx="10" ry="8" fill="{P["pumpkin"]}"/>'
         elif kind == "turnip":
             extra = f'<ellipse cx="{x}" cy="{y+8}" rx="8" ry="6" fill="{P["turnip_top"]}"/>'
         elif kind == "carrot":
@@ -482,6 +631,14 @@ def _crop_layer(kind: str, stage: str) -> str:
                 f'<path d="M{x},{y+4} L{x+4},{y+8} L{x},{y+16} L{x-4},{y+8} Z" '
                 f'fill="{P["carrot"]}"/>'
             )
+        elif kind == "radish":
+            extra = f'<ellipse cx="{x}" cy="{y+8}" rx="7" ry="6" fill="{P["radish"]}"/>'
+        elif kind == "beet":
+            extra = f'<ellipse cx="{x}" cy="{y+8}" rx="8" ry="7" fill="{P["beet"]}"/>'
+        elif kind == "onion":
+            extra = f'<ellipse cx="{x}" cy="{y+8}" rx="7" ry="6" fill="{P["onion"]}"/>'
+        elif kind == "tomato":
+            extra = f'<ellipse cx="{x}" cy="{y-2}" rx="5" ry="5" fill="{P["berry_unripe"]}"/>'
         elif kind in {"strawberry", "everbearing"}:
             scale = 0.75 if kind == "everbearing" else 0.9
             extra = (
@@ -493,10 +650,49 @@ def _crop_layer(kind: str, stage: str) -> str:
     # mature
     if kind == "kabocha":
         return _growing_leaves(x, y - 6) + _kabocha_fruit(x, y + 8, 1.0)
+    if kind == "pumpkin":
+        return _growing_leaves(x, y - 6) + (
+            f'<ellipse cx="{x}" cy="{y+8}" rx="24" ry="18" fill="{P["pumpkin"]}"/>'
+            f'<path d="M{x},{y-10} Q{x-6},{y+8} {x},{y+26}" stroke="{P["pumpkin_rib"]}" fill="none" stroke-width="1.6"/>'
+            f'<ellipse cx="{x-6}" cy="{y+4}" rx="8" ry="6" fill="{P["pumpkin_hi"]}" opacity="0.45"/>'
+            f'<rect x="{x-2}" y="{y-16}" width="4" height="8" rx="1.5" fill="{P["kabocha_stem"]}"/>'
+        )
     if kind == "turnip":
         return _turnip_fruit(x, y + 4, 1.05)
     if kind == "carrot":
         return _carrot_fruit(x, y, 1.05)
+    if kind == "radish":
+        return _round_root(x, y + 2, P["radish"], P["radish_tip"])
+    if kind == "beet":
+        return _round_root(x, y + 2, P["beet"], P["beet_hi"])
+    if kind == "lettuce":
+        return _leafy_head(x, y, P["lettuce"], P["lettuce_hi"])
+    if kind == "spinach":
+        return _leafy_head(x, y, P["spinach"], P["leaf3"], 0.9)
+    if kind == "pea":
+        return _pod_cluster(x, y, P["pea_pod"])
+    if kind == "bush_bean":
+        return _pod_cluster(x, y, P["bean_pod"])
+    if kind == "cucumber":
+        return _vine_fruit(x, y, P["cucumber"], P["cucumber_stripe"], 18, 7)
+    if kind == "zucchini":
+        return _vine_fruit(x, y, P["zucchini"], P["zucchini_hi"], 16, 8)
+    if kind == "tomato":
+        return _growing_leaves(x, y - 4) + (
+            f'<ellipse cx="{x-10}" cy="{y+6}" rx="8" ry="8" fill="{P["tomato"]}"/>'
+            f'<ellipse cx="{x+8}" cy="{y+8}" rx="7" ry="7" fill="{P["tomato"]}"/>'
+            f'<ellipse cx="{x}" cy="{y+2}" rx="6" ry="6" fill="{P["tomato_hi"]}"/>'
+        )
+    if kind == "potato":
+        return _potato_hill(x, y)
+    if kind == "corn":
+        return _corn_ear(x, y)
+    if kind == "onion":
+        return _onion_bulb(x, y)
+    if kind == "rhubarb":
+        return _rhubarb_mature(x, y)
+    if kind == "asparagus":
+        return _asparagus_spears(x, y)
     if kind == "strawberry":
         return _growing_leaves(x, y - 4) + _strawberry_cluster(x, y + 4, ripe=True)
     if kind == "everbearing":
@@ -807,6 +1003,10 @@ _ITEM_LABELS = {
     "strawberry_milk": "MILK",
     "buttered_kabocha": "SQUASH",
     "kabocha_cream_soup": "CREAM",
+    "rhubarb_strawberry_jam": "RHJAM",
+    "garden_salad": "SALAD",
+    "roasted_potatoes": "ROAST",
+    "pumpkin_soup": "PSOUP",
     "fertilizer_general": "FERT",
     "fertilizer_yield": "YLD",
     "fertilizer_growth": "GRW",
@@ -827,6 +1027,10 @@ _ITEM_COLORS = {
     "strawberry_milk": ("#a05060", "#f8e0e6"),
     "buttered_kabocha": ("#8a5a12", "#f7e0a8"),
     "kabocha_cream_soup": ("#8a5a12", "#f4e8c4"),
+    "rhubarb_strawberry_jam": ("#8b1e2d", "#f2d4a3"),
+    "garden_salad": ("#3d6b38", "#d7e8b0"),
+    "roasted_potatoes": ("#8a5a28", "#f0d4a0"),
+    "pumpkin_soup": ("#b85a18", "#f0d48a"),
     "fertilizer_general": ("#1f6b5a", "#7dcec0"),
     "fertilizer_yield": ("#2a6b2a", "#9ad48a"),
     "fertilizer_growth": ("#2a5a6b", "#8ad4ce"),
@@ -839,8 +1043,8 @@ def svg_for_item(item: str) -> str:
     label = _ITEM_LABELS.get(item)
     fill, ink = _ITEM_COLORS.get(item, ("#5a4a38", "#f0e4c8"))
     if not label:
-        if item.endswith("_seed") or item.endswith("_seedling"):
-            label, fill, ink = "SEED", "#3d6b38", "#d7e8b0"
+        if item.endswith("_seed") or item.endswith("_seedling") or item.endswith("_crown"):
+            label, fill, ink = ("CRWN" if item.endswith("_crown") else "SEED"), "#3d6b38", "#d7e8b0"
         else:
             label, fill, ink = (item[:4].upper() or "ITEM"), fill, ink
     return (

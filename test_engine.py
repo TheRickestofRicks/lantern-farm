@@ -397,8 +397,13 @@ class GrowthRules(unittest.TestCase):
         self.assertEqual(self.state["inventory"]["carrot"], 0)
         self.assertEqual(self.state["gold"], gold - 30 + 32)
         ok, msg = buy(self.state, self.crops, "carrot", 1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["inventory"]["carrot_seed"], 1)
+        # Out of season, the same seed is not restocked.
+        self.state["season"] = "winter"
+        ok, msg = buy(self.state, self.crops, "carrot", 1)
         self.assertFalse(ok, msg)
-        self.assertIn("isn't selling", msg)
+        self.assertIn("winter", msg.lower())
 
     def test_out_of_season_withers_on_season_change(self):
         # Turnips do not grow in summer (day 16).
@@ -1587,29 +1592,39 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_shop_sells_strawberry_not_later_crops(self):
         from engine import shop_kinds, crop_in_shop, legal_actions
-        self.assertEqual(shop_kinds(self.crops), ["strawberry", "everbearing"])
-        self.assertTrue(crop_in_shop(self.crops["crops"]["strawberry"]))
-        self.assertTrue(crop_in_shop(self.crops["crops"]["everbearing"]))
-        self.assertFalse(crop_in_shop(self.crops["crops"]["kabocha"]))
-        self.assertFalse(crop_in_shop(self.crops["crops"]["turnip"]))
-        self.assertFalse(crop_in_shop(self.crops["crops"]["carrot"]))
+        spring = shop_kinds(self.crops, "spring")
+        self.assertEqual(shop_kinds(self.crops), spring)
+        for kind in (
+            "strawberry", "everbearing", "turnip", "radish", "lettuce", "spinach",
+            "pea", "carrot", "beet", "potato", "bush_bean", "cucumber", "zucchini",
+            "tomato", "kabocha", "pumpkin", "corn", "onion", "rhubarb", "asparagus",
+        ):
+            self.assertIn(kind, spring, kind)
+            self.assertTrue(crop_in_shop(self.crops["crops"][kind]), kind)
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
         self.assertIn("buy everbearing 1", actions)
-        self.assertNotIn("buy kabocha 1", actions)
-        self.assertNotIn("buy turnip 1", actions)
-        self.assertNotIn("buy carrot 1", actions)
+        self.assertIn("buy turnip 1", actions)
+        self.assertIn("buy kabocha 1", actions)
+        self.assertIn("buy carrot 1", actions)
+        self.assertIn("buy rhubarb 1", actions)
+        self.assertIn("buy asparagus 1", actions)
 
     def test_seed_names_are_always_crop_specific(self):
         from inventory import item_name, add_to_pack, add_to_chest
         from describe import describe_state
         from engine import stock_label
-        for kind in ("strawberry", "kabocha", "turnip", "carrot"):
+        for kind in ("strawberry", "kabocha", "turnip", "carrot", "radish", "tomato"):
             one = item_name(f"{kind}_seed", 1, self.crops, self.rules)
             many = item_name(f"{kind}_seed", 2, self.crops, self.rules)
             self.assertEqual(one, f"1 {kind} seed")
             self.assertEqual(many, f"2 {kind} seeds")
             self.assertEqual(stock_label(kind, crop_info(self.crops, kind), 2), f"{kind} seeds")
+        self.assertEqual(item_name("bush_bean_seed", 2, self.crops, self.rules), "2 bush bean seeds")
+        self.assertEqual(item_name("pea_seed", 1, self.crops, self.rules), "1 pea seed")
+        self.assertEqual(item_name("rhubarb_crown", 1, self.crops, self.rules), "1 rhubarb crown")
+        self.assertEqual(item_name("rhubarb_crown", 2, self.crops, self.rules), "2 rhubarb crowns")
+        self.assertEqual(item_name("asparagus_crown", 2, self.crops, self.rules), "2 asparagus crowns")
         self.assertEqual(
             item_name("everbearing_seedling", 1, self.crops, self.rules),
             "1 everbearing strawberry seedling",
@@ -1824,8 +1839,11 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(state["gold"], 162)
         crop = state["tiles"][0][1]["crop"]
         self.assertEqual(crop["planted_day"], 16)
-        # 6 watered days still remain (17 - 6 = 11).
-        self.assertEqual(crop["days_grown"], 11)
+        # Legacy kabocha grew in 7 days; remaining 6 days are preserved
+        # against the current grow_days.
+        from engine import grow_days, crop_info
+        new_g = grow_days(crop_info(self.crops, "kabocha"))
+        self.assertEqual(crop["days_grown"], new_g - 6)
         self.assertNotEqual(crop["stage"], "withered")
         # Idempotent.
         self.assertFalse(migrate_calendar(state, self.crops))
@@ -3252,6 +3270,10 @@ class StaplesAndRecipeBook(unittest.TestCase):
             "strawberry_jam",
             "kabocha_soup",
             "root_stew",
+            "rhubarb_strawberry_jam",
+            "garden_salad",
+            "roasted_potatoes",
+            "pumpkin_soup",
         ):
             rec = recs[key]
             self.assertGreater(
@@ -3688,6 +3710,188 @@ class SaveSlots(unittest.TestCase):
         snap = json.loads(engine.STATE_PATH.read_text(encoding="utf-8"))
         self.assertEqual(snap["day"], 1)
         self.assertEqual(snap["gold"], 80)
+
+
+class SpringPlantedCrops(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        self.state["weather"] = "sun"
+
+    def _grow(self, r, c, n):
+        for _ in range(n):
+            self.state["weather"] = "sun"
+            water(self.state, self.crops, r, c)
+            ok, msg = sleep(self.state, self.crops, self.rules)
+            self.assertTrue(ok, msg)
+
+    def test_summer_shop_is_still_only_strawberries(self):
+        from engine import shop_kinds, legal_actions, buy
+        self.state["day"] = 16
+        self.state["season"] = "summer"
+        self.assertEqual(shop_kinds(self.crops, "summer"), ["strawberry", "everbearing"])
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("buy strawberry 1", actions)
+        self.assertNotIn("buy turnip 1", actions)
+        self.assertNotIn("buy kabocha 1", actions)
+        ok, msg = buy(self.state, self.crops, "carrot", 1)
+        self.assertFalse(ok)
+        self.assertIn("summer", msg.lower())
+
+    def test_quick_and_regrow_crops_harvest_in_their_window(self):
+        from engine import grow_days, regrow_days, crop_info, yield_range_for
+        from inventory import item_count
+        for kind in ("radish", "pea", "tomato"):
+            state = fresh_state(self.crops, rules=self.rules)
+            state["weather"] = "sun"
+            self.state = state
+            info = crop_info(self.crops, kind)
+            r, c = 1, 1
+            till(state, self.crops, r, c)
+            give_seeds(state, kind, 1)
+            ok, msg = plant(state, self.crops, r, c, kind)
+            self.assertTrue(ok, msg)
+            self._grow(r, c, grow_days(info))
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertEqual(crop["stage"], "mature", (kind, crop))
+            before = item_count(state, kind)
+            ok, msg = harvest(state, self.crops, r, c)
+            self.assertTrue(ok, msg)
+            got = item_count(state, kind) - before
+            lo, hi = yield_range_for(kind, self.crops)
+            self.assertGreaterEqual(got, lo)
+            self.assertLessEqual(got, hi)
+            if regrow_days(info) > 0:
+                crop = state["tiles"][r - 1][c - 1]["crop"]
+                self.assertEqual(crop["stage"], "regrowing", kind)
+                self._grow(r, c, regrow_days(info))
+                self.assertEqual(state["tiles"][r - 1][c - 1]["crop"]["stage"], "mature", kind)
+
+    def test_kabocha_planted_in_spring_ripens_in_early_autumn(self):
+        from engine import grow_days, crop_info, season_for_day
+        info = crop_info(self.crops, "kabocha")
+        self.assertEqual(grow_days(info), 30)
+        r, c = 1, 1
+        till(self.state, self.crops, r, c)
+        give_seeds(self.state, "kabocha", 1)
+        ok, msg = plant(self.state, self.crops, r, c, "kabocha")
+        self.assertTrue(ok, msg)
+        self._grow(r, c, 30)
+        crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        self.assertEqual(crop["stage"], "mature")
+        self.assertEqual(self.state["season"], "autumn")
+        self.assertEqual(season_for_day(int(self.state["day"]), self.crops), "autumn")
+        ok, msg = harvest(self.state, self.crops, r, c)
+        self.assertTrue(ok, msg)
+        self.assertGreaterEqual(self.state["inventory"]["kabocha"], 1)
+
+    def test_rhubarb_and_asparagus_wait_until_the_next_spring(self):
+        from inventory import item_count
+        for kind in ("rhubarb", "asparagus"):
+            state = fresh_state(self.crops, rules=self.rules)
+            state["weather"] = "sun"
+            r, c = 1, 1
+            till(state, self.crops, r, c)
+            from engine import stock_key, crop_info
+            info = crop_info(self.crops, kind)
+            give_item(state, stock_key(kind, info), 1)
+            ok, msg = plant(state, self.crops, r, c, kind)
+            self.assertTrue(ok, msg)
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertIn(crop["stage"], {"crown", "seed"})
+            # Grow through the first spring; it must not be harvestable yet.
+            self.state = state
+            self._grow(r, c, 14)
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertIsNotNone(crop)
+            self.assertFalse(crop.get("overwintered"))
+            ok, msg = harvest(state, self.crops, r, c)
+            self.assertFalse(ok, kind)
+            # Skip to the end of summer so the next sleep enters autumn (dormant).
+            state["day"] = 30
+            state["season"] = "summer"
+            water(state, self.crops, r, c)
+            ok, msg = sleep(state, self.crops, self.rules)
+            self.assertTrue(ok, msg)
+            self.assertEqual(state["season"], "autumn")
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertEqual(crop["stage"], "dormant", kind)
+            self.assertTrue(crop.get("overwintered"))
+            # Wake in spring and grow to a harvest.
+            state["day"] = 60
+            state["season"] = "winter"
+            ok, msg = sleep(state, self.crops, self.rules)
+            self.assertTrue(ok, msg)
+            self.assertEqual(state["season"], "spring")
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertNotEqual(crop["stage"], "dormant", kind)
+            from engine import grow_days
+            self._grow(r, c, grow_days(info))
+            crop = state["tiles"][r - 1][c - 1]["crop"]
+            self.assertEqual(crop["stage"], "mature", (kind, crop))
+            before = item_count(state, kind)
+            ok, msg = harvest(state, self.crops, r, c)
+            self.assertTrue(ok, msg)
+            self.assertGreater(item_count(state, kind), before)
+            self.assertEqual(state["tiles"][r - 1][c - 1]["crop"]["stage"], "regrowing", kind)
+
+    def test_potato_yields_two_or_three(self):
+        from engine import yield_roll, yield_range_for
+        self.assertEqual(yield_range_for("potato", self.crops), (2, 3))
+        seen = set()
+        for day in range(1, 80):
+            n = yield_roll("potato", 100, 100, day, 1, 1, harvest_index=0)
+            seen.add(n)
+            self.assertIn(n, (2, 3))
+        self.assertTrue(seen & {2, 3})
+
+    def test_new_spring_recipes_craft_sell_and_eat(self):
+        from inventory import add_to_chest, pack_has, item_sell_price, item_eat_energy, recipes
+        from engine import do_action
+        recs = recipes(self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 100
+        add_to_chest(self.state, "rhubarb", 2, self.rules)
+        add_to_chest(self.state, "strawberry", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "craft rhubarb strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "rhubarb_strawberry_jam", 1))
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "sell rhubarb_strawberry_jam 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold + item_sell_price("rhubarb_strawberry_jam", self.crops, self.rules))
+        add_to_chest(self.state, "lettuce", 1, self.rules)
+        add_to_chest(self.state, "tomato", 1, self.rules)
+        add_to_chest(self.state, "cucumber", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "craft garden salad", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.state["players"][P1]["energy"] = 50
+        energy = self.state["players"][P1]["energy"]
+        ok, msg = do_action(self.state, self.crops, "eat garden_salad", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], energy + item_eat_energy("garden_salad", self.crops, self.rules))
+        add_to_chest(self.state, "potato", 2, self.rules)
+        add_to_chest(self.state, "butter", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "craft roasted potatoes", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        add_to_chest(self.state, "pumpkin", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "craft pumpkin soup", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "pumpkin_soup", 1))
+        for key in ("rhubarb_strawberry_jam", "garden_salad", "roasted_potatoes", "pumpkin_soup"):
+            self.assertIn(key, recs)
+
+    def test_give_seeds_accepts_crowns_and_bush_beans(self):
+        from engine import stock_key, crop_info, normalize_kind
+        self.assertEqual(normalize_kind("peas"), "pea")
+        self.assertEqual(normalize_kind("bush beans"), "bush_bean")
+        self.assertEqual(stock_key("rhubarb", crop_info(self.crops, "rhubarb")), "rhubarb_crown")
+        give_seeds(self.state, "bush_bean", 2, player=P1)
+        from inventory import pack_has
+        self.assertTrue(pack_has(self.state, P1, "bush_bean_seed", 2))
+
+
 
 
 if __name__ == "__main__":

@@ -925,18 +925,40 @@ def is_wet_weather(weather: str) -> bool:
 
 
 def crop_info(crops: dict, kind: str) -> dict | None:
-    return crops.get("crops", {}).get(kind)
+    table = crops.get("crops", {}) if crops else {}
+    if kind in table:
+        return table[kind]
+    k = normalize_kind(str(kind or ""))
+    return table.get(k)
 
 
 def normalize_kind(kind: str) -> str:
     k = (kind or "").strip().lower().replace(" ", "_")
-    for suffix in ("_seedling", "_seed"):
+    for suffix in ("_seedling", "_seed", "_crown", "_crowns"):
         if k.endswith(suffix):
             k = k[: -len(suffix)]
             break
     aliases = {
         "everbearing_strawberry": "everbearing",
         "everbearingstrawberry": "everbearing",
+        "peas": "pea",
+        "beans": "bush_bean",
+        "bean": "bush_bean",
+        "bushbean": "bush_bean",
+        "bush_beans": "bush_bean",
+        "radishes": "radish",
+        "potatoes": "potato",
+        "tomatoes": "tomato",
+        "beets": "beet",
+        "onions": "onion",
+        "zucchinis": "zucchini",
+        "courgette": "zucchini",
+        "courgettes": "zucchini",
+        "cucumbers": "cucumber",
+        "lettuces": "lettuce",
+        "pumpkins": "pumpkin",
+        "asparagus_spear": "asparagus",
+        "asparagus_spears": "asparagus",
     }
     return aliases.get(k, k)
 
@@ -1984,11 +2006,36 @@ YIELD_RANGE = {
 }
 
 
-def min_harvest_growth(kind: str) -> int:
+def min_harvest_growth(kind: str, crops: dict | None = None) -> int:
+    info = crop_info(crops or {}, kind) if crops else None
+    if info is None:
+        try:
+            info = crop_info(load_crops(), kind)
+        except Exception:
+            info = None
+    if info and info.get("min_harvest_growth") is not None:
+        try:
+            return int(info["min_harvest_growth"])
+        except (TypeError, ValueError):
+            pass
     return int(MIN_HARVEST_GROWTH.get(kind, 70))
 
 
-def yield_range_for(kind: str) -> tuple[int, int]:
+def yield_range_for(kind: str, crops: dict | None = None) -> tuple[int, int]:
+    info = crop_info(crops or {}, kind) if crops else None
+    if info is None:
+        try:
+            info = crop_info(load_crops(), kind)
+        except Exception:
+            info = None
+    raw = (info or {}).get("yield_range") if info else None
+    if raw and not isinstance(raw, (str, bytes)):
+        try:
+            seq = list(raw)
+            lo, hi = int(seq[0]), int(seq[1] if len(seq) > 1 else seq[0])
+            return max(1, lo), max(1, hi)
+        except (TypeError, ValueError, IndexError):
+            pass
     lo, hi = YIELD_RANGE.get(kind, (1, 2))
     return max(1, int(lo)), max(1, int(hi))
 
@@ -2026,6 +2073,9 @@ def yield_roll(
         return lo
     q = _quality(growth, health, bonus)
     r = weed_hash(int(day), int(row), int(col), salt=7000 + int(harvest_index)) % 100
+    if lo == 2 and hi == 3:
+        p3 = 10 + 70 * (q ** 1.5)
+        return 3 if r < p3 else 2
     if hi == 3:
         p3 = 5 + 75 * (q ** 1.5)
         p2 = p3 + (20 + 40 * q)
@@ -2676,7 +2726,11 @@ def _apply_season_to_crop(state: dict, crops: dict, crop: dict, row: int, col: i
         life = lifespan_seasons(info)
         if life and crop_season_age(crop, day, crops) > life:
             crop["stage"] = "withered"
-            notes.append(f"The {kind} at {here} lived out its two years.")
+            years = max(1, (life + 3) // 4)
+            words = {1: "year", 2: "two years", 3: "three years", 4: "four years"}
+            span = words.get(years, f"{years} years")
+            notes.append(f"The {kind} at {here} lived out its {span}.")
+
             return notes
         growing_seasons = info.get("seasons") or []
         if season not in growing_seasons:
@@ -3050,7 +3104,7 @@ def eat(
         label = item_label(item, crops, rules) if item else str(kind)
         if crop_info(crops, item):
             return False, f"{label} isn't edible raw."
-        return False, f"Unknown snack '{kind}'. Try carrot, turnip, kabocha, or a crafted food."
+        return False, f"Unknown snack '{kind}'. Eat a harvested crop or a crafted food."
     kind = item
     label = item_label(kind, crops, rules)
     if from_chest:

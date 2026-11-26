@@ -72,7 +72,7 @@ strawberry milk, buttered kabocha, and kabocha cream soup.
 Each step costs 5 energy, including diagonals. Harvest, buy, sell, eat,
 take and drop are free; crafting costs 5 energy. Eat a snack from the backpack (up to 2 a turn)
 to restore energy: strawberry 30, everbearing 20, jam 40, soup 55, stew 50,
-bread 10, butter 6, milk 8, and later crops if you have them (carrot 10, turnip 12, kabocha 25).
+bread 10, butter 6, milk 8, and any harvested crop you have (radish 8, lettuce 8, spinach 8, peas 8, carrot 10, turnip 12, beet 12, potato 12, tomato 12, kabocha 25, pumpkin 20, and the rest).
 
 Ending your turn in the cabin is sleep — next day you wake there with 100
 energy. Ending it anywhere else is passing out — you wake where you fell
