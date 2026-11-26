@@ -622,6 +622,30 @@ PAGE = r"""<!DOCTYPE html>
       overflow: auto;
       max-height: 12rem;
     }
+    .debug-console {
+      margin: 0.55rem 0 0;
+    }
+    .debug-console-label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 0 0 0.25rem;
+    }
+    .debug-console-row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .debug-console-row input {
+      flex: 1;
+      min-width: 0;
+    }
+    .debug-console-status {
+      margin: 0.25rem 0 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      min-height: 1.1em;
+    }
     .log {
       list-style: none;
       margin: 0.4rem 0 0;
@@ -1001,6 +1025,15 @@ PAGE = r"""<!DOCTYPE html>
         <summary>__TEXT_VIEW_SUMMARY__</summary>
         <pre class="look" id="look"></pre>
       </details>
+      <form class="debug-console" id="debug-console" autocomplete="off">
+        <label class="debug-console-label" for="debug-cmd">Command</label>
+        <div class="debug-console-row">
+          <input id="debug-cmd" type="text" list="debug-cmd-list" spellcheck="false" autocomplete="off" placeholder="Type a legal action">
+          <datalist id="debug-cmd-list"></datalist>
+          <button type="submit" class="btn" id="debug-cmd-send">Send</button>
+        </div>
+        <p class="debug-console-status" id="debug-cmd-status"></p>
+      </form>
     </aside>
   </main>
   <footer>
@@ -1782,6 +1815,7 @@ PAGE = r"""<!DOCTYPE html>
       if (journalOpen) renderJournal(data);
       if (savesOpen) renderSaves(data);
       $("look").textContent = data.look || "";
+      fillDebugConsole(data);
       const log = (s.log || []).slice(-8).reverse();
       $("log").innerHTML = log.map(function (e) {
         return "<li>[day " + e.day + "] " + escapeHtml(e.text) + "</li>";
@@ -1885,7 +1919,15 @@ PAGE = r"""<!DOCTYPE html>
         "forage",
         "go north",
         "go south",
-        "go cabin"
+        "go cabin",
+        "enter mine",
+        "leave mine",
+        "climb up",
+        "climb down",
+        "mine",
+        "rest",
+        "elevator",
+        "elevator entrance"
       ];
       const plantPrefix = "plant " + workR + " " + workC + " ";
       const fertPrefix = "fertilize " + workR + " " + workC;
@@ -1898,23 +1940,47 @@ PAGE = r"""<!DOCTYPE html>
         const desc = line.match(/ \((.*)\)$/);
         return desc ? (bare + " (" + desc[1] + ")") : (line || bare);
       }
+      function addHotkeyHint(label, hint) {
+        if (!hint) return label;
+        const m = String(label || "").match(/^(.*)\((.*)\)\s*$/);
+        if (m) return m[1].replace(/\s+$/, "") + " (" + m[2] + ", " + hint + ")";
+        return label + " (" + hint + ")";
+      }
+      function hotkeyForAction(act) {
+        if (act === "enter mine" || act === "climb up" || act === "climb down") return "E";
+        if (act === "mine") return "M";
+        if (act === "rest") return "R";
+        return "";
+      }
+      function isTileAction(act) {
+        if (prefix.indexOf(act) !== -1) return true;
+        if (/^elevator \d+$/.test(act)) return true;
+        if (act.indexOf(plantPrefix) === 0) return true;
+        if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) return true;
+        if (act.indexOf("forge ") === 0) return true;
+        return false;
+      }
       for (const act of legal) {
-        let show = false;
+        let show = isTileAction(act);
         let label = act;
         if (prefix.indexOf(act) !== -1) {
-          show = true;
           if (act.indexOf("unearth ") === 0) {
             label = actionLabel(act, "unearth");
+          } else if (act.split(" ").length > 1) {
+            label = actionLabel(act, act);
           } else {
             label = actionLabel(act, act.split(" ")[0]);
           }
+        } else if (/^elevator \d+$/.test(act)) {
+          label = actionLabel(act, act);
         } else if (act.indexOf(plantPrefix) === 0) {
-          show = true;
           label = actionLabel(act, "plant " + act.slice(plantPrefix.length));
         } else if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
-          show = true;
           label = actionLabel(act, act.replace(fertPrefix + " ", "fertilize ").replace(fertPrefix, "fertilize"));
+        } else if (act.indexOf("forge ") === 0) {
+          label = actionLabel(act, act);
         }
+        if (show) label = addHotkeyHint(label, hotkeyForAction(act));
         if (!show) continue;
         const b = document.createElement("button");
         b.type = "button";
@@ -3094,10 +3160,12 @@ PAGE = r"""<!DOCTYPE html>
       let work;
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
-          + ' &middot; <kbd>C</kbd> chop';
+          + ' &middot; <kbd>C</kbd> chop'
+          + ' &middot; <kbd>E</kbd> enter mine';
       } else if (area === "mine") {
-        work = ' &middot; <kbd>C</kbd> chop'
-          + ' &middot; <kbd>G</kbd> forage';
+        work = ' &middot; <kbd>E</kbd> climb'
+          + ' &middot; <kbd>M</kbd> mine'
+          + ' &middot; <kbd>R</kbd> rest';
       } else {
         work = ' &middot; <kbd>T</kbd> till'
           + ' &middot; <kbd>W</kbd> water'
@@ -3272,6 +3340,80 @@ PAGE = r"""<!DOCTYPE html>
       showToast(outlook + "Press E or Enter to confirm, Esc to cancel.", true);
     }
 
+    function legalCommands(data) {
+      return (data && data.actions) || [];
+    }
+    function firstLegalCommand(cmds, data) {
+      const legal = legalCommands(data || lastData);
+      for (let i = 0; i < cmds.length; i++) {
+        if (legal.indexOf(cmds[i]) !== -1) return cmds[i];
+      }
+      return null;
+    }
+    function fillDebugConsole(data) {
+      const list = $("debug-cmd-list");
+      const input = $("debug-cmd");
+      const send = $("debug-cmd-send");
+      const status = $("debug-cmd-status");
+      if (!list || !input) return;
+      const legal = legalCommands(data);
+      list.innerHTML = "";
+      legal.forEach(function (act) {
+        const opt = document.createElement("option");
+        opt.value = act;
+        list.appendChild(opt);
+      });
+      const myTurn = !!(data && data.your_turn);
+      input.disabled = !myTurn;
+      if (send) send.disabled = !myTurn;
+      if (status && status.getAttribute("data-hold") !== "1") {
+        if (!myTurn) {
+          const who = cap((data && data.current_player) || "the other player");
+          status.textContent = "It's " + who + "'s turn right now.";
+        } else if (!status.textContent || status.textContent.indexOf("turn right now") !== -1) {
+          status.textContent = "";
+        }
+      }
+    }
+    function resolveLegalCommand(raw, data) {
+      const legal = legalCommands(data);
+      if (legal.indexOf(raw) !== -1) return raw;
+      const low = raw.toLowerCase();
+      const hits = legal.filter(function (act) { return act.toLowerCase() === low; });
+      return hits.length === 1 ? hits[0] : null;
+    }
+    function submitDebugCommand(ev) {
+      if (ev) ev.preventDefault();
+      const input = $("debug-cmd");
+      const status = $("debug-cmd-status");
+      function setStatus(text) {
+        if (!status) return;
+        status.textContent = text || "";
+        if (text) status.setAttribute("data-hold", "1");
+        else status.removeAttribute("data-hold");
+      }
+      if (!input) return;
+      const raw = (input.value || "").trim();
+      const data = lastData;
+      if (!data || !data.your_turn) {
+        const who = cap((data && data.current_player) || "the other player");
+        setStatus("It's " + who + "'s turn right now.");
+        return;
+      }
+      if (!raw) {
+        setStatus("Say what to do, like: enter mine");
+        return;
+      }
+      const cmd = resolveLegalCommand(raw, data);
+      if (!cmd) {
+        setStatus("That isn't a legal action right now.");
+        return;
+      }
+      setStatus("");
+      input.value = "";
+      actCmd(cmd);
+    }
+
     function onKey(ev) {
       if (typingInField(ev)) return;
       if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
@@ -3434,11 +3576,41 @@ PAGE = r"""<!DOCTYPE html>
         keyFertilize();
         return;
       }
+      if (letter === "m") {
+        ev.preventDefault();
+        endConfirm = false;
+        unearthConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        if (firstLegalCommand(["mine"])) actCmd("mine");
+        else farmActionToast("mine", lastData);
+        return;
+      }
+      if (letter === "r") {
+        ev.preventDefault();
+        endConfirm = false;
+        unearthConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        if (firstLegalCommand(["rest"])) actCmd("rest");
+        else farmActionToast("rest", lastData);
+        return;
+      }
       if (letter === "e") {
         ev.preventDefault();
         plantPick = null;
         if (ev.shiftKey) {
           focusNoteBox();
+          return;
+        }
+        if (endConfirm) {
+          requestEndTurn(true);
+          return;
+        }
+        const climb = firstLegalCommand(["enter mine", "climb down", "climb up", "leave mine"]);
+        if (climb) {
+          unearthConfirm = false;
+          actCmd(climb);
           return;
         }
         requestEndTurn(false);
@@ -3447,6 +3619,8 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     document.addEventListener("keydown", onKey);
+    const debugForm = $("debug-console");
+    if (debugForm) debugForm.addEventListener("submit", submitDebugCommand);
     const openBtn = $("open-shop");
     if (openBtn) openBtn.addEventListener("click", function () { openShop(); });
     const closeBtn = $("shop-close");

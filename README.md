@@ -155,7 +155,8 @@ Keyboard (the page ignores keys while you are typing in an input):
 - `P` plant on the current tile: if the backpack has one seed type, plant it; otherwise a small
   picker opens — `P` cycles, Enter plants
 - `Shift+E` focuses the note box (type a note, `Enter` to end the turn and send it)
-- `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
+- `E` enters the mine or climbs a ladder when that action is available; otherwise `E` then `Enter` (or `E` again) ends the turn; a note in the box is sent too
+- In the mine, `M` breaks rock and `R` rests at a lantern
 - `S` opens the shop window; `J` opens this year's journal (season tabs starting at spring)
 - `Esc` closes the shop or journal (or deselects / cancels a picker or confirm)
 

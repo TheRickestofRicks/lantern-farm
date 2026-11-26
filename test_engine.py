@@ -5670,6 +5670,136 @@ class HillsHotkeysWeb(unittest.TestCase):
 
 
 
+class MineActionsWeb(unittest.TestCase):
+    def _run(self, payload, html, mode="entrance"):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "mine-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-mine-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            env["MINE_UI_MODE"] = mode
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def _entrance_state(self, energy=80, your_turn=True):
+        import web
+        from hills import set_player_place, AREA_HILLS, MINE_ENTRANCE
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["mine_entrance_found"] = True
+        give_item(state, "pickaxe", 1, player=P1, where="pack")
+        set_player_place(state, P1, AREA_HILLS, *MINE_ENTRANCE)
+        state["players"][P1]["energy"] = energy
+        if your_turn:
+            state["current_player"] = P1
+        else:
+            state["current_player"] = P2
+        return state, crops, rules, web
+
+    def test_web_shows_enter_mine_and_debug_console_stays_legal(self):
+        state, crops, rules, web = self._entrance_state()
+        legal = legal_actions(state, crops, P1, rules)
+        self.assertIn("enter mine", legal)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertIn("enter mine", payload.get("actions") or [])
+        html = web.render_page(viewer=P1)
+        self.assertIn("debug-cmd", html)
+        data = self._run(payload, html, mode="entrance")
+        joined = " ".join(data["tileButtons"]).lower()
+        self.assertRegex(joined, r"enter mine")
+        self.assertIn("E", " ".join(data["tileButtons"]))
+        self.assertRegex(data["keysText"], r"enter mine")
+        self.assertTrue(data["hasDebug"])
+        self.assertTrue(data["debugOptionsIncludeEnter"])
+        self.assertTrue(data["clickedEnter"])
+        self.assertIn("enter mine", data["commandsAfterClick"])
+        self.assertIn("legal action", data["rejectedStatus"].lower())
+        self.assertEqual(data["commandsAfterReject"], data["commandsAfterClick"])
+        self.assertIn("enter mine", data["commandsAfterDebug"])
+        self.assertGreater(data["commandsAfterDebug"].count("enter mine"), data["commandsAfterClick"].count("enter mine"))
+        self.assertEqual(data["debugInputAfterSend"], "")
+        self.assertIn("enter mine", data["commandsAfterE"])
+
+    def test_debug_console_does_not_send_on_the_other_players_turn(self):
+        state, crops, rules, web = self._entrance_state(your_turn=False)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertFalse(payload.get("your_turn"))
+        html = web.render_page(viewer=P1)
+        data = self._run(payload, html, mode="noturn")
+        self.assertTrue(data["debugDisabled"])
+        self.assertIn("turn", data["noturnStatus"].lower())
+        self.assertEqual(data["commandsAfterNoturn"], [])
+
+    def test_web_shows_in_mine_actions(self):
+        import web
+        from hills import set_player_place, AREA_MINE
+        from engine import player_where
+        from mine import get_mine_tile, player_floor, ensure_mine
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        give_item(state, "pickaxe", 1, player=P1, where="pack")
+        state["mine_entrance_found"] = True
+        state["mine_entrance_open"] = True
+        set_player_place(state, P1, AREA_MINE, 2, 2, floor=1)
+        state["players"][P1]["energy"] = 80
+        ensure_mine(state, rules)
+        r, c = player_where(state, P1)
+        floor = player_floor(state, P1)
+        tile = get_mine_tile(state, floor, r, c, rules)
+        tile["rock"] = "copper_ore"
+        tile["ladder"] = "open"
+        tile["exit"] = True
+        tile["lantern"] = True
+        tile["elevator"] = True
+        legal = legal_actions(state, crops, P1, rules)
+        for act in ("mine", "climb down", "climb up", "leave mine", "rest", "elevator", "elevator entrance"):
+            self.assertIn(act, legal, act)
+        payload = web.api_payload(state, crops, player=P1)
+        html = web.render_page(viewer=P1)
+        data = self._run(payload, html, mode="inside")
+        joined = " ".join(data["tileButtons"]).lower()
+        self.assertIn("mine", joined)
+        self.assertIn("climb down", joined)
+        self.assertIn("climb up", joined)
+        self.assertIn("leave mine", joined)
+        self.assertIn("rest", joined)
+        self.assertIn("elevator", joined)
+        self.assertRegex(data["keysText"], r"\bM\b")
+        self.assertRegex(data["keysText"], r"\bR\b")
+
+
+
 class EatButtonsWeb(unittest.TestCase):
     """Web eat buttons must use the engine edible list, not crops.json alone."""
 
