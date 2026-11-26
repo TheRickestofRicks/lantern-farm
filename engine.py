@@ -250,7 +250,15 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
     faint = pass_out_energy(rules)
     if is_player_in_cabin(state, player):
         return f"You'll sleep in the cabin — {cap} energy tomorrow"
-    return f"You'll pass out in the field — {faint} energy tomorrow"
+    from hills import AREA_HILLS
+    area = str(player_slot(state, player).get("area") or "").strip().lower()
+    if area == AREA_HILLS or area == "hills":
+        where = "in the hills"
+    elif area == "mine":
+        where = "in the mine"
+    else:
+        where = "in the field"
+    return f"You'll pass out {where} — {faint} energy tomorrow"
 
 
 def player_slot(state: dict, player: str) -> dict:

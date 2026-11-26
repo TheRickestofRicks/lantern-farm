@@ -313,14 +313,6 @@ PAGE = r"""<!DOCTYPE html>
       color: var(--gold2);
       padding: 0 0.2rem 0.25rem;
     }
-    .elsewhere {
-      flex: 0 0 auto;
-      color: var(--muted);
-      font-size: 0.86rem;
-      line-height: 1.4;
-      padding: 0 0.2rem 0.45rem;
-      white-space: pre-wrap;
-    }
     .farm-map {
       flex: 1 1 auto;
       min-height: 0;
@@ -909,7 +901,6 @@ PAGE = r"""<!DOCTYPE html>
   <main>
     <section class="farm">
       <div class="area-head" id="area-head">The farm</div>
-      <div class="elsewhere" id="elsewhere"></div>
       <div class="farm-map">
         <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
       </div>
@@ -1532,18 +1523,6 @@ PAGE = r"""<!DOCTYPE html>
 
     function tileLabel(tile, r, c, data) {
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
-      if (tile && tile.type === "mine_entrance") return "mine";
-      if (tile && tile.tree && tile.tree.stage === "grown") return "tree";
-      if (tile && tile.tree && tile.tree.stage) return tile.tree.stage;
-      if (tile && tile.forage && tile.forage.kind) {
-        const k = tile.forage.kind;
-        if (k === "wild_onion") return "onion";
-        if (k === "wild_berry") return "berry";
-        if (k === "wild_mushroom") return "mushroom";
-        return "forage";
-      }
-      if (tile && tile.type === "hillside") return "hill";
-      if (viewArea(data) === "hills") return "r" + r + " c" + c;
       return "r" + r + " c" + c;
     }
     function describeTile(tile, r, c, data) {
@@ -1664,11 +1643,6 @@ PAGE = r"""<!DOCTYPE html>
       }).join(", ");
       const areaHead = $("area-head");
       if (areaHead) areaHead.textContent = (data.area_title ? data.area_title.charAt(0).toUpperCase() + data.area_title.slice(1) : "The farm");
-      const elseEl = $("elsewhere");
-      if (elseEl) {
-        const notes = data.elsewhere || [];
-        elseEl.textContent = notes.join("\n");
-      }
       const gridEl = $("grid");
       if (gridEl) gridEl.setAttribute("aria-label", data.area_title || "Farm plot");
       $("status").innerHTML =

@@ -34,13 +34,19 @@ kind of 3×3, behind a boarded entrance.
   energy). At 0 HP you pass out and wake at the **mine entrance** with
   **25 energy** (and HP restored). Cabin sleep still grants 100 energy
   and fills HP. Passing out by ending a turn in the field or hills is
-  unchanged (50 energy, stay where you are).
-- **Off-screen context.** Whenever a player is in one area, look text
-  and the web UI must still describe the other areas: where the other
+  unchanged (50 energy, stay where you are). The pass-out warning
+  names the current area ("in the field", "in the hills", later
+  "in the mine").
+- **Off-screen context.** Whenever a player is in one area, **look
+  text (the CLI)** still describes the other areas: where the other
   player is (area and tile), a short summary of the off-screen place
   (hills: trees ready to chop, forage available; farm: crops ready or
   needing water), and the exits (north from the cabin to the hills,
-  and so on). The mini-map names the current area.
+  and so on). The web page shows only the area title above the grid;
+  it does not repeat that Elsewhere block. The header still names
+  each player's place. The mini-map names the current area. Hills
+  tiles use the same `r* c*` labels as the farm (the cabin tile still
+  says "cabin").
 
 
 ## Areas and walking

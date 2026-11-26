@@ -56,7 +56,8 @@ waitFor(() => {
   const doc = dom.window.document;
   const result = {
     head: doc.getElementById("area-head").textContent,
-    elsewhere: doc.getElementById("elsewhere").textContent,
+    elsewhere: doc.getElementById("elsewhere") ? doc.getElementById("elsewhere").textContent : "",
+    elsewherePresent: Boolean(doc.getElementById("elsewhere")),
     labels: Array.from(doc.getElementById("grid").querySelectorAll(".label")).map((el) => el.textContent),
     tileCount: doc.getElementById("grid").querySelectorAll("button.tile").length,
     aria: doc.getElementById("grid").getAttribute("aria-label"),

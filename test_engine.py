@@ -4177,6 +4177,29 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertFalse(is_player_in_cabin(self.state, P1))
         self.assertIn("pass out", sleep_outlook(self.state, P1, self.rules).lower())
 
+    def test_pass_out_outlook_names_the_current_area(self):
+        from hills import set_player_place, AREA_HILLS, AREA_FARM, HILLS_GATE
+        from describe import describe_state
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.assertIn("You'll sleep in the cabin", sleep_outlook(self.state, P1, self.rules))
+        stand(self.state, P1, 3, 1)
+        field = sleep_outlook(self.state, P1, self.rules)
+        self.assertEqual(field, "You'll pass out in the field — 50 energy tomorrow")
+        self.assertIn(field, describe_state(self.state, self.crops, viewer=P1))
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        hills = sleep_outlook(self.state, P1, self.rules)
+        self.assertEqual(hills, "You'll pass out in the hills — 50 energy tomorrow")
+        self.assertNotIn("in the field", hills)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("You'll pass out in the hills", look)
+        self.assertNotIn("You'll pass out in the field", look)
+        # Mine isn't a playable area yet; the warning should still name it
+        # once a player is marked as being there.
+        self.state["players"][P1]["area"] = "mine"
+        mine = sleep_outlook(self.state, P1, self.rules)
+        self.assertEqual(mine, "You'll pass out in the mine — 50 energy tomorrow")
+        set_player_place(self.state, P1, AREA_FARM, 3, 1)
+
     def test_cabin_north_enters_hills_bottom_right(self):
         from hills import player_area, AREA_HILLS, HILLS_GATE, AREA_FARM
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
@@ -4423,7 +4446,7 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertIn("100", str(payload["hp"][P1]))
         html = web.PAGE
         self.assertIn('id="area-head"', html)
-        self.assertIn('id="elsewhere"', html)
+        self.assertNotIn('id="elsewhere"', html)
         self.assertIn("<kbd>C</kbd>", html)
         self.assertIn("<kbd>G</kbd>", html)
 
@@ -4476,10 +4499,13 @@ class HillsJsdomUi(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
             data = json.loads(proc.stdout.strip().splitlines()[-1])
             self.assertIn("hills", data["head"].lower())
-            self.assertIn("Elsewhere", data["elsewhere"])
-            self.assertIn("The farm", data["elsewhere"])
+            self.assertFalse(data.get("elsewherePresent"))
+            self.assertEqual((data.get("elsewhere") or "").strip(), "")
             self.assertEqual(data["tileCount"], 9)
-            self.assertTrue(any((lab or "").lower() == "tree" or "tree" in (lab or "").lower() for lab in data["labels"]))
+            self.assertEqual(
+                data["labels"],
+                ["r1 c1", "r1 c2", "r1 c3", "r2 c1", "r2 c2", "r2 c3", "r3 c1", "r3 c2", "r3 c3"],
+            )
             self.assertIn("hills", (data["aria"] or "").lower())
             srcs = " ".join(data.get("imgSrcs") or [])
             self.assertIn("hills_grass.png", srcs)
