@@ -4890,6 +4890,60 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("already", msg.lower())
 
+    def test_shop_payload_lists_the_pickaxe_once_the_entrance_is_found(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from engine import format_legal_action
+
+        set_player_place(self.state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 100
+
+        # Hidden until the entrance is found.
+        self.state["mine_entrance_found"] = False
+        self.state["gold"] = 51
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertFalse(payload.get("tools") or {})
+        self.assertNotIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
+
+        # Listed (and priced) even when gold is short of 40G.
+        self.state["mine_entrance_found"] = True
+        self.state["gold"] = 9
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        tools = payload.get("tools") or {}
+        self.assertIn("pickaxe", tools)
+        self.assertEqual(int(tools["pickaxe"]["price"]), 40)
+        self.assertEqual(int(tools["pickaxe"]["seed_price"]), 40)
+        self.assertFalse(tools["pickaxe"]["affordable"])
+        self.assertIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
+        line = format_legal_action("buy pickaxe 1", self.state, self.crops, P1, self.rules)
+        self.assertIn("40", line)
+        self.assertIn("9", line)
+        self.assertIn("pickaxe", line.lower())
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("40", msg)
+        self.assertIn("9", msg)
+
+        # Affordable at 51G: still in the payload, Buy is offered, descriptor shows the change.
+        self.state["gold"] = 51
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        tools = payload.get("tools") or {}
+        self.assertIn("pickaxe", tools)
+        self.assertTrue(tools["pickaxe"]["affordable"])
+        self.assertEqual(int(tools["pickaxe"]["price"]), 40)
+        line = format_legal_action("buy pickaxe 1", self.state, self.crops, P1, self.rules)
+        self.assertIn("40", line)
+        self.assertIn("11", line)
+
+        # Gone from the shop once one is already on the farm.
+        from inventory import add_to_pack, TOOL_PICKAXE, sync_inventory_view
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertNotIn("pickaxe", payload.get("tools") or {})
+        self.assertNotIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
+
     def test_enter_mine_opens_boards_and_arrives_on_a_clear_tile(self):
         from hills import get_hills_tile, MINE_ENTRANCE, player_area, AREA_MINE
         from mine import is_entrance_open, get_mine_tile, player_floor, arrival_tile

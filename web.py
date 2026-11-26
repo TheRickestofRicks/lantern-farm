@@ -2381,6 +2381,36 @@ PAGE = r"""<!DOCTYPE html>
       shop.appendChild(card);
     }
 
+    function appendToolCard(shop, data, kind, info) {
+      info = info || {};
+      const gold = (data.state && data.state.gold) || 0;
+      const price = (info.price != null) ? info.price : info.seed_price;
+      const title = info.shop_name || info.name || kind;
+      const card = document.createElement("div");
+      card.className = "shop-card";
+      const img = document.createElement("img");
+      img.src = itemIconSrc(kind);
+      img.alt = title;
+      card.appendChild(img);
+      const body = document.createElement("div");
+      const desc = info.description || "";
+      body.innerHTML = "<b>" + escapeHtml(title) + "</b>" +
+        (desc ? '<p class="desc">' + escapeHtml(desc) + "</p>" : "") +
+        '<div class="meta shop-meta">' + price + "G</div>";
+      const row = document.createElement("div");
+      row.className = "shop-qty";
+      const buy = document.createElement("button");
+      buy.type = "button";
+      buy.className = "btn primary";
+      buy.textContent = "Buy";
+      buy.disabled = gold < price || !data.your_turn || !data.in_cabin;
+      buy.addEventListener("click", function () { actCmd("buy " + kind + " 1"); });
+      row.appendChild(buy);
+      body.appendChild(row);
+      card.appendChild(body);
+      shop.appendChild(card);
+    }
+
     function packSlotsOf(data) {
       const players = (data && data.players) || (data && data.state && data.state.players) || {};
       if (data && data.pack && data.pack.length) return data.pack;
@@ -2649,6 +2679,17 @@ PAGE = r"""<!DOCTYPE html>
         shop.appendChild(title);
         stapleSale.forEach(function (item) {
           appendShopCard(shop, data, item, staples[item], {buy: true, sell: true});
+        });
+      }
+      const tools = data.tools || {};
+      const toolSale = Object.keys(tools);
+      if (toolSale.length) {
+        const title = document.createElement("div");
+        title.className = "shop-section-title";
+        title.textContent = "Tools";
+        shop.appendChild(title);
+        toolSale.forEach(function (item) {
+          appendToolCard(shop, data, item, tools[item]);
         });
       }
       if (sellables.length) {
@@ -3436,6 +3477,35 @@ def _recipe_catalog(rules: dict | None = None) -> dict:
     return out
 
 
+def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
+    """Shop tools that should appear in the Tools section of the web shop."""
+    from mine import pickaxe_unlocked, pickaxe_in_world, pickaxe_price
+    from inventory import TOOL_PICKAXE, TOOLS
+
+    out = {}
+    if not pickaxe_unlocked(state) or pickaxe_in_world(state, rules):
+        return out
+    price = pickaxe_price(rules)
+    gold = int(state.get("gold") or 0)
+    info = TOOLS.get(TOOL_PICKAXE) or {}
+    out[TOOL_PICKAXE] = {
+        "name": info.get("name") or "pickaxe",
+        "name_plural": info.get("name_plural") or "pickaxes",
+        "shop_name": info.get("name") or "pickaxe",
+        "stock": "",
+        "seed_price": int(price),
+        "price": int(price),
+        "sell_price": None,
+        "available": True,
+        "affordable": gold >= int(price),
+        "unique": True,
+        "description": (
+            "A stout pickaxe for prying open the boarded mine entrance and breaking rock."
+        ),
+    }
+    return out
+
+
 def _staple_catalog(rules: dict | None = None) -> dict:
     from inventory import staple_shop_items, staple_info, STAPLES
     seasons = ["spring", "summer", "autumn", "winter"]
@@ -3663,6 +3733,7 @@ def api_payload(
         "item_names": _item_name_catalog(crops, rules),
         "recipes": _recipe_catalog(rules),
         "staples": _staple_catalog(rules),
+        "tools": _tool_shop_catalog(state, rules),
         "recipe_book": _recipe_book_payload(state, crops, rules, viewer),
         "discovered_recipes": discovered_recipe_ids(state, rules),
         "year": year_for_day(int(state.get("day") or 1), crops),

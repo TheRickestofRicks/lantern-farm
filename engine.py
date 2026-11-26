@@ -4105,8 +4105,9 @@ def legal_actions(
                 actions.append(f"buy {item} 1")
         from inventory import TOOL_PICKAXE, item_count, item_label
         if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules):
-            if int(state["gold"]) >= pickaxe_price(rules):
-                actions.append("buy pickaxe 1")
+            # Always list it once the entrance is found, even if gold is short,
+            # so the shop, look, and CLI can show the price.
+            actions.append("buy pickaxe 1")
         if actor and energy >= energy_cost("forge", rules):
             for tool in FORGE_TOOLS:
                 nxt = next_tool_tier(tool_tier(state, tool))
@@ -4436,6 +4437,14 @@ def action_descriptor(
             item_tok = " ".join(args)
         item = normalize_item(item_tok) or normalize_kind(item_tok) or item_tok
         price = None
+        from inventory import TOOL_PICKAXE
+        if item == TOOL_PICKAXE:
+            from mine import pickaxe_price
+            price = pickaxe_price(rules) * count
+            gold = int(state.get("gold") or 0)
+            if gold < price:
+                return f"{price}G (you have {gold}G)"
+            return f"−{price}G, leaves {gold - price}G"
         if is_staple(item):
             info = staple_info(item, rules) or {}
             price = int(info.get("price") or 0) * count
