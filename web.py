@@ -1197,7 +1197,7 @@ PAGE = r"""<!DOCTYPE html>
     function parseHillsSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
       let forage = null, tree = null, snow = false;
-      const forageKinds = ["wild_onion", "wild_berry", "wild_mushroom"];
+      const forageKinds = ["oyster_mushroom", "wild_onion", "wild_berry", "wild_mushroom"];
       for (let i = 0; i < forageKinds.length; i++) {
         const suffix = "_forage_" + forageKinds[i];
         if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
@@ -1206,7 +1206,7 @@ PAGE = r"""<!DOCTYPE html>
           break;
         }
       }
-      const treeStages = ["sapling", "young", "grown", "stump"];
+      const treeStages = ["mushroom_log", "sapling", "young", "grown", "stump"];
       for (let i = 0; i < treeStages.length; i++) {
         const suffix = "_tree_" + treeStages[i];
         if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
@@ -1731,7 +1731,7 @@ PAGE = r"""<!DOCTYPE html>
         const bits = [];
         if (tile.tree && tile.tree.stage) {
           const st = tile.tree.stage;
-          bits.push(st === "grown" ? "a grown tree, ready to chop" : (st === "stump" ? "a stump" : ("a " + st + (st === "young" ? " tree" : ""))));
+          bits.push(st === "grown" ? "a grown tree, ready to chop" : (st === "stump" ? "a stump" : (st === "mushroom_log" ? "a mushroom log" : ("a " + st + (st === "young" ? " tree" : "")))));
         }
         if (tile.forage && tile.forage.kind) {
           bits.push("a " + String(tile.forage.kind).replace(/_/g, " ") + " to forage");
@@ -3233,6 +3233,7 @@ PAGE = r"""<!DOCTYPE html>
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
           + ' &middot; <kbd>C</kbd> chop'
+          + ' &middot; <kbd>U</kbd> unearth'
           + ' &middot; <kbd>E</kbd> enter mine';
       } else if (area === "mine") {
         work = ' &middot; <kbd>E</kbd> climb'
@@ -3290,19 +3291,34 @@ PAGE = r"""<!DOCTYPE html>
       else if (crop.stage === "dormant") name = "dormant " + name;
       return name;
     }
+    function standingUnearthName(data) {
+      const stand = standingFrom(data);
+      if (!stand) return null;
+      if (!stand.area || stand.area === "farm") return standingCropName(data);
+      if (stand.area === "hills") {
+        const tile = standingTile(data);
+        const stage = tile && tile.tree && tile.tree.stage;
+        if (stage === "stump") return "stump";
+        if (stage === "mushroom_log") return "mushroom log";
+        return null;
+      }
+      return null;
+    }
 
     function keyUnearth(immediate) {
       if (!needTurn() || !needHere()) return;
-      if (currentArea(lastData) !== "farm") {
+      const area = currentArea(lastData);
+      if (area !== "farm" && area !== "hills") {
         unearthConfirm = false;
         farmActionToast("unearth", lastData);
         return;
       }
       const stand = standingFrom(lastData);
-      const name = standingCropName(lastData);
+      const name = standingUnearthName(lastData);
       if (!name || !stand) {
         unearthConfirm = false;
-        showToast("Nothing to unearth here.", false);
+        if (area === "hills") showToast("There's nothing to unearth here in the hills.", false);
+        else showToast("Nothing to unearth here.", false);
         return;
       }
       if (immediate || unearthConfirm) {
@@ -3313,7 +3329,8 @@ PAGE = r"""<!DOCTYPE html>
       unearthConfirm = true;
       endConfirm = false;
       if (lastData) render(lastData);
-      showToast("Unearth the " + name + " at r" + stand.r + " c" + stand.c + "? Press U or Enter to confirm, Esc to cancel.", true);
+      const costHint = area === "hills" ? " (20 energy)" : "";
+      showToast("Unearth the " + name + " at r" + stand.r + " c" + stand.c + "?" + costHint + " Press U or Enter to confirm, Esc to cancel.", true);
     }
 
     function fertilizerKindsInPack(pack) {

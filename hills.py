@@ -15,18 +15,22 @@ HILLS_COLS = 3
 HILLS_GATE = (3, 3)  # bottom-right, connects to the cabin
 MINE_ENTRANCE = (1, 2)  # north-centre, boarded in Phase 1
 
-TREE_STAGES = ("sapling", "young", "grown", "stump")
+TREE_STAGES = ("sapling", "young", "grown", "stump", "mushroom_log")
 TREE_NEXT = {
     "sapling": "young",
     "young": "grown",
     "stump": "sapling",
 }
 # Days spent in a stage before it advances. Grown stays until chopped.
+# mushroom_log ticks forage separately and does not use TREE_NEXT.
 DEFAULT_TREE_DAYS = {
     "sapling": 3,
     "young": 4,
     "stump": 4,
 }
+DEFAULT_LOG_FORAGE_DAYS = 3
+STUMP_LOG_SALT = 0x10C
+STUMP_LOG_CHANCE = 3  # 1 in 3 stumps become a mushroom log
 CHOP_WOOD = 2
 FORAGE_CAP = 2
 FORAGE_MIN = 0
@@ -59,6 +63,11 @@ FORAGE_INFO = {
         "sell_price": 12,
         "eat_energy": 12,
         "seasons": ("autumn",),
+    },
+    "oyster_mushroom": {
+        "name": "oyster mushroom",
+        "name_plural": "oyster mushrooms",
+        "seasons": ("spring", "summer", "autumn", "winter"),
     },
 }
 
@@ -105,6 +114,31 @@ def hills_rules(rules: dict | None = None) -> dict:
     rules = rules or load_rules()
     cfg = rules.get("hills") if isinstance(rules, dict) else None
     return cfg if isinstance(cfg, dict) else {}
+
+
+def log_forage_days(rules: dict | None = None) -> int:
+    cfg = hills_rules(rules)
+    try:
+        return max(1, int(cfg.get("log_forage_days") or DEFAULT_LOG_FORAGE_DAYS))
+    except (TypeError, ValueError):
+        return int(DEFAULT_LOG_FORAGE_DAYS)
+
+
+def stump_becomes_log(state: dict, row: int, col: int, day: int | None = None) -> bool:
+    """Exclusive daily roll: True if this stump becomes a mushroom log."""
+    seed = farm_seed(state)
+    if day is None:
+        try:
+            day = int(state.get("day") or 1)
+        except (TypeError, ValueError):
+            day = 1
+    salt = STUMP_LOG_SALT + int(row) * 10 + int(col)
+    return _mix(seed, int(day), salt=salt) % STUMP_LOG_CHANCE == 0
+
+
+def can_unearth_hills_tile(tile: dict | None) -> bool:
+    tree = (tile or {}).get("tree")
+    return bool(isinstance(tree, dict) and tree.get("stage") in {"stump", "mushroom_log"})
 
 
 def tree_days_for(stage: str, rules: dict | None = None) -> int:
@@ -308,6 +342,7 @@ def mark_entrance_found(state: dict, area: str, row: int, col: int) -> bool:
 
 def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> list[str]:
     notes = []
+    day = int(state.get("day") or 1)
     for r, c, tile in iter_hills_tiles(state):
         tree = tile.get("tree")
         if not isinstance(tree, dict) or tree.get("stage") not in TREE_STAGES:
@@ -315,17 +350,38 @@ def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> 
         stage = tree["stage"]
         if stage == "grown":
             continue
+        if stage == "mushroom_log":
+            tree["days_grown"] = int(tree.get("days_grown") or 0) + 1
+            needed = log_forage_days(rules)
+            if tree["days_grown"] >= needed and not has_forage(tile):
+                tile["forage"] = make_forage("oyster_mushroom", day)
+                tree["days_grown"] = 0
+                if log:
+                    notes.append(
+                        f"Oyster mushrooms sprouted on a log at hills row {r} col {c}."
+                    )
+            continue
         tree["days_grown"] = int(tree.get("days_grown") or 0) + 1
         needed = tree_days_for(stage, rules)
-        if tree["days_grown"] >= needed:
-            nxt = TREE_NEXT[stage]
-            tree["stage"] = nxt
-            tree["days_grown"] = 0
-            if log:
-                if nxt == "grown":
-                    notes.append(f"A tree at hills row {r} col {c} has grown tall.")
-                elif nxt == "sapling" and stage == "stump":
+        if tree["days_grown"] < needed:
+            continue
+        if stage == "stump":
+            if stump_becomes_log(state, r, c, day):
+                tree["stage"] = "mushroom_log"
+                tree["days_grown"] = 0
+                if log:
+                    notes.append(f"A stump at hills row {r} col {c} has become a mushroom log.")
+            else:
+                tree["stage"] = "sapling"
+                tree["days_grown"] = 0
+                if log:
                     notes.append(f"A stump at hills row {r} col {c} has sent up a sapling.")
+            continue
+        nxt = TREE_NEXT[stage]
+        tree["stage"] = nxt
+        tree["days_grown"] = 0
+        if log and nxt == "grown":
+            notes.append(f"A tree at hills row {r} col {c} has grown tall.")
     return notes
 
 
@@ -610,6 +666,7 @@ def tree_label(stage: str | None) -> str:
         "young": "a young tree",
         "grown": "a grown tree",
         "stump": "a stump",
+        "mushroom_log": "a mushroom log",
     }.get(stage or "", "a tree")
 
 
@@ -809,12 +866,14 @@ def map_cell_lines(tile: dict) -> tuple[str, str]:
             "young": "young tree",
             "grown": "TREE",
             "stump": "stump",
+            "mushroom_log": "log",
         }.get(tree["stage"], "tree")
     if forage and forage.get("kind"):
         bot = {
             "wild_onion": "onion",
             "wild_berry": "berry",
             "wild_mushroom": "mushroom",
+            "oyster_mushroom": "oyster",
         }.get(forage["kind"], "forage")
     if not bot:
         bot = "slope" if typ == "hillside" else "path"
@@ -864,7 +923,15 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         if has_tree(tile):
             stage = tile["tree"]["stage"]
             if stage == "stump":
-                return False, "That's a stump. It will send up a sapling if you leave it."
+                return False, (
+                    "That's a stump. Leave it to send up a sapling or become a mushroom log, "
+                    "or unearth it with a shovel."
+                )
+            if stage == "mushroom_log":
+                return False, (
+                    "That's a mushroom log. Leave it to grow oyster mushrooms, "
+                    "or unearth it with a shovel."
+                )
             return False, f"This tree is still {stage}. Wait for it to grow."
         return False, "There is no grown tree here to chop."
     if not pack_has(state, player, TOOL_AXE, 1, rules):
@@ -892,6 +959,57 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         extra = _gold_axe_splash(state, player, row, col, rules)
         if extra:
             msg = msg.rstrip(".") + extra
+    log_append(state, msg, player)
+    return True, msg
+
+
+def unearth_hills(
+    state: dict,
+    player: str | None,
+    rules: dict | None = None,
+    row: int | None = None,
+    col: int | None = None,
+) -> tuple[bool, str]:
+    """Dig up a stump or mushroom log, leaving plain grass that will not resprout."""
+    from engine import (
+        display_name,
+        player_where,
+        log_append,
+        who,
+        parse_row_col,
+    )
+    from inventory import pack_has, TOOL_SHOVEL
+
+    area = player_area(state, player) if player else AREA_HILLS
+    if area != AREA_HILLS:
+        return False, "There's nothing to unearth here in the hills."
+    if row is None or col is None:
+        row, col = player_where(state, player)
+    else:
+        r, c, err = parse_row_col(row, col)
+        if err:
+            return False, err
+        row, col = r, c
+    tile = get_hills_tile(state, row, col)
+    here = describe_place(AREA_HILLS, row, col)
+    if not can_unearth_hills_tile(tile):
+        return False, "There's nothing to unearth here in the hills."
+    if player and not pack_has(state, player, TOOL_SHOVEL, 1, rules):
+        return False, (
+            f"{display_name(player)} needs a shovel in their backpack to unearth a stump. "
+            "Take one from the cabin chest."
+        )
+    stage = tile["tree"]["stage"]
+    label = "stump" if stage == "stump" else "mushroom log"
+    extra = ""
+    if has_forage(tile):
+        extra = f" and the {forage_label(tile['forage']['kind'])}"
+    tile["tree"] = None
+    tile["forage"] = None
+    msg = (
+        f"{who(player, 'unearth', 'unearths')} the {label}{extra} at {here}, "
+        "returning the ground to plain grass."
+    )
     log_append(state, msg, player)
     return True, msg
 

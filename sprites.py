@@ -139,13 +139,13 @@ def _parse_hills_sprite_key(key: str) -> dict | None:
     tree = None
     snow = False
     # forage and tree suffixes, longest first
-    for kind in ("wild_mushroom", "wild_onion", "wild_berry"):
+    for kind in ("oyster_mushroom", "wild_mushroom", "wild_onion", "wild_berry"):
         suffix = "_forage_" + kind
         if raw.endswith(suffix):
             forage = kind
             raw = raw[: -len(suffix)]
             break
-    for stage in ("sapling", "young", "grown", "stump"):
+    for stage in ("mushroom_log", "sapling", "young", "grown", "stump"):
         suffix = "_tree_" + stage
         if raw.endswith(suffix):
             tree = stage
@@ -1247,6 +1247,14 @@ def _tree_overlay(stage: str) -> str:
             '<rect x="66" y="86" width="28" height="22" rx="4" fill="#6b4a2b"/>'
             '<ellipse cx="80" cy="86" rx="14" ry="5" fill="#8a6a44"/>'
         )
+    if stage == "mushroom_log":
+        return (
+            '<ellipse cx="80" cy="116" rx="34" ry="9" fill="#5a3a22"/>'
+            '<rect x="48" y="104" width="64" height="16" rx="8" fill="#6b4a2b"/>'
+            '<ellipse cx="48" cy="112" rx="8" ry="10" fill="#c4a06a"/>'
+            '<ellipse cx="48" cy="112" rx="5" ry="6" fill="#8a6a44"/>'
+            '<ellipse cx="112" cy="112" rx="8" ry="10" fill="#5a3a22"/>'
+        )
     if stage == "sapling":
         return (
             '<rect x="77" y="90" width="6" height="28" rx="2" fill="#6b4a2b"/>'
@@ -1284,6 +1292,13 @@ def _forage_overlay(kind: str) -> str:
             '<rect x="74" y="112" width="10" height="16" rx="3" fill="#e8d8b8"/>'
             '<ellipse cx="79" cy="110" rx="16" ry="10" fill="#8a5a28"/>'
             '<ellipse cx="74" cy="108" rx="3" ry="2" fill="#f0e0c0" opacity="0.7"/>'
+        )
+    if kind == "oyster_mushroom":
+        return (
+            '<ellipse cx="70" cy="102" rx="10" ry="6" fill="#efe4d0"/>'
+            '<ellipse cx="80" cy="98" rx="12" ry="7" fill="#e8d8b8"/>'
+            '<ellipse cx="90" cy="104" rx="9" ry="5" fill="#ddd0b8"/>'
+            '<path d="M70 102 Q 70 112 80 114 Q 90 112 90 104" fill="#d9cbb0"/>'
         )
     # wild onion
     return (
@@ -1371,6 +1386,7 @@ _ITEM_LABELS = {
     "wild_onion": "ONION",
     "wild_berry": "BERRY",
     "wild_mushroom": "SHROOM",
+    "oyster_mushroom": "OYSTER",
     "strawberry_jam": "JAM",
     "kabocha_soup": "SOUP",
     "root_stew": "STEW",
@@ -1411,6 +1427,7 @@ _ITEM_COLORS = {
     "wild_onion": ("#3d6b38", "#d7e8b0"),
     "wild_berry": ("#8b1e2d", "#f2d4a3"),
     "wild_mushroom": ("#5a3a22", "#e2c48a"),
+    "oyster_mushroom": ("#cbb89a", "#efe4d0"),
     "strawberry_jam": ("#8b1e2d", "#f2d4a3"),
     "kabocha_soup": ("#8a5a12", "#f0d48a"),
     "root_stew": ("#5a3a22", "#e2c48a"),

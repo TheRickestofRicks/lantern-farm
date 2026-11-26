@@ -83,13 +83,23 @@ means the current area’s nine tiles.
 
 ## Phase 1 — hills, trees, and forage (built)
 
-Hills tiles are not farmland: no till, plant, water, fertilizer, or
-unearth. You still stand on a tile to work it, the same as a crop.
+Hills tiles are not farmland: no till, plant, water, or fertilizer.
+You still stand on a tile to work it, the same as a crop. `unearth` on
+the farm (5 energy, shovel) still clears a crop to plain soil. In the
+hills, `unearth` only works on a stump or mushroom log: shovel, 20
+energy, and the tile returns to plain grass with no resprout. Empty
+hills tiles (and the mine) still refuse with “There's nothing to
+unearth here in the hills.”
 
 **Trees** grow sapling → young → grown at day turn, with no watering. A
 grown tree can be `chop`ped with an **axe** in the pack (10 energy) and
-drops **2 wood**, leaving a stump that can resprout (stump → sapling).
-One basic axe starts in the cabin chest.
+drops **2 wood**, leaving a stump. After the stump's days, it either
+resprouts (stump → sapling) or becomes a mushroom log — one exclusive
+outcome per tile, never both. Mushroom logs periodically grow oyster
+mushrooms (including in winter) that do not count toward the wild
+forage cap. Oysters are cook-only and unsellable; they can stand in
+for the wild mushroom in mushroom soup. One basic axe starts in the
+cabin chest.
 
 **Wild plants** spawn like weeds: 0–2 a day on empty grass, never on the
 mine mouth or a tree, capped so the hills do not fill up, seeded from
@@ -192,7 +202,7 @@ pattern as crops.
 
 - **Grounds:** hills grass (and snow), hillside (and snow), boarded
   and open mine entrance (and snow), mine floor, safe-floor stone.
-- **Overlays:** tree sapling / young / grown / stump, each wild plant,
+- **Overlays:** tree sapling / young / grown / stump / mushroom log, each wild plant including oyster mushrooms,
   rocks and ore rocks, an open ladder, a shaft, a lantern, an elevator.
 - **Items:** axe, wood, wild onion, wild berry, wild mushroom, plus
   Classic SVG placeholders for the pickaxe and copper / iron / gold
@@ -241,7 +251,8 @@ Elsewhere note. First Farm is never loaded or written by this work.
   north from another farm top-row tile is refused; `go cabin` from the
   hills charges the full path.
 - Trees grow across days; `chop` needs an axe and yields wood; a stump
-  resprouts; forage is deterministic and seasonal; `take axe 1` works.
+  resprouts or becomes a mushroom log; forage is deterministic and seasonal;
+  `take axe 1` works.
 - Look and the web payload summarise the other area and name the other
   player’s place; the mini-map names the current area.
 - Snacks heal HP; HP starts at 100; cabin sleep fills HP.

@@ -17,6 +17,7 @@
     "craft": 5,
     "fertilize": 5,
     "unearth": 5,
+    "unearth_stump": 20,
     "chop": 10,
     "forage": 5,
     "mine": 10,
@@ -236,6 +237,7 @@
       "young": 4,
       "stump": 4
     },
+    "log_forage_days": 3,
     "chop_wood": 2,
     "forage_cap": 2,
     "forage_min": 0,

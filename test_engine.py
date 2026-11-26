@@ -2654,6 +2654,31 @@ class ArtPackAndPage(unittest.TestCase):
                 self.assertLessEqual(rows[y][x * 4 + 3], 16, f"{name} corner {x},{y}")
 
 
+
+    def test_storybook_stump_is_smaller_and_log_overlays_are_grounded(self):
+        from packs import PACKS_ROOT
+        from PIL import Image
+
+        stump_old_width = 249
+        for name, max_width, max_bottom in (
+            ("tree_stump.png", 180, 410),
+            ("tree_mushroom_log.png", 240, 410),
+            ("forage_oyster_mushroom.png", 180, 410),
+        ):
+            path = PACKS_ROOT / "storybook" / "overlays" / name
+            im = Image.open(path)
+            self.assertEqual(im.size, (512, 512), name)
+            self.assertEqual(im.mode, "RGBA", name)
+            bbox = im.split()[-1].point(lambda v: 255 if v > 16 else 0).getbbox()
+            self.assertIsNotNone(bbox, name)
+            width = bbox[2] - bbox[0]
+            self.assertLessEqual(bbox[3], max_bottom, f"{name} bottom {bbox[3]}")
+            self.assertLessEqual(width, max_width, f"{name} width {width}")
+            if name == "tree_stump.png":
+                self.assertLess(width, stump_old_width, "stump should be smaller than the old 249px sprite")
+            for x, y in ((0, 0), (511, 0), (0, 511), (511, 511)):
+                self.assertLessEqual(im.getpixel((x, y))[3], 16, f"{name} corner {x},{y}")
+
     def test_storybook_item_icons_are_square_and_transparent(self):
         from packs import PACKS_ROOT, load_manifest, public_packs, safe_pack_file
 
@@ -4417,9 +4442,121 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertIn("axe", msg.lower())
         stump = get_hills_tile(self.state, 3, 2)
         stump["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        from hills import stump_becomes_log
+        seed = int(self.state.get("weather_seed") or 1)
+        while stump_becomes_log(self.state, 3, 2):
+            seed += 1
+            self.state["weather_seed"] = seed
         for _ in range(tree_days_for("stump", self.rules)):
             tick_hills(self.state, self.rules)
         self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "sapling")
+
+    def test_stump_becomes_a_mushroom_log_or_a_sapling_never_both(self):
+        from hills import (
+            make_tree, get_hills_tile, tick_hills, tree_days_for, stump_becomes_log,
+        )
+        saw_log = saw_sapling = False
+        for seed in range(1, 40):
+            for r, c in ((1, 1), (2, 1), (2, 2), (3, 1), (3, 2), (3, 3)):
+                tile = get_hills_tile(self.state, r, c)
+                if tile.get("type") == "mine_entrance":
+                    continue
+                self.state["weather_seed"] = seed
+                self.state["day"] = 8
+                if stump_becomes_log(self.state, r, c):
+                    saw_log = True
+                else:
+                    saw_sapling = True
+        self.assertTrue(saw_log and saw_sapling, "the exclusive roll should hit both outcomes")
+        tile = get_hills_tile(self.state, 3, 2)
+        tile["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        seed = 1
+        self.state["weather_seed"] = seed
+        self.state["day"] = 8
+        while not stump_becomes_log(self.state, 3, 2):
+            seed += 1
+            self.state["weather_seed"] = seed
+        for _ in range(tree_days_for("stump", self.rules)):
+            tick_hills(self.state, self.rules)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "mushroom_log")
+
+    def test_mushroom_log_forages_oysters_past_the_wild_cap_and_in_winter(self):
+        from hills import (
+            make_tree, make_forage, get_hills_tile, tick_hills, log_forage_days,
+            forage_count, iter_hills_tiles, is_mine_entrance_tile,
+        )
+        for r, c, tile in iter_hills_tiles(self.state):
+            if is_mine_entrance_tile(r, c):
+                continue
+            tile["forage"] = make_forage("wild_onion", 1)
+            tile["tree"] = None
+        log_tile = get_hills_tile(self.state, 3, 2)
+        log_tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
+        log_tile["forage"] = None
+        self.state["day"] = 46
+        self.state["season"] = "winter"
+        cap_before = forage_count(self.state)
+        self.assertGreaterEqual(cap_before, 2)
+        for _ in range(log_forage_days(self.rules)):
+            tick_hills(self.state, self.rules)
+        log_tile = get_hills_tile(self.state, 3, 2)
+        self.assertEqual((log_tile.get("forage") or {}).get("kind"), "oyster_mushroom")
+        self.assertEqual(forage_count(self.state), cap_before + 1)
+
+    def test_unearth_hills_stump_needs_a_shovel_costs_20_and_clears_to_grass(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from inventory import add_to_pack, TOOL_SHOVEL, pack_has
+        from engine import legal_actions, format_legal_action, energy_cost, unearth_energy_cost
+        tile = get_hills_tile(self.state, 3, 2)
+        tile["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "unearth", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("shovel", msg.lower())
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
+        add_to_pack(self.state, P1, TOOL_SHOVEL, 1, self.rules)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("unearth 3 2", actions)
+        line = format_legal_action("unearth 3 2", self.state, self.crops, P1, self.rules)
+        self.assertEqual(line, "unearth (removes the stump, 20 energy)")
+        self.assertEqual(unearth_energy_cost(self.state, P1, self.rules, 3, 2), 20)
+        self.assertEqual(energy_cost("unearth", self.rules), 5)
+        ok, msg = do_action(
+            self.state, self.crops,
+            "unearth (removes the stump, 20 energy)",
+            player=P1, rules=self.rules,
+        )
+        self.assertTrue(ok, msg)
+        self.assertIn("stump", msg)
+        self.assertIn("plain grass", msg)
+        self.assertIsNone(get_hills_tile(self.state, 3, 2).get("tree"))
+        self.assertIsNone(get_hills_tile(self.state, 3, 2).get("forage"))
+        self.assertEqual(self.state["players"][P1]["energy"], 80)
+        self.assertTrue(pack_has(self.state, P1, TOOL_SHOVEL, 1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "unearth", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertEqual(msg, "There's nothing to unearth here in the hills.")
+
+    def test_unearth_hills_mushroom_log_clears_oysters_too(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, make_forage, get_hills_tile
+        from inventory import add_to_pack, TOOL_SHOVEL
+        tile = get_hills_tile(self.state, 2, 2)
+        tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
+        tile["forage"] = make_forage("oyster_mushroom", 1)
+        set_player_place(self.state, P1, AREA_HILLS, 2, 2)
+        self.state["players"][P1]["energy"] = 40
+        add_to_pack(self.state, P1, TOOL_SHOVEL, 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "unearth 2 2", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("mushroom log", msg)
+        self.assertIn("oyster mushroom", msg)
+        self.assertIn("plain grass", msg)
+        self.assertIsNone(get_hills_tile(self.state, 2, 2).get("tree"))
+        self.assertIsNone(get_hills_tile(self.state, 2, 2).get("forage"))
+        self.assertEqual(self.state["players"][P1]["energy"], 20)
 
     def test_take_axe_1_from_the_chest(self):
         from inventory import pack_has, TOOL_AXE
@@ -4562,6 +4699,7 @@ class HillsPhaseOne(unittest.TestCase):
             {"type": "grass", "tree": {"stage": "sapling"}, "forage": None},
             {"type": "grass", "tree": {"stage": "grown"}, "forage": {"kind": "wild_onion"}},
             {"type": "hillside", "tree": {"stage": "stump"}, "forage": None},
+            {"type": "grass", "tree": {"stage": "mushroom_log"}, "forage": {"kind": "oyster_mushroom"}},
             {"type": "mine_entrance", "closed": True, "tree": None, "forage": None},
         ]
         for tile in tiles:
@@ -4664,7 +4802,7 @@ class ForageFood(unittest.TestCase):
         self.assertEqual(self.state["gold"], gold)
         self.assertTrue(pack_has(self.state, P1, "wild_onion", 1, self.rules))
 
-        for cmd in ("sell wild berry", "sell wild mushroom", "sell wild_onion 1"):
+        for cmd in ("sell wild berry", "sell wild mushroom", "sell oyster mushroom", "sell wild_onion 1"):
             ok, msg = do_action(self.state, self.crops, cmd, player=P1, rules=self.rules)
             self.assertFalse(ok, msg)
             self.assertEqual(msg, "The shop doesn't buy foraged goods.", cmd)
@@ -4721,6 +4859,26 @@ class ForageFood(unittest.TestCase):
         self.assertFalse(pack_has(self.state, P1, "strawberry", 1, self.rules))
         self.assertFalse(pack_has(self.state, P1, "wild_berry", 1, self.rules))
 
+    def test_oyster_mushroom_is_cook_only_unsellable_and_cooks_soup(self):
+        from inventory import add_to_pack, pack_has, item_eat_energy, item_sell_price
+        from engine import legal_actions
+        self.assertIsNone(item_eat_energy("oyster_mushroom", self.crops, self.rules))
+        self.assertIsNone(item_sell_price("oyster_mushroom", self.crops, self.rules))
+        add_to_pack(self.state, P1, "oyster_mushroom", 1, self.rules)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn("eat oyster_mushroom", actions)
+        ok, msg = do_action(self.state, self.crops, "eat oyster mushroom", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("isn't edible raw", msg)
+        ok, msg = do_action(self.state, self.crops, "sell oyster mushroom 1", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("foraged", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "oyster_mushroom", 1, self.rules))
+        add_to_pack(self.state, P1, "milk", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "craft mushroom soup", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "mushroom_soup", 1, self.rules))
+        self.assertFalse(pack_has(self.state, P1, "oyster_mushroom", 1, self.rules))
 
 
 class BreadHalvesAndChopGrammar(unittest.TestCase):
@@ -5905,8 +6063,12 @@ class FarmPlotActionsArea(unittest.TestCase):
 
     def test_farm_plot_actions_refuse_in_the_hills_and_do_not_touch_the_farm_tile(self):
         from hills import set_player_place, AREA_HILLS, AREA_FARM, HILLS_GATE
+        from hills import get_hills_tile
         self._farm_strawberry_at(*HILLS_GATE)
         crop = copy.deepcopy(engine.get_tile(self.state, *HILLS_GATE)["crop"])
+        hills_tile = get_hills_tile(self.state, *HILLS_GATE)
+        hills_tile["tree"] = None
+        hills_tile["forage"] = None
         set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
         self.state["current_player"] = P1
         self.state["players"][P1]["energy"] = 100
@@ -6018,13 +6180,53 @@ class HillsHotkeysWeb(unittest.TestCase):
         self.assertNotRegex(keys, r"\btill\b")
         self.assertNotRegex(keys, r"\bwater\b")
         self.assertNotRegex(keys, r"\bplant\b")
-        self.assertNotRegex(keys, r"\bu\b unearth")
+        self.assertRegex(keys, r"\bu\b unearth")
         self.assertNotRegex(keys, r"\bfertilize\b")
         self.assertNotRegex(keys, r"\bharvest\b")
         self.assertIn("forage", data["commands"])
         self.assertNotIn("harvest", data["commands"])
         self.assertNotIn("till", data["commands"])
         self.assertIn("chop", data["commands"])
+
+    def test_web_u_unearths_a_hills_stump(self):
+        import web
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from inventory import add_to_pack, TOOL_SHOVEL
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        state["players"][P1]["energy"] = 80
+        add_to_pack(state, P1, TOOL_SHOVEL, 1, rules)
+        set_player_place(state, P1, AREA_HILLS, 3, 2)
+        tile = get_hills_tile(state, 3, 2)
+        tile["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        payload = web.api_payload(state, crops, player=P1)
+        html = web.render_page(viewer=P1)
+        runner = Path(__file__).resolve().parent / "tests" / "hills-unearth.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        import shutil, subprocess, tempfile, os
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory(prefix="lantern-unearth-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp, capture_output=True, text=True, env=env, timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+        keys = (data.get("keysText") or "").lower()
+        self.assertRegex(keys, r"\bu\b unearth")
+        self.assertTrue(any(str(c).startswith("unearth") for c in data.get("commands") or []), data)
+        self.assertIn("20 energy", (data.get("toast") or "").lower())
 
     def test_web_shows_eat_for_a_half_loaf_in_the_pack(self):
         import web

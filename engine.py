@@ -1622,6 +1622,13 @@ def farm_action_refused(state: dict, player: str | None, verb: str) -> str | Non
     if area == AREA_FARM:
         return None
     if area == AREA_HILLS:
+        if verb == "unearth":
+            from hills import get_hills_tile, can_unearth_hills_tile
+            row, col = player_where(state, player)
+            tile = get_hills_tile(state, row, col)
+            if can_unearth_hills_tile(tile):
+                return None
+            return "There's nothing to unearth here in the hills."
         where = "in the hills"
     elif area == AREA_MINE:
         where = "in the mine"
@@ -2419,6 +2426,27 @@ def clear_runner_links_to(state: dict, row: int, col: int) -> None:
             crop.pop("runner_from", None)
 
 
+def unearth_energy_cost(
+    state: dict,
+    player: str | None,
+    rules: dict | None = None,
+    row: int | None = None,
+    col: int | None = None,
+) -> int:
+    """Farm unearth is 5 energy; hills stumps and mushroom logs cost 20."""
+    from hills import player_area, AREA_HILLS, get_hills_tile, can_unearth_hills_tile
+
+    rules = rules or load_rules()
+    if player and player_area(state, player) == AREA_HILLS:
+        if row is None or col is None:
+            row, col = player_where(state, player)
+        tile = get_hills_tile(state, int(row), int(col))
+        if can_unearth_hills_tile(tile):
+            cost = energy_cost("unearth_stump", rules)
+            return cost if cost > 0 else 20
+    return energy_cost("unearth", rules)
+
+
 def unearth(
     state: dict,
     crops: dict,
@@ -2427,10 +2455,20 @@ def unearth(
     player: str | None = None,
     rules: dict | None = None,
 ) -> tuple[bool, str]:
-    """Dig up the plant on this tile and return the ground to plain soil."""
+    """Dig up a farm plant, or a hills stump or mushroom log."""
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    if player:
+        from hills import player_area, AREA_HILLS, AREA_MINE
+
+        area = player_area(state, player)
+        if area == AREA_HILLS:
+            from hills import unearth_hills
+
+            return unearth_hills(state, player, rules, r, c)
+        if area == AREA_MINE:
+            return False, "There's nothing to unearth here in the mine."
     refused = farm_action_refused(state, player, "unearth")
     if refused:
         return False, refused
@@ -4126,6 +4164,11 @@ def recipe_ingredients_met(rec: dict, counts: dict[str, int]) -> bool:
             if sum(counts.get(b, 0) for b in JAM_BERRY_ITEMS) < n:
                 return False
             continue
+        from inventory import SOUP_MUSHROOM_ITEMS
+        if item in SOUP_MUSHROOM_ITEMS:
+            if sum(counts.get(m, 0) for m in SOUP_MUSHROOM_ITEMS) < n:
+                return False
+            continue
         if counts.get(item, 0) < n:
             return False
     return True
@@ -4228,6 +4271,8 @@ def format_recipe_book(
             if item == "strawberry" and int(rec.get("berries") or 0):
                 noun = "berry" if n == 1 else "berries"
                 bits.append(f"{n} {noun} (strawberries or wild berries)")
+            elif item in ("wild_mushroom", "oyster_mushroom"):
+                bits.append(f"{n} mushroom (wild or oyster)" if n != 1 else "a mushroom (wild or oyster)")
             else:
                 bits.append(item_name(item, n, crops, rules))
         ings = ", ".join(bits) if bits else "no extra ingredients"
@@ -4280,6 +4325,12 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     # Check ingredients (pack + chest).
     needed = dict(rec.get("ingredients") or {})
     berry_need = int(rec.get("berries") or 0)
+    from inventory import SOUP_MUSHROOM_ITEMS
+    mushroom_need = 0
+    for raw in list(needed):
+        item = normalize_item(raw) or raw
+        if item in SOUP_MUSHROOM_ITEMS:
+            mushroom_need += int(needed.pop(raw))
     def available(item):
         return stack_count(pack_of(state, player, rules), item) + stack_count(chest_of(state, rules), item)
     for item, n in needed.items():
@@ -4291,6 +4342,13 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
         berries = sum(available(b) for b in JAM_BERRY_ITEMS)
         if berries < berry_need:
             return False, f"Not enough berries. {rec.get('name') or key} needs {berry_need}."
+    if mushroom_need:
+        mushrooms = sum(available(m) for m in SOUP_MUSHROOM_ITEMS)
+        if mushrooms < mushroom_need:
+            return False, (
+                f"Not enough mushrooms. {rec.get('name') or key} needs "
+                f"{mushroom_need} (wild or oyster)."
+            )
     # Consume.
     for item, n in needed.items():
         item = normalize_item(item) or item
@@ -4305,6 +4363,15 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
             left -= got
         if left > 0:
             return False, "Not enough berries."
+    if mushroom_need:
+        left = mushroom_need
+        for mushroom in SOUP_MUSHROOM_ITEMS:
+            if left <= 0:
+                break
+            got = take_available(state, mushroom, left, player, pack_only=False, rules=rules)
+            left -= got
+        if left > 0:
+            return False, "Not enough mushrooms."
     # Result.
     leftover = store_item(state, key, 1, player, prefer="pack", rules=rules)
     where = "the chest" if leftover or not pack_space_for(state, player, key, 1, rules) else "the pack"
@@ -4399,8 +4466,13 @@ def legal_actions(
             from inventory import pack_has, TOOL_PICKAXE
             if is_entrance_open(state) or (actor and pack_has(state, actor, TOOL_PICKAXE, 1, rules)):
                 actions.append("enter mine")
+        from hills import can_unearth_hills_tile
+        if can_unearth_hills_tile(tile) and energy >= unearth_energy_cost(state, actor, rules, r, c):
+            from inventory import pack_has, TOOL_SHOVEL
+            if not actor or pack_has(state, actor, TOOL_SHOVEL, 1, rules):
+                actions.append(f"unearth {r} {c}")
         tile_type = tile.get("type")
-        # Fall through: no farm work in the hills.
+        # Fall through: no other farm work in the hills.
     elif area == AREA_MINE and floor:
         tile = get_mine_tile(state, floor, r, c, rules)
         tile_type = tile.get("type")
@@ -4810,6 +4882,13 @@ def action_descriptor(
                 parsed = parse_row_col(args[0], args[1])
                 if not parsed[2]:
                     r, c = parsed[0], parsed[1]
+            from hills import player_area, AREA_HILLS, get_hills_tile, can_unearth_hills_tile
+            if actor and player_area(state, actor) == AREA_HILLS:
+                cost = unearth_energy_cost(state, actor, rules, r, c)
+                tile = get_hills_tile(state, r, c)
+                stage = ((tile or {}).get("tree") or {}).get("stage")
+                name = "stump" if stage == "stump" else "mushroom log"
+                return f"removes the {name}, {_energy_word(cost)}"
             tile = get_tile(state, r, c)
             crop = (tile or {}).get("crop") or {}
             kind = crop.get("kind")
@@ -5168,6 +5247,8 @@ def do_action(
     if cost_verb in {"till", "water", "chop", "mine"}:
         from mine import tool_action_cost
         cost = tool_action_cost(state, actor, cost_verb, rules)
+    elif verb == "unearth":
+        cost = unearth_energy_cost(state, actor, rules, r, c)
     else:
         cost = energy_cost(cost_verb, rules)
     energy = int(player_slot(state, actor)["energy"])

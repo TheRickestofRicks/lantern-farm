@@ -152,10 +152,22 @@ FORAGE_ITEMS = {
         "seasons": ("autumn",),
         "description": "A wild autumn mushroom from the hills. Not safe to eat raw — cook it into a soup.",
     },
+    "oyster_mushroom": {
+        "name": "oyster mushroom",
+        "name_plural": "oyster mushrooms",
+        "seasons": ("spring", "summer", "autumn", "winter"),
+        "description": (
+            "A pale shelf mushroom from a hills log. "
+            "Not safe to eat raw — cook it into mushroom soup."
+        ),
+    },
 }
 
 # Berry kinds that can stand in for strawberry_jam's `berries` requirement.
 JAM_BERRY_ITEMS = ("strawberry", "everbearing", "wild_berry")
+
+# Mushrooms that can stand in for mushroom_soup's wild mushroom.
+SOUP_MUSHROOM_ITEMS = ("wild_mushroom", "oyster_mushroom")
 
 # Recipes that are already in the book when a farm begins (or an older save is migrated).
 STARTING_DISCOVERED_RECIPES = ("strawberry_jam", "kabocha_soup")
@@ -333,6 +345,11 @@ ITEM_ALIASES = {
     "wild_mushroom": "wild_mushroom",
     "wild mushroom": "wild_mushroom",
     "wild mushrooms": "wild_mushroom",
+    "oyster_mushroom": "oyster_mushroom",
+    "oyster mushroom": "oyster_mushroom",
+    "oyster mushrooms": "oyster_mushroom",
+    "oyster": "oyster_mushroom",
+    "oysters": "oyster_mushroom",
     "watering-can": TOOL_CAN,
     "wateringcan": TOOL_CAN,
     "watering can": TOOL_CAN,
