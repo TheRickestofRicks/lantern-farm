@@ -309,12 +309,12 @@ Each phase should be its own playable stretch, not one giant commit.
 These are parked until the current art and engine work is in and playing
 well. Design notes only; not built yet.
 
-- **Cabin interior.** Next up; not built yet. This is the short plan.
-  Press E (enter cabin) from the farm cabin tile to step into a 3×3
-  interior, same idea as entering the mine. Leaving is from the door
-  tile, back onto the farm cabin tile. Walking inside costs no energy.
-  Being anywhere in the interior still counts as “in the cabin” for
-  sleep, together rest, the fireplace, the chest, and cooking.
+- **Cabin interior.** Built. Press E (enter cabin) from the farm cabin
+  tile to step into a 3×3 interior, same idea as entering the mine.
+  Leaving is from the door tile, back onto the farm cabin tile.
+  Walking inside costs no energy. Being anywhere in the interior still
+  counts as “in the cabin” for sleep and together rest. Plain E is
+  enter/interact; end turn by keybind is Shift+E then Enter.
 
   Layout, finalized (rows top to bottom, columns left to right):
 

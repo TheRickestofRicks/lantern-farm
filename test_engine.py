@@ -97,9 +97,28 @@ def no_weed_rules():
 
 
 def stand(state, player, row=1, col=1):
-    """Place a player on a tile without charging movement (for isolated action tests)."""
-    set_player_where(state, player, row, col)
+    """Place a player on a farm tile without charging movement (for isolated action tests)."""
+    from hills import set_player_place, AREA_FARM
+    set_player_place(state, player, AREA_FARM, row, col)
     return player_where(state, player)
+
+
+def inside(state, player, kind="door"):
+    """Place a player on a cabin interior tile without charging movement."""
+    from hills import set_player_place, AREA_CABIN
+    from cabin import CABIN_DOOR, CABIN_CHEST, CABIN_KITCHEN, CABIN_FIREPLACE, CABIN_BED
+    spots = {
+        "door": CABIN_DOOR,
+        "chest": CABIN_CHEST,
+        "kitchen": CABIN_KITCHEN,
+        "fireplace": CABIN_FIREPLACE,
+        "bed": CABIN_BED,
+        "floor": (2, 2),
+        "display": (1, 3),
+    }
+    row, col = spots[kind]
+    set_player_place(state, player, AREA_CABIN, row, col)
+    return row, col
 
 
 def give_item(state, item, n=1, player=None, where=None):
@@ -1104,9 +1123,17 @@ class ConfigAndMCP(unittest.TestCase):
         ok, msg = mcp_server.farm_do(p2, "till 1 1")
         self.assertFalse(ok)
         self.assertIn(display_name(p1), msg)
+        ok, msg = mcp_server.farm_do(p1, "enter cabin")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p1, "move to 1 2")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "take hoe")
         self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "take watering_can")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p1, "move to 3 1")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p1, "leave cabin")
         self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p1, "move to 1 1")
         self.assertTrue(ok, msg)
@@ -1124,7 +1151,15 @@ class ConfigAndMCP(unittest.TestCase):
         # It is now the other player's turn on the temp save, not the live one.
         ok, msg = mcp_server.farm_do(p1, "water 1 1")
         self.assertFalse(ok)
+        ok, msg = mcp_server.farm_do(p2, "enter cabin")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p2, "move to 1 2")
+        self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p2, "take watering_can")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p2, "move to 3 1")
+        self.assertTrue(ok, msg)
+        ok, msg = mcp_server.farm_do(p2, "leave cabin")
         self.assertTrue(ok, msg)
         ok, msg = mcp_server.farm_do(p2, "move to 1 1")
         self.assertTrue(ok, msg)
@@ -1815,12 +1850,14 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["gold"], gold - 12)
 
+        inside(self.state, P1, "chest")
         ok, msg = do_action(
             self.state, self.crops, "take June-bearing strawberry seeds all",
             player=P1, rules=self.rules,
         )
         self.assertTrue(ok, msg)
         self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop June-bearing strawberry seeds all", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         ok, msg = do_action(self.state, self.crops, "take strawberry all", player=P1, rules=self.rules)
@@ -1830,6 +1867,7 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(normalize_item("radish seeds"), "radish_seed")
 
         # Make pack room: tools plus turnip seeds need three of the four slots.
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop radish seeds all", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         ok, msg = do_action(self.state, self.crops, "drop June-bearing strawberry seeds all", player=P1, rules=self.rules)
@@ -2847,6 +2885,7 @@ class PackChestAndCraft(unittest.TestCase):
         self.assertIn("hoe", msg.lower())
         self.assertFalse(self.state["tiles"][0][0]["tilled"])
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -2860,6 +2899,7 @@ class PackChestAndCraft(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("watering can", msg.lower())
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take watering_can", player=P1)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -2886,6 +2926,7 @@ class PackChestAndCraft(unittest.TestCase):
         self.assertEqual(tile["crop"]["stage"], "mature")
         # Make room and harvest.
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop carrot", player=P1)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -2902,12 +2943,14 @@ class PackChestAndCraft(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("cabin", msg.lower())
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
         self.assertTrue(ok, msg)
         ok, msg = do_action(self.state, self.crops, "drop hoe", player=P1)
         self.assertTrue(ok, msg)
         give_item(self.state, "strawberry", 3, player=P1)
         give_item(self.state, "sugar", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft strawberry_jam", player=P1)
         self.assertTrue(ok, msg)
         from inventory import pack_has
@@ -3129,6 +3172,7 @@ class Fertilizer(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("pack", msg.lower())
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take fertilizer_general", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -3156,6 +3200,7 @@ class TakeDropStacks(unittest.TestCase):
 
     def test_legal_actions_offer_drop_one_and_drop_all_for_a_stack(self):
         give_item(self.state, "everbearing", 3, player=P1)
+        inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("drop everbearing 1", actions)
         self.assertIn("drop everbearing all", actions)
@@ -3170,6 +3215,7 @@ class TakeDropStacks(unittest.TestCase):
     def test_drop_all_moves_the_whole_stack_drop_one_moves_one(self):
         from inventory import pack_has, stack_count, pack_of, chest_of
         give_item(self.state, "everbearing", 3, player=P1)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop everbearing 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "everbearing", 2, self.rules))
@@ -3183,6 +3229,7 @@ class TakeDropStacks(unittest.TestCase):
     def test_bare_drop_still_moves_one_for_compatibility(self):
         from inventory import pack_has, stack_count, chest_of
         give_item(self.state, "everbearing", 3, player=P1)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop everbearing", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "everbearing", 2, self.rules))
@@ -3191,10 +3238,12 @@ class TakeDropStacks(unittest.TestCase):
     def test_take_one_and_take_all_from_the_chest(self):
         from inventory import pack_has, stack_count, chest_of, pack_of
         give_item(self.state, "everbearing", 3)  # chest
+        inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("take everbearing 1", actions)
         self.assertIn("take everbearing all", actions)
         self.assertNotIn("take everbearing", actions)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take everbearing 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "everbearing", 1, self.rules))
@@ -3223,6 +3272,7 @@ class CraftPricesAndNames(unittest.TestCase):
         give_item(self.state, "strawberry", 3, player=P1)
         give_item(self.state, "sugar", 1, player=P1)
         energy = self.state["players"][P1]["energy"]
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], energy - 5)
@@ -3257,6 +3307,7 @@ class CraftPricesAndNames(unittest.TestCase):
         give_item(self.state, "watering_can", 1)  # chest already has cans; extra is fine
         # Take using the spaced name.
         before = self.state["players"][P1]["energy"]
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take watering can 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("watering can", msg)
@@ -3309,6 +3360,7 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         add_to_chest(self.state, "strawberry_jam", 2, self.rules)
         add_to_pack(self.state, P1, "strawberry_jam", 1, self.rules)
         self.state["players"][P1]["energy"] = 20
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "eat strawberry jam chest", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(stack_count(chest_of(self.state, self.rules), "strawberry_jam"), 1)
@@ -3317,7 +3369,7 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "eat strawberry jam chest", player=P1, rules=self.rules)
         self.assertFalse(ok)
-        self.assertIn("cabin", msg.lower())
+        self.assertIn("chest", msg.lower())
         # Eating from the pack still works in the field.
         ok, msg = do_action(self.state, self.crops, "eat strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -3328,6 +3380,7 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         give_item(self.state, "strawberry_jam", 1, player=P1)
         add_to_chest(self.state, "kabocha_soup", 1, self.rules)
         self.state["players"][P1]["energy"] = 20
+        inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("eat strawberry_jam", actions)
         self.assertIn("sell strawberry_jam 1", actions)
@@ -3518,12 +3571,14 @@ class StaplesAndRecipeBook(unittest.TestCase):
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["energy"] = 100
         give_item(self.state, "strawberry", 3, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("sugar", msg.lower())
         self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
 
         give_item(self.state, "sugar", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
@@ -3579,7 +3634,8 @@ class StaplesAndRecipeBook(unittest.TestCase):
         from engine import discovered_recipe_ids, format_recipe_book
         add_to_pack(self.state, P1, "bread", 1, self.rules)
         add_to_chest(self.state, "butter", 1, self.rules)
-        # Trigger discovery by asking for the book / legal actions at the cabin.
+        # Trigger discovery by asking for the book / legal actions at the kitchen.
+        inside(self.state, P1, "kitchen")
         ok, book = do_action(self.state, self.crops, "recipes", player=P1, rules=self.rules)
         self.assertTrue(ok, book)
         self.assertIn("bread_and_butter", discovered_recipe_ids(self.state, self.rules))
@@ -3592,6 +3648,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertNotIn("craft jam_toast", actions)
         # Cooking spends ingredients, costs 5 energy, and the food sells above cost.
         energy = int(self.state["players"][P1]["energy"])
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft bread and butter", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("bread and butter", msg)
@@ -3604,6 +3661,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
 
     def test_undiscovered_recipes_cannot_be_cooked_and_do_not_spoil_the_book(self):
         from inventory import add_to_pack
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft jam toast", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertTrue("haven't found" in msg.lower() or "unknown recipe" in msg.lower(), msg)
@@ -3740,6 +3798,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         energy = int(self.state["players"][P1]["energy"])
         # Hoe in the pack is not enough; take it from the chest, leave the shovel there.
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take hoe 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -3752,6 +3811,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertNotIn("unearth 1 1", actions)
         # Shovel in the pack makes it legal and performs the work.
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take shovel 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         stand(self.state, P1, 1, 1)
@@ -3836,16 +3896,22 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         line = format_legal_action("craft strawberry_jam", self.state, self.crops, P1, self.rules)
         self.assertEqual(line, "craft strawberry jam (5 energy, uses 3 strawberries, 1 sugar)")
         # legal_actions stay bare commands; look shows the human names + descriptors.
+        # Take/drop are offered at the chest inside the cabin.
+        inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
         self.assertIn("take strawberry_seed 1", actions)
         self.assertIn("take hoe 1", actions)
         self.assertIn("end turn", actions)
         look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        look = describe_state(self.state, self.crops, viewer=P1)
         self.assertIn("move down (to r2 c3, 5 energy)", look)
         self.assertIn("buy June-bearing strawberry seed 1", look)
-        self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
+        self.assertIn("enter cabin (steps inside, free)", look)
         self.assertIn("end turn (sleep in cabin, 105 energy tomorrow, sleeping close tonight)", look)
+        self.assertNotIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
         self.assertNotIn("take strawberry_seed", look)
         self.assertNotIn(" 2 seeds", look)
         # Pasting a look line still works.
@@ -4242,6 +4308,7 @@ class SpringPlantedCrops(unittest.TestCase):
         add_to_chest(self.state, "rhubarb", 2, self.rules)
         add_to_chest(self.state, "strawberry", 1, self.rules)
         add_to_chest(self.state, "sugar", 1, self.rules)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft rhubarb strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "rhubarb_strawberry_jam", 1))
@@ -4252,6 +4319,7 @@ class SpringPlantedCrops(unittest.TestCase):
         add_to_chest(self.state, "lettuce", 1, self.rules)
         add_to_chest(self.state, "tomato", 1, self.rules)
         add_to_chest(self.state, "cucumber", 1, self.rules)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft garden salad", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.state["players"][P1]["energy"] = 50
@@ -4261,6 +4329,7 @@ class SpringPlantedCrops(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], energy + item_eat_energy("garden_salad", self.crops, self.rules))
         add_to_chest(self.state, "potato", 2, self.rules)
         add_to_chest(self.state, "butter", 1, self.rules)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft roasted potatoes", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         add_to_chest(self.state, "pumpkin", 1, self.rules)
@@ -4564,6 +4633,7 @@ class HillsPhaseOne(unittest.TestCase):
     def test_take_axe_1_from_the_chest(self):
         from inventory import pack_has, TOOL_AXE
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "take axe 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, TOOL_AXE, 1, self.rules))
@@ -4835,6 +4905,7 @@ class ForageFood(unittest.TestCase):
 
         give_item(self.state, "wild_onion", 1, player=P1)
         give_item(self.state, "milk", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft wild onion soup", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "wild_onion_soup", 1, self.rules) or pack_has(self.state, P1, "wild_onion_soup", 1))
@@ -4842,12 +4913,14 @@ class ForageFood(unittest.TestCase):
 
         give_item(self.state, "wild_berry", 3, player=P1)
         give_item(self.state, "sugar", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft wild berry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "wild_berry_jam", 1, self.rules))
 
         give_item(self.state, "wild_mushroom", 1, player=P1)
         give_item(self.state, "milk", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft mushroom soup", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "mushroom_soup", 1, self.rules))
@@ -4856,6 +4929,7 @@ class ForageFood(unittest.TestCase):
         give_item(self.state, "strawberry", 1, player=P1)
         give_item(self.state, "wild_berry", 2, player=P1)
         give_item(self.state, "sugar", 1, player=P1)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
@@ -4878,6 +4952,7 @@ class ForageFood(unittest.TestCase):
         self.assertIn("foraged", msg.lower())
         self.assertTrue(pack_has(self.state, P1, "oyster_mushroom", 1, self.rules))
         add_to_pack(self.state, P1, "milk", 1, self.rules)
+        inside(self.state, P1, 'kitchen')
         ok, msg = do_action(self.state, self.crops, "craft mushroom soup", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "mushroom_soup", 1, self.rules))
@@ -4922,6 +4997,7 @@ class BreadHalvesAndChopGrammar(unittest.TestCase):
         add_to_pack(self.state, P1, "bread", 1, self.rules)
         ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+        inside(self.state, P1, 'chest')
         ok, msg = do_action(self.state, self.crops, "drop bread_half 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertFalse(pack_has(self.state, P1, "bread_half", 1, self.rules))
@@ -4929,7 +5005,7 @@ class BreadHalvesAndChopGrammar(unittest.TestCase):
 
         self.state["players"][P2]["energy"] = 40
         self.state["players"][P2]["snacks_eaten"] = 0
-        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        inside(self.state, P2, "chest")
         ok, msg = eat(self.state, self.crops, "half loaf", P2, self.rules, from_chest=True)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P2]["energy"], 45)
@@ -5786,6 +5862,7 @@ class ShopChestWebUi(unittest.TestCase):
             add_to_chest(state, item, n, rules)
         sync_inventory_view(state, rules)
         self.assertTrue(is_player_in_cabin(state, P1))
+        inside(state, P1, "chest")
         actions = legal_actions(state, crops, P1, rules)
         self.assertIn("take spinach 1", actions)
         self.assertIn("take turnip 1", actions)
@@ -5929,6 +6006,7 @@ class ShopChestWebUi(unittest.TestCase):
         state = fresh_state(crops, weather_seed=1, rules=rules)
         state["current_player"] = P1
         set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        inside(state, P1, "kitchen")
         payload = web.api_payload(state, crops, player=P1)
         book = list(payload.get("recipe_book") or [])
         book.append({
@@ -6034,6 +6112,7 @@ class CabinChestOrder(unittest.TestCase):
         self.assertIn("wood", before)
         self.assertIn("spinach", before)
         # Put spinach first; leftover stacks stay after.
+        inside(self.state, P1, "chest")
         ok, msg = do_action(
             self.state, self.crops,
             "reorder chest spinach wood",
@@ -6487,6 +6566,7 @@ class EatButtonsWeb(unittest.TestCase):
         state["players"][P1]["pack"] = [None, None, None, None]
         add_to_pack(state, P1, "bread_half", 1, rules)
         add_to_chest(state, "wild_onion", 2, rules)
+        inside(state, P1, "chest")
         actions = legal_actions(state, crops, P1, rules)
         self.assertIn("eat bread_half", actions)
         self.assertIn("eat wild_onion chest", actions)
@@ -6555,6 +6635,7 @@ class CabinComfort(unittest.TestCase):
         add_to_chest(self.state, "wood", 3, self.rules)
         sync_inventory_view(self.state, self.rules)
         self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
+        inside(self.state, P1, "fireplace")
         self.assertIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
         _msg1, msg2 = self._end_both()
         self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 3)
@@ -6566,6 +6647,7 @@ class CabinComfort(unittest.TestCase):
     def _fuel(self, player=None):
         player = player or P1
         self.state["current_player"] = player
+        inside(self.state, player, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=player, rules=self.rules)
         self.assertTrue(ok, msg)
         return msg
@@ -6588,6 +6670,7 @@ class CabinComfort(unittest.TestCase):
         self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
         self.assertEqual(sleep_outlook(self.state, P2, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
         self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        inside(self.state, P1, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("already", msg.lower())
@@ -6606,6 +6689,7 @@ class CabinComfort(unittest.TestCase):
         from inventory import add_to_chest, sync_inventory_view
         from hills import set_player_place, AREA_FARM
         # No wood.
+        inside(self.state, P1, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("wood", msg.lower())
@@ -6613,6 +6697,7 @@ class CabinComfort(unittest.TestCase):
         sync_inventory_view(self.state, self.rules)
         # Exhausted.
         self.state["players"][P1]["energy"] = 3
+        inside(self.state, P1, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("energy", msg.lower())
@@ -6623,7 +6708,7 @@ class CabinComfort(unittest.TestCase):
         set_player_place(self.state, P1, AREA_FARM, 3, 1)
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
         self.assertFalse(ok)
-        self.assertIn("cabin", msg.lower())
+        self.assertIn("fireplace", msg.lower())
 
     def test_fueled_fire_warms_everyone_who_sleeps_in_the_cabin(self):
         from inventory import add_to_chest, stack_count, chest_of, sync_inventory_view
@@ -6837,6 +6922,7 @@ class CabinComfort(unittest.TestCase):
         from inventory import add_to_chest, pack_has, stack_count, chest_of, sync_inventory_view
         add_to_chest(self.state, "herbal_tea", 1, self.rules)
         sync_inventory_view(self.state, self.rules)
+        inside(self.state, P1, "chest")
         self.assertIn("drink herbal_tea chest", legal_actions(self.state, self.crops, P1, self.rules))
         ok, msg = do_action(self.state, self.crops, "drink herbal tea chest", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -7020,6 +7106,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertFalse(ok, msg)  # P1 is not at the cabin
         stand(self.state, P2, CABIN_ROW, CABIN_COL)
         self.state["current_player"] = P2
+        inside(self.state, P2, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
         self.state["current_player"] = P1
@@ -7292,6 +7379,7 @@ class TogetherRest(unittest.TestCase):
         from inventory import add_to_pack, add_to_chest, sync_inventory_view
         add_to_chest(self.state, "wood", 1, self.rules)
         sync_inventory_view(self.state, self.rules)
+        inside(self.state, P1, 'fireplace')
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         add_to_pack(self.state, P1, "herbal_tea", 1, self.rules)
@@ -7319,6 +7407,221 @@ class TogetherRest(unittest.TestCase):
         self.assertIn("wakes with 135 energy", msg2)
         self.assertIn("Sleeping close tonight", msg2)
 
+
+
+class CabinInterior(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+
+    def test_enter_cabin_from_the_farm_tile_lands_on_the_door_and_is_free(self):
+        from hills import player_area, AREA_CABIN, AREA_FARM
+        from cabin import CABIN_DOOR, cabin_tile_kind
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        energy = self.state["players"][P1]["energy"]
+        self.assertIn("enter cabin", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "enter cabin", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_CABIN)
+        self.assertEqual(player_where(self.state, P1), CABIN_DOOR)
+        self.assertEqual(cabin_tile_kind(*CABIN_DOOR), "door")
+        self.assertEqual(self.state["players"][P1]["energy"], energy)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertIn("leave cabin", legal_actions(self.state, self.crops, P1, self.rules))
+
+    def test_cannot_enter_from_a_farm_plot(self):
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "enter cabin", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("cabin tile", msg.lower())
+
+    def test_leave_cabin_only_from_the_door_and_is_free(self):
+        from hills import player_area, AREA_FARM
+        inside(self.state, P1, "kitchen")
+        energy = self.state["players"][P1]["energy"]
+        ok, msg = do_action(self.state, self.crops, "leave cabin", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("door", msg.lower())
+        inside(self.state, P1, "door")
+        ok, msg = do_action(self.state, self.crops, "leave cabin", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+        self.assertEqual(self.state["players"][P1]["energy"], energy)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+
+    def test_walking_inside_costs_no_energy_even_at_zero(self):
+        inside(self.state, P1, "door")
+        self.state["players"][P1]["energy"] = 0
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("move up", legal)
+        self.assertIn("move to 1 2", legal)
+        ok, msg = do_action(self.state, self.crops, "move up", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 0)
+        self.assertNotIn("energy", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "move to 1 2", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_where(self.state, P1), (1, 2))
+        self.assertEqual(self.state["players"][P1]["energy"], 0)
+
+    def test_cannot_walk_out_of_the_interior_except_through_the_door(self):
+        from hills import player_area, AREA_CABIN
+        inside(self.state, P1, "bed")
+        ok, msg = do_action(self.state, self.crops, "move up", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("door", msg.lower())
+        self.assertEqual(player_area(self.state, P1), AREA_CABIN)
+        ok, msg = do_action(self.state, self.crops, "go hills", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("leave the cabin first", msg.lower())
+
+    def test_layout_matches_the_finalized_plan(self):
+        from cabin import cabin_tile_kind, CABIN_DISPLAY
+        self.assertEqual(cabin_tile_kind(1, 1), "bed")
+        self.assertEqual(cabin_tile_kind(1, 2), "chest")
+        self.assertEqual(cabin_tile_kind(*CABIN_DISPLAY), "floor")
+        self.assertEqual(cabin_tile_kind(2, 1), "floor")
+        self.assertEqual(cabin_tile_kind(2, 2), "floor")
+        self.assertEqual(cabin_tile_kind(2, 3), "fireplace")
+        self.assertEqual(cabin_tile_kind(3, 1), "door")
+        self.assertEqual(cabin_tile_kind(3, 2), "kitchen")
+        self.assertEqual(cabin_tile_kind(3, 3), "floor")
+
+    def test_chest_kitchen_and_fireplace_are_their_own_tiles(self):
+        from inventory import add_to_chest, add_to_pack, sync_inventory_view
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        self.assertNotIn("take wood 1", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("fireplace", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "take wood", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("chest", msg.lower())
+        inside(self.state, P1, "fireplace")
+        self.assertIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        inside(self.state, P1, "chest")
+        self.assertIn("take wood 1", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("kitchen", msg.lower())
+        inside(self.state, P1, "kitchen")
+        # No ingredients, but the refusal should now be about the recipe, not location.
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertNotIn("kitchen", msg.lower())
+
+    def test_sleep_and_together_rest_apply_anywhere_inside_or_on_the_farm_tile(self):
+        inside(self.state, P1, "floor")
+        inside(self.state, P2, "bed")
+        self.state["players"][P1]["energy"] = 40
+        self.state["players"][P2]["energy"] = 40
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertTrue(is_player_in_cabin(self.state, P2))
+        self.assertIn("sleeping close tonight", sleep_outlook(self.state, P1, self.rules))
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 105)
+        self.assertEqual(self.state["players"][P2]["energy"], 105)
+
+    def test_shop_still_works_on_the_farm_cabin_tile_and_inside(self):
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertTrue(any(a.startswith("buy ") for a in legal))
+        inside(self.state, P1, "floor")
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertTrue(any(a.startswith("buy ") for a in legal))
+
+    def test_web_payload_shows_the_interior_and_tile_flags(self):
+        import web
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload["view_area"], "farm")
+        self.assertIn("enter cabin", payload.get("actions") or [])
+        self.assertFalse(payload.get("in_cabin_interior"))
+        ok, _ = do_action(self.state, self.crops, "enter cabin", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload["view_area"], "cabin")
+        self.assertTrue(payload.get("in_cabin_interior"))
+        self.assertFalse(payload.get("at_kitchen"))
+        self.assertFalse(payload.get("at_chest"))
+        types = [tile["type"] for row in payload["view_tiles"] for tile in row]
+        self.assertIn("cabin_door", types)
+        self.assertIn("cabin_bed", types)
+        self.assertIn("cabin_chest", types)
+        self.assertIn("cabin_kitchen", types)
+        self.assertIn("cabin_fireplace", types)
+        self.assertEqual(payload["view_tiles"][0][2]["type"], "cabin_floor")  # reserved display
+        inside(self.state, P1, "kitchen")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("at_kitchen"))
+        inside(self.state, P1, "chest")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("at_chest"))
+        inside(self.state, P1, "fireplace")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("at_fireplace"))
+
+    def test_web_e_enters_the_cabin_and_does_not_end_the_turn(self):
+        import web
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        self.assertIn("Shift", html)
+        self.assertIn("ends the turn", html)
+        self.assertNotIn("ends with no note", html)
+        runner = Path(__file__).resolve().parent / "tests" / "cabin-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-cabin-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertIn("enter cabin", data["commandsAfterE"])
+        self.assertFalse(any(str(cmd).startswith("end turn") for cmd in data["commandsAfterE"]))
+        self.assertIn("enter cabin", data["keysText"])
+        self.assertRegex(data["keysText"], r"enter cabin")
+        self.assertRegex(data["keysText"], r"Shift")
+        self.assertNotIn("ends with no note", data["keysText"])
+        self.assertIn("end turn", " ".join(data["commandsAfterShiftEEnter"]))
+        self.assertNotIn("enter cabin", data.get("commandsAfterPlainEnter") or [])
 
 
 if __name__ == "__main__":

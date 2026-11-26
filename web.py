@@ -994,10 +994,10 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>G</kbd> forage
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
-        &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
-        &middot; <kbd>Enter</kbd> in the note box ends the turn
-        &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
-        &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth or end turn
+        &middot; <kbd>E</kbd> enter or interact (cabin, mine)
+        &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn
+        &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)
+        &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth
       </p>
     </section>
     <aside class="panel">
@@ -1028,7 +1028,7 @@ PAGE = r"""<!DOCTYPE html>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
       </div>
       <div class="sleep-outlook" id="sleep-outlook"></div>
-      <div class="confirm-end" id="end-confirm" hidden>End your turn? Press <kbd>E</kbd> or <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel. A note in the box will be sent too.</div>
+      <div class="confirm-end" id="end-confirm" hidden>End your turn? Press <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd>, or press <kbd>Enter</kbd> in the note box. <kbd>Esc</kbd> cancels. A note in the box will be sent too.</div>
       <details class="recent-notes" id="recent-notes" hidden>
         <summary class="recent-notes-head">Recent notes</summary>
         <ul id="recent-notes-list"></ul>
@@ -1538,6 +1538,12 @@ PAGE = r"""<!DOCTYPE html>
     function describeWhere(r, c, data, area, floor) {
       area = area || (data && data.view_area) || "farm";
       const cabin = cabinPos(data);
+      if (area === "cabin") {
+        const kinds = {"1,1":"the double bed","1,2":"the chest","2,3":"the fireplace","3,1":"the door","3,2":"the kitchen"};
+        const label = kinds[r + "," + c];
+        const plot = "row " + r + " col " + c;
+        return label ? ("at " + label + " (" + plot + " in the cabin)") : ("at " + plot + " in the cabin");
+      }
       if (area === "farm" && r === cabin.r && c === cabin.c) return "in the cabin";
       const cols = COLS || 3;
       const plot = "at plot " + ((r - 1) * cols + c);
@@ -1717,6 +1723,13 @@ PAGE = r"""<!DOCTYPE html>
 
     function tileLabel(tile, r, c, data) {
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
+      const typ = tile && tile.type;
+      if (typ === "cabin_bed") return "bed";
+      if (typ === "cabin_chest") return "chest";
+      if (typ === "cabin_fireplace") return tile.fire ? "fireplace (lit)" : "fireplace";
+      if (typ === "cabin_door") return "door";
+      if (typ === "cabin_kitchen") return "kitchen";
+      if (typ === "cabin_floor") return "floor";
       return "r" + r + " c" + c;
     }
     function describeTile(tile, r, c, data) {
@@ -1754,7 +1767,18 @@ PAGE = r"""<!DOCTYPE html>
       if (tile.type === "cabin") {
         const w = (lastData && lastData.state && lastData.state.weather) || "sun";
         const byWeather = (typeof CABIN_BY_WEATHER !== "undefined") ? CABIN_BY_WEATHER[w] : "";
-        return tileName(r, c) + " — " + (byWeather || CABIN_SHORT);
+        return tileName(r, c) + " — " + (byWeather || CABIN_SHORT) + " Press E to step inside.";
+      }
+      if (String(tile.type || "").indexOf("cabin_") === 0) {
+        const labels = {
+          cabin_bed: "a double bed. Ending your turn anywhere inside is still cabin sleep.",
+          cabin_chest: "the cabin chest. Open it from this tile.",
+          cabin_fireplace: tile.fire ? "the fireplace, already fueled for tonight." : "the fireplace. Fuel it from this tile.",
+          cabin_door: "the door back out to the farm. Press E to leave.",
+          cabin_kitchen: "the kitchen. Cook from this tile.",
+          cabin_floor: "wooden floor."
+        };
+        return tileName(r, c) + " — " + (labels[tile.type] || "inside the cabin.");
       }
       const moist = tile.watered ? "watered today" : "dry today";
       const tilled = tile.tilled ? "tilled" : "untilled";
@@ -2062,10 +2086,13 @@ PAGE = r"""<!DOCTYPE html>
         "go north",
         "go south",
         "go cabin",
+        "enter cabin",
+        "leave cabin",
         "enter mine",
         "leave mine",
         "climb up",
         "climb down",
+        "fuel fireplace",
         "mine",
         "rest",
         "elevator",
@@ -2089,7 +2116,7 @@ PAGE = r"""<!DOCTYPE html>
         return label + " (" + hint + ")";
       }
       function hotkeyForAction(act) {
-        if (act === "enter mine" || act === "climb up" || act === "climb down") return "E";
+        if (act === "enter cabin" || act === "leave cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace") return "E";
         if (act === "mine") return "M";
         if (act === "rest") return "R";
         return "";
@@ -2774,7 +2801,7 @@ PAGE = r"""<!DOCTYPE html>
         parent.appendChild(empty);
         return;
       }
-      const canAct = !!(data && data.your_turn && data.in_cabin);
+      const canAct = !!(data && data.your_turn && data.at_chest);
       chest.forEach(function (slot) {
         appendItemCard(parent, slot, {
           take: true,
@@ -2788,7 +2815,7 @@ PAGE = r"""<!DOCTYPE html>
           card.setAttribute("data-item", slot.item);
         }
       });
-      if (opts.sortable && data && data.in_cabin && data.your_turn) {
+      if (opts.sortable && data && data.at_chest && data.your_turn) {
         enableChestSort(parent);
       }
     }
@@ -2796,6 +2823,12 @@ PAGE = r"""<!DOCTYPE html>
       if (!data || !data.in_cabin) return;
       const wrap = document.createElement("div");
       wrap.className = "chest-section";
+      if (!data.at_chest) {
+        const hint = document.createElement("p");
+        hint.className = "shop-empty";
+        hint.textContent = "Walk to the chest inside the cabin to take or drop items.";
+        wrap.appendChild(hint);
+      }
       const open = chestSectionIsOpen();
       if (!open) wrap.classList.add("is-collapsed");
       const title = document.createElement("button");
@@ -2837,6 +2870,9 @@ PAGE = r"""<!DOCTYPE html>
       btns.className = "item-actions";
       const cabinTurn = !!opts.canAct;
       const yourTurn = !!opts.yourTurn;
+      const atCabin = !!(opts.data && opts.data.in_cabin && opts.data.your_turn);
+      const atChest = !!(opts.data && opts.data.at_chest && opts.data.your_turn);
+      const atFire = !!(opts.data && opts.data.at_fireplace && opts.data.your_turn);
       function addBtn(label, cmd, enabled) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -2847,17 +2883,17 @@ PAGE = r"""<!DOCTYPE html>
         btns.appendChild(btn);
       }
       if (opts.take) {
-        if (count <= 1) addBtn("Take", "take " + slot.item + " 1", cabinTurn);
+        if (count <= 1) addBtn("Take", "take " + slot.item + " 1", atChest);
         else {
-          addBtn("Take 1", "take " + slot.item + " 1", cabinTurn);
-          addBtn("Take all", "take " + slot.item + " all", cabinTurn);
+          addBtn("Take 1", "take " + slot.item + " 1", atChest);
+          addBtn("Take all", "take " + slot.item + " all", atChest);
         }
       }
       if (opts.drop) {
-        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1", cabinTurn);
+        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1", atChest);
         else {
-          addBtn("Drop 1", "drop " + slot.item + " 1", cabinTurn);
-          addBtn("Drop all", "drop " + slot.item + " all", cabinTurn);
+          addBtn("Drop 1", "drop " + slot.item + " 1", atChest);
+          addBtn("Drop all", "drop " + slot.item + " all", atChest);
         }
       }
       const rec = recipeInfo(slot.item, opts.data);
@@ -2866,20 +2902,20 @@ PAGE = r"""<!DOCTYPE html>
       const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
       const sellPrice = (rec && rec.sell_price) || (crop && crop.sell_price) || named.sell_price;
       if (sellPrice) {
-        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", cabinTurn);
+        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", atCabin);
       }
       const energy = snackEnergy(slot.item, opts.data);
       if (energy) {
         const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
-        addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
+        addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? atChest : yourTurn);
       }
       if (slot.item === "herbal_tea") {
         const me = (opts.data && opts.data.players && opts.data.players[PLAYER]) || {};
         const drank = !!me.herbal_tea;
         const drinkCmd = opts.take ? "drink herbal_tea chest" : "drink herbal_tea";
-        addBtn("Drink (+10 tomorrow)", drinkCmd, !drank && (opts.take ? cabinTurn : yourTurn));
+        addBtn("Drink (+10 tomorrow)", drinkCmd, !drank && (opts.take ? atChest : yourTurn));
       }
-      if (slot.item === "wood" && opts.data && opts.data.in_cabin) {
+      if (slot.item === "wood" && opts.data && (opts.data.in_cabin || opts.data.at_fireplace)) {
         const viewers = (opts.data.players || {});
         const me = viewers[PLAYER] || {};
         const haveE = (me.energy != null) ? me.energy : 0;
@@ -2888,7 +2924,7 @@ PAGE = r"""<!DOCTYPE html>
         addBtn(
           fueled ? "Fireplace fueled" : ("Fuel fireplace (" + cost + " energy)"),
           "fuel fireplace",
-          !fueled && cabinTurn && haveE >= cost
+          !fueled && atFire && haveE >= cost
         );
       }
       if (btns.childNodes.length) body.appendChild(btns);
@@ -2900,6 +2936,12 @@ PAGE = r"""<!DOCTYPE html>
       const el = $("recipe-book-body");
       if (!el) return;
       el.innerHTML = "";
+      if (data.in_cabin && !data.at_kitchen) {
+        const hint = document.createElement("p");
+        hint.className = "shop-empty";
+        hint.textContent = "Walk to the kitchen inside the cabin to cook.";
+        el.appendChild(hint);
+      }
       const book = data.recipe_book || [];
       if (!book.length) {
         const empty = document.createElement("p");
@@ -2935,7 +2977,7 @@ PAGE = r"""<!DOCTYPE html>
           desc.textContent = entry.description;
           row.appendChild(desc);
         }
-        if (data.in_cabin && entry.craftable && data.your_turn) {
+        if (data.at_kitchen && entry.craftable && data.your_turn) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn";
@@ -2964,11 +3006,13 @@ PAGE = r"""<!DOCTYPE html>
       if (!held.length) meta.textContent = "The backpack is empty.";
       else if (open <= 0) meta.textContent = "Backpack is full.";
       else meta.textContent = open + " open slot" + (open === 1 ? "" : "s") + ".";
-      if (!data.in_cabin && held.length) {
-        meta.textContent += " Walk to the cabin to drop items in the chest.";
+      if (held.length && !data.at_chest) {
+        meta.textContent += data.in_cabin
+          ? " Walk to the chest inside the cabin to drop items."
+          : " Walk to the cabin to drop items in the chest.";
       }
       el.appendChild(meta);
-      const canAct = !!(data.your_turn && data.in_cabin);
+      const canAct = !!(data.your_turn && data.at_chest);
       held.forEach(function (slot) {
         appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
@@ -3295,10 +3339,10 @@ PAGE = r"""<!DOCTYPE html>
         + ' &middot; <kbd>1</kbd>&ndash;<kbd>9</kbd> walk to that plot';
       const common = ' &middot; <kbd>S</kbd> shop'
         + ' &middot; <kbd>J</kbd> journal'
-        + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note'
-        + ' &middot; <kbd>Enter</kbd> in the note box ends the turn'
-        + ' &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note'
-        + ' &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth or end turn';
+        + ' &middot; <kbd>E</kbd> enter or interact'
+        + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
+        + ' &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)'
+        + ' &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth';
       let work;
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
@@ -3309,6 +3353,8 @@ PAGE = r"""<!DOCTYPE html>
         work = ' &middot; <kbd>E</kbd> climb'
           + ' &middot; <kbd>M</kbd> mine'
           + ' &middot; <kbd>R</kbd> rest';
+      } else if (area === "cabin") {
+        work = ' &middot; <kbd>E</kbd> leave or interact';
       } else {
         work = ' &middot; <kbd>T</kbd> till'
           + ' &middot; <kbd>W</kbd> water'
@@ -3318,7 +3364,8 @@ PAGE = r"""<!DOCTYPE html>
           + ' &middot; <kbd>U</kbd> unearth'
           + ' &middot; <kbd>F</kbd> fertilize'
           + ' &middot; <kbd>C</kbd> chop'
-          + ' &middot; <kbd>G</kbd> forage';
+          + ' &middot; <kbd>G</kbd> forage'
+          + ' &middot; <kbd>E</kbd> enter cabin';
       }
       el.innerHTML = walk + work + common;
     }
@@ -3762,17 +3809,34 @@ PAGE = r"""<!DOCTYPE html>
           focusNoteBox();
           return;
         }
-        if (endConfirm) {
-          requestEndTurn(true);
-          return;
-        }
-        const climb = firstLegalCommand(["enter mine", "climb down", "climb up", "leave mine"]);
-        if (climb) {
+        const interact = firstLegalCommand([
+          "enter cabin",
+          "leave cabin",
+          "enter mine",
+          "climb down",
+          "climb up",
+          "leave mine",
+          "fuel fireplace"
+        ]);
+        if (interact) {
           unearthConfirm = false;
-          actCmd(climb);
+          endConfirm = false;
+          actCmd(interact);
           return;
         }
-        requestEndTurn(false);
+        const data = lastData || {};
+        if (data.at_kitchen) {
+          const book = $("recipe-book");
+          if (book) book.open = true;
+          showToast("The kitchen. Open the recipe book to cook.", true);
+          return;
+        }
+        if (data.at_chest) {
+          const chest = document.querySelector(".chest-section");
+          if (chest) chest.classList.remove("is-collapsed");
+          showToast("The cabin chest. Take or drop items here.", true);
+          return;
+        }
         return;
       }
     }
@@ -4003,7 +4067,8 @@ def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: s
     ensure_discovered_recipes(state, rules)
     recs = recipes(rules)
     out = []
-    at_cabin = bool(player and is_player_in_cabin(state, player))
+    from cabin import player_at_cabin_tile
+    at_kitchen = bool(player and player_at_cabin_tile(state, player, "kitchen"))
     for rec_id in discovered_recipe_ids(state, rules):
         rec = recs.get(rec_id) or {}
         bits = []
@@ -4029,7 +4094,7 @@ def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: s
             "description": rec.get("description") or "",
             "sell_price": sell,
             "eat_energy": eat,
-            "craftable": at_cabin and recipe_is_craftable(state, rec_id, player, rules, crops),
+            "craftable": at_kitchen and recipe_is_craftable(state, rec_id, player, rules, crops),
         })
     return out
 
@@ -4136,11 +4201,12 @@ def api_payload(
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
     from hills import (
-        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, hills_tiles, elsewhere_lines,
+        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_CABIN, hills_tiles, elsewhere_lines,
         area_title, hills_summary, farm_summary, exit_summary, max_hp as hills_max_hp,
         describe_where as describe_area_where, player_hp,
     )
     from mine import player_floor, get_floor, ensure_mine
+    from cabin import cabin_tiles, player_at_cabin_tile
     view_area = player_area(state, viewer) if viewer else AREA_FARM
     view_floor = player_floor(state, viewer) if viewer and view_area == AREA_MINE else None
     if view_area == AREA_HILLS and hills_tiles(state):
@@ -4148,9 +4214,11 @@ def api_payload(
     elif view_area == AREA_MINE and view_floor:
         ensure_mine(state)
         view_tiles = get_floor(state, view_floor)["tiles"]
+    elif view_area == AREA_CABIN:
+        view_tiles = cabin_tiles(state)
     else:
         view_tiles = state["tiles"]
-        if view_area not in (AREA_FARM, AREA_HILLS, AREA_MINE):
+        if view_area not in (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN):
             view_area = AREA_FARM
     view_tiles = _payload_view_tiles(view_tiles, crops)
     sprites = [
@@ -4199,6 +4267,10 @@ def api_payload(
         "forecast": weather_forecast(state, crops, rules),
         "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
+        "in_cabin_interior": bool(viewer and player_area(state, viewer) == AREA_CABIN),
+        "at_kitchen": bool(viewer and player_at_cabin_tile(state, viewer, "kitchen")),
+        "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
+        "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
         "fireplace_fueled": bool(state.get("fireplace_fueled")),
         "fuel_fireplace_energy": energy_cost("fuel_fireplace", rules),
         "cabin": [CABIN_ROW, CABIN_COL],

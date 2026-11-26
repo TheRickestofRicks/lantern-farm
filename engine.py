@@ -390,8 +390,9 @@ def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple
     player, err = parse_player(player)
     if err:
         return False, err
-    if not is_player_in_cabin(state, player):
-        return False, "Fuel the fireplace at the cabin."
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "fireplace"):
+        return False, "Fuel the fireplace from the fireplace inside the cabin."
     if fireplace_is_fueled(state):
         return False, "The fireplace is already fueled for tonight."
     need = comfort_fire_wood(rules)
@@ -422,8 +423,9 @@ def reorder_chest(state: dict, order, player: str, rules: dict | None = None) ->
     player, err = parse_player(player)
     if err:
         return False, err
-    if not is_player_in_cabin(state, player):
-        return False, "Rearrange the chest at the cabin."
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "chest"):
+        return False, "Rearrange the chest from the chest inside the cabin."
     wanted = []
     for raw in order or []:
         item = normalize_item(str(raw)) or str(raw).strip().lower().replace(" ", "_")
@@ -1728,7 +1730,7 @@ def farm_action_refused(state: dict, player: str | None, verb: str) -> str | Non
     """Farm plot work is only for farm tiles. Refuse politely in the hills or mine."""
     if not player:
         return None
-    from hills import player_area, AREA_FARM, AREA_HILLS, AREA_MINE
+    from hills import player_area, AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN
     area = player_area(state, player)
     if area == AREA_FARM:
         return None
@@ -1743,6 +1745,8 @@ def farm_action_refused(state: dict, player: str | None, verb: str) -> str | Non
         where = "in the hills"
     elif area == AREA_MINE:
         where = "in the mine"
+    elif area == AREA_CABIN:
+        where = "in the cabin"
     else:
         where = "here"
     word = verb if verb != "pluck" else "pluck"
@@ -3931,7 +3935,8 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
     word = raw_dir if raw_dir in MOVE_DELTA else {
         "up": "north", "down": "south", "left": "west", "right": "east"
     }.get(canonical, canonical)
-    cost = step_energy(rules)
+    from hills import AREA_CABIN
+    cost = 0 if area == AREA_CABIN else step_energy(rules)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -3945,13 +3950,16 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
         dest_area, dest_r, dest_c = crossing
         set_player_place(state, player, dest_area, dest_r, dest_c)
         slot["energy"] = energy - cost
+        paid = f" ({cost} energy)" if cost else ""
         return (
             True,
-            f"{display_name(player)} walks {word} to {describe_area_place(dest_area, dest_r, dest_c)} ({cost} energy).",
+            f"{display_name(player)} walks {word} to {describe_area_place(dest_area, dest_r, dest_c)}{paid}.",
         )
     dest = (row + delta[0], col + delta[1])
     if not in_bounds(*dest):
         from hills import AREA_MINE
+        if area == AREA_CABIN:
+            return False, "There's no path that way. Leave through the door at bottom-left."
         if area == AREA_FARM and canonical == "up":
             return False, "There's no farm that way. Walk north from the cabin to reach the hills."
         if area == AREA_HILLS or area == AREA_MINE:
@@ -3959,9 +3967,10 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
         return False, "There's no farm that way."
     set_player_place(state, player, area, dest[0], dest[1])
     slot["energy"] = energy - cost
+    paid = f" ({cost} energy)" if cost else ""
     return (
         True,
-        f"{display_name(player)} walks {word} to {describe_area_place(area, dest[0], dest[1])} ({cost} energy).",
+        f"{display_name(player)} walks {word} to {describe_area_place(area, dest[0], dest[1])}{paid}.",
     )
 
 
@@ -3977,7 +3986,8 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
     if src == dest:
         return True, f"{display_name(player)} is already {describe_area_where(area, *dest)}."
     steps = path_steps(src, dest)
-    cost = step_energy(rules) * len(steps)
+    from hills import AREA_CABIN
+    cost = 0 if area == AREA_CABIN else step_energy(rules) * len(steps)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -3989,6 +3999,11 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
         )
     set_player_place(state, player, area, dest_r, dest_c)
     slot["energy"] = energy - cost
+    if cost == 0:
+        return (
+            True,
+            f"{display_name(player)} walks to {describe_area_place(area, *dest)}.",
+        )
     return (
         True,
         f"{display_name(player)} walks to {describe_area_place(area, *dest)} "
@@ -4056,11 +4071,15 @@ def do_move_command(
     if words and words[0] in {"cabin", "home", "house"}:
         return go_cabin(state, player, rules)
     if words and words[0] in {"hills", "hill"}:
-        from hills import player_area, is_cabin_place, AREA_HILLS
+        from hills import player_area, is_cabin_place, AREA_HILLS, AREA_CABIN
         area = player_area(state, player)
         here = player_where(state, player)
         if area == AREA_HILLS:
             return True, f"{display_name(player)} is already in the hills."
+        if area == AREA_CABIN:
+            return False, (
+                "Leave the cabin first. Step out through the door, then walk north into the hills."
+            )
         if not is_cabin_place(area, *here):
             return False, "Walk to the cabin first, then go north into the hills."
         return move_one(state, player, "north", rules)
@@ -4125,8 +4144,9 @@ def eat(
     kind = item
     label = item_label(kind, crops, rules)
     if from_chest:
-        if not is_player_in_cabin(state, player):
-            return False, "Eat from the chest at the cabin."
+        from cabin import player_at_cabin_tile
+        if not player_at_cabin_tile(state, player, "chest"):
+            return False, "Eat from the chest at the chest inside the cabin."
         if stack_count(chest_of(state, rules), kind) < 1:
             return False, f"No {label} in the chest."
     elif not pack_has(state, player, kind, 1, rules):
@@ -4222,8 +4242,9 @@ def drink(
     if player_drank_herbal_tea(state, player):
         return False, "You've already had herbal tea today."
     if from_chest:
-        if not is_player_in_cabin(state, player):
-            return False, "Drink from the chest at the cabin."
+        from cabin import player_at_cabin_tile
+        if not player_at_cabin_tile(state, player, "chest"):
+            return False, "Drink from the chest at the chest inside the cabin."
         if stack_count(chest_of(state, rules), item) < 1:
             return False, f"No {label} in the chest."
     elif not pack_has(state, player, item, 1, rules):
@@ -4296,8 +4317,9 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     )
     rules = rules or load_rules()
     crops = crops or load_crops()
-    if not is_player_in_cabin(state, player):
-        return False, "The chest is at the cabin. Walk there to take something."
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "chest"):
+        return False, "The chest is inside the cabin. Walk to the chest to take something."
     if isinstance(item, list):
         item, n, err = parse_item_and_count(item)
         if err:
@@ -4347,8 +4369,9 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     )
     rules = rules or load_rules()
     crops = crops or load_crops()
-    if not is_player_in_cabin(state, player):
-        return False, "The chest is at the cabin. Walk there to drop something."
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "chest"):
+        return False, "The chest is inside the cabin. Walk to the chest to drop something."
     if isinstance(item, list):
         item, n, err = parse_item_and_count(item)
         if err:
@@ -4501,6 +4524,7 @@ def format_recipe_book(
 ) -> str:
     """Human text for the recipe book: discovered recipes and their ingredients."""
     from inventory import recipes, recipe_ingredients, item_name, item_label
+    from cabin import player_at_cabin_tile
     rules = rules or load_rules()
     crops = crops or load_crops()
     ensure_discovered_recipes(state, rules)
@@ -4532,7 +4556,7 @@ def format_recipe_book(
             extra.append(f"eat +{int(eat)} energy")
         tail = f" ({'; '.join(extra)})" if extra else ""
         ready = ""
-        if player and is_player_in_cabin(state, player) and recipe_is_craftable(state, rec_id, player, rules, crops):
+        if player and player_at_cabin_tile(state, player, "kitchen") and recipe_is_craftable(state, rec_id, player, rules, crops):
             ready = " Ready to cook."
         lines.append(f"  {name}: {ings}.{tail}{ready}")
     return "\n".join(lines) + "\n"
@@ -4555,8 +4579,9 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     )
     rules = rules or load_rules()
     crops = crops or load_crops()
-    if not is_player_in_cabin(state, player):
-        return False, "Craft at the cabin kitchen."
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "kitchen"):
+        return False, "Craft at the kitchen inside the cabin."
     key = normalize_item(str(recipe)) or str(recipe or "").strip().lower().replace(" ", "_")
     recs = recipes(rules)
     rec = recs.get(key)
@@ -4653,8 +4678,12 @@ def legal_actions(
     actions: list[str] = []
     from hills import (
         player_area, area_crossing, path_places, is_cabin_place,
-        AREA_FARM, AREA_HILLS, AREA_MINE, iter_hills_tiles, get_hills_tile,
+        AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, iter_hills_tiles, get_hills_tile,
         has_grown_tree, has_forage, hills_tiles, is_mine_entrance_tile,
+    )
+    from cabin import (
+        iter_cabin_tiles, is_farm_cabin_tile, player_at_cabin_tile, is_cabin_interior,
+        cabin_tile_kind,
     )
     from mine import (
         player_floor, iter_mine_tiles, get_mine_tile, tool_action_cost,
@@ -4665,17 +4694,18 @@ def legal_actions(
     area = player_area(state, actor) if actor else AREA_FARM
     floor = player_floor(state, actor) if actor and area == AREA_MINE else None
     step = step_energy(rules)
+    step_here = 0 if area == AREA_CABIN else step
     for direction, delta in MOVE_DELTA.items():
         crossing = area_crossing(area, here[0], here[1], direction)
         if crossing:
-            if energy >= step:
+            if energy >= step_here:
                 if direction == "up":
                     actions.append("go north")
                 elif direction == "down":
                     actions.append("go south")
             continue
         dest = (here[0] + delta[0], here[1] + delta[1])
-        if in_bounds(*dest) and energy >= step:
+        if in_bounds(*dest) and energy >= step_here:
             actions.append(f"move {direction}")
     if not is_cabin_place(area, *here):
         places = path_places(area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
@@ -4686,12 +4716,14 @@ def legal_actions(
         tile_iter = iter_hills_tiles(state) if hills_tiles(state) else []
     elif area == AREA_MINE and floor:
         tile_iter = iter_mine_tiles(state, floor, rules)
+    elif area == AREA_CABIN:
+        tile_iter = iter_cabin_tiles(state)
     else:
         tile_iter = iter_tiles(state)
     for r, c, tile in tile_iter:
         if (r, c) == here:
             continue
-        walk = path_cost(here, (r, c), rules)
+        walk = 0 if area == AREA_CABIN else path_cost(here, (r, c), rules)
         if energy >= walk:
             actions.append(f"move to {r} {c}")
     r, c = here
@@ -4720,6 +4752,10 @@ def legal_actions(
                 actions.append(f"unearth {r} {c}")
         tile_type = tile.get("type")
         # Fall through: no other farm work in the hills.
+    elif area == AREA_CABIN:
+        from cabin import get_cabin_tile
+        tile = get_cabin_tile(state, r, c)
+        tile_type = tile.get("type")
     elif area == AREA_MINE and floor:
         tile = get_mine_tile(state, floor, r, c, rules)
         tile_type = tile.get("type")
@@ -4829,13 +4865,6 @@ def legal_actions(
             # Always list it once the entrance is found, even if gold is short,
             # so the shop, look, and CLI can show the price.
             actions.append("buy pickaxe 1")
-        if (
-            actor
-            and not fireplace_is_fueled(state)
-            and energy >= energy_cost("fuel_fireplace", rules)
-            and available_wood(state, actor, rules) >= comfort_fire_wood(rules)
-        ):
-            actions.append("fuel fireplace")
         if actor and energy >= energy_cost("forge", rules):
             for tool in FORGE_TOOLS:
                 nxt = next_tool_tier(tool_tier(state, tool))
@@ -4859,6 +4888,19 @@ def legal_actions(
         for item, have in sellable.items():
             if have > 0:
                 actions.append(f"sell {item} 1")
+    if is_farm_cabin_tile(area, *here):
+        actions.append("enter cabin")
+    if player_at_cabin_tile(state, actor, "door"):
+        actions.append("leave cabin")
+    if (
+        player_at_cabin_tile(state, actor, "fireplace")
+        and actor
+        and not fireplace_is_fueled(state)
+        and energy >= energy_cost("fuel_fireplace", rules)
+        and available_wood(state, actor, rules) >= comfort_fire_wood(rules)
+    ):
+        actions.append("fuel fireplace")
+    if player_at_cabin_tile(state, actor, "chest"):
         if actor:
             from inventory import pack_space_for
             for item, have in _counts_by_item(chest_of(state, rules)).items():
@@ -4873,6 +4915,7 @@ def legal_actions(
         else:
             for item, have in _counts_by_item(chest_of(state, rules)).items():
                 actions.extend(take_drop_actions("take", item, have))
+    if player_at_cabin_tile(state, actor, "kitchen"):
         ensure_discovered_recipes(state, rules)
         if energy >= energy_cost("craft", rules):
             for rec_id in discovered_recipe_ids(state, rules):
@@ -4890,7 +4933,7 @@ def legal_actions(
                 item = slot.get("item")
                 if item and item_eat_energy(item, crops, rules) is not None:
                     actions.append(f"eat {item}")
-            if is_player_in_cabin(state, actor):
+            if player_at_cabin_tile(state, actor, "chest"):
                 from inventory import is_recipe_item
                 for slot in chest_of(state, rules):
                     if not slot:
@@ -4901,7 +4944,7 @@ def legal_actions(
         if not player_drank_herbal_tea(state, actor):
             if pack_has(state, actor, "herbal_tea", 1, rules):
                 actions.append("drink herbal_tea")
-            if is_player_in_cabin(state, actor):
+            if player_at_cabin_tile(state, actor, "chest"):
                 if stack_count(chest_of(state, rules), "herbal_tea") >= 1:
                     actions.append("drink herbal_tea chest")
     actions.append("end turn")
@@ -5081,26 +5124,35 @@ def action_descriptor(
         path_places, AREA_FARM, AREA_HILLS, HILLS_GATE, chop_wood_count,
         forage_label, get_hills_tile,
     )
+    from hills import AREA_CABIN as _DESC_CABIN
     actor_area = hills_player_area(state, actor) if actor else AREA_FARM
+    step_here = 0 if actor_area == _DESC_CABIN else step
     if verb == "move" and args:
         if args[0] == "to" and len(args) >= 3:
             r, c, err = parse_row_col(args[1], args[2])
             if err:
                 return ""
             steps = len(path_steps(here, (r, c)))
-            cost = steps * step
+            cost = 0 if actor_area == _DESC_CABIN else steps * step
+            if cost == 0:
+                return "free"
             step_word = "step" if steps == 1 else "steps"
             return f"{steps} {step_word}, {_energy_word(cost)}"
         direction = normalize_direction(args[0]) or args[0]
         crossing = area_crossing(actor_area, here[0], here[1], direction)
         if crossing:
             dest_area, dr, dc = crossing
-            return f"to {dest_area} r{dr} c{dc}, {_energy_word(step)}"
+            return f"to {dest_area} r{dr} c{dc}, {_energy_word(step_here)}"
         delta = MOVE_DELTA.get(direction)
         if delta:
             dest = (here[0] + delta[0], here[1] + delta[1])
-            return f"to r{dest[0]} c{dest[1]}, {_energy_word(step)}"
+            paid = "free" if step_here == 0 else _energy_word(step_here)
+            return f"to r{dest[0]} c{dest[1]}, {paid}"
         return ""
+    if verb == "enter" and args and args[0].lower() in {"cabin", "house", "home"}:
+        return "steps inside, free"
+    if verb == "leave" and (not args or args[0].lower() in {"cabin", "house", "home"}):
+        return "back to the farm cabin tile, free"
     if verb == "go" and args and args[0] in {"cabin", "home", "house"}:
         places = path_places(actor_area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
         steps = len(places) if places else len(path_steps(here, (CABIN_ROW, CABIN_COL)))
@@ -5531,16 +5583,24 @@ def do_action(
     if verb == "fuel":
         cost_verb = "fuel_fireplace"
     if verb == "enter":
-        cost_verb = "enter_mine"
+        what = (args[0].lower() if args else "")
+        cost_verb = "enter_cabin" if what in {"cabin", "house", "home"} else "enter_mine"
     elif verb == "leave":
-        cost_verb = "climb_up"
+        what = (args[0].lower() if args else "")
+        from hills import player_area as _leave_area, AREA_CABIN as _LEAVE_CABIN
+        if what in {"cabin", "house", "home"} or (not what and _leave_area(state, actor) == _LEAVE_CABIN):
+            cost_verb = "leave_cabin"
+        else:
+            cost_verb = "climb_up"
     elif verb == "climb" and args and args[0].lower() in {"down", "south"}:
         cost_verb = "climb_down"
     elif verb == "climb":
         cost_verb = "climb_up"
     elif verb in {"mine", "break"}:
         cost_verb = "mine"
-    if cost_verb in {"till", "water", "chop", "mine"}:
+    if cost_verb in {"enter_cabin", "leave_cabin"}:
+        cost = 0
+    elif cost_verb in {"till", "water", "chop", "mine"}:
         from mine import tool_action_cost
         cost = tool_action_cost(state, actor, cost_verb, rules)
     elif verb == "unearth":
@@ -5603,15 +5663,26 @@ def do_action(
                 return False, stood
         ok, msg = forage_tile(state, actor, rules)
     elif verb == "enter":
-        if not args or args[0].lower() != "mine":
-            return False, "Usage: enter mine"
-        from mine import enter_mine
-        ok, msg = enter_mine(state, actor, rules)
+        what = (args[0].lower() if args else "")
+        if what in {"cabin", "house", "home"}:
+            from cabin import enter_cabin
+            ok, msg = enter_cabin(state, actor, rules)
+        elif what == "mine":
+            from mine import enter_mine
+            ok, msg = enter_mine(state, actor, rules)
+        else:
+            return False, "Usage: enter cabin   or: enter mine"
     elif verb == "leave":
-        if args and args[0].lower() not in {"mine", "mines"}:
-            return False, "Usage: leave mine"
-        from mine import leave_mine
-        ok, msg = leave_mine(state, actor, rules)
+        what = (args[0].lower() if args else "")
+        from hills import player_area, AREA_CABIN, AREA_MINE
+        if what in {"cabin", "house", "home"} or (not what and player_area(state, actor) == AREA_CABIN):
+            from cabin import leave_cabin
+            ok, msg = leave_cabin(state, actor, rules)
+        elif what in {"mine", "mines"} or (not what and player_area(state, actor) == AREA_MINE):
+            from mine import leave_mine
+            ok, msg = leave_mine(state, actor, rules)
+        else:
+            return False, "Usage: leave cabin   or: leave mine"
     elif verb == "climb":
         from mine import climb_up, climb_down
         direction = (args[0].lower() if args else "")
@@ -5657,7 +5728,7 @@ def do_action(
     else:
         return (
             False,
-            "Unknown action. Try look, move, go cabin, go north, enter mine, climb, mine, rest, "
+            "Unknown action. Try look, move, go cabin, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
             "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
             "eat, buy, sell, take, drop, craft, recipes, fuel fireplace, or end turn.",
         )

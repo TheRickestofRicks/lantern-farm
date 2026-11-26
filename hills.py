@@ -8,7 +8,8 @@ from __future__ import annotations
 AREA_FARM = "farm"
 AREA_HILLS = "hills"
 AREA_MINE = "mine"
-AREAS = (AREA_FARM, AREA_HILLS, AREA_MINE)
+AREA_CABIN = "cabin"
+AREAS = (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN)
 
 HILLS_ROWS = 3
 HILLS_COLS = 3
@@ -103,9 +104,13 @@ def normalize_direction(direction: str | None) -> str | None:
 
 
 def is_cabin_place(area: str | None, row: int, col: int) -> bool:
+    """Farm cabin tile or anywhere inside the cabin interior."""
     from engine import CABIN_ROW, CABIN_COL
 
-    return normalize_area(area) == AREA_FARM and int(row) == CABIN_ROW and int(col) == CABIN_COL
+    area = normalize_area(area)
+    if area == AREA_CABIN:
+        return True
+    return area == AREA_FARM and int(row) == CABIN_ROW and int(col) == CABIN_COL
 
 
 def hills_rules(rules: dict | None = None) -> dict:
@@ -578,6 +583,9 @@ def path_places(src_area: str, src: tuple[int, int], dest_area: str, dest: tuple
     dest_area = normalize_area(dest_area)
     if src_area == AREA_MINE or dest_area == AREA_MINE:
         return []
+    if src_area == AREA_CABIN or dest_area == AREA_CABIN:
+        # Enter and leave the interior through the door; don't path across it.
+        return []
     if src_area == dest_area:
         return [(src_area, r, c) for r, c in path_steps(src, dest)]
     # Only the cabin ↔ hills r3c3 crossing is legal.
@@ -621,6 +629,8 @@ def area_title(area: str | None, floor: int | None = None) -> str:
         if floor:
             return f"the mine, floor {int(floor)}"
         return "the mine"
+    if area == AREA_CABIN:
+        return "the cabin"
     return "the farm"
 
 
@@ -628,6 +638,9 @@ def describe_place(area: str, row: int, col: int, floor: int | None = None) -> s
     from engine import CABIN_ROW, CABIN_COL, position_name
 
     area = normalize_area(area)
+    if area == AREA_CABIN:
+        from cabin import describe_cabin_place
+        return describe_cabin_place(row, col)
     if is_cabin_place(area, row, col):
         return "the cabin"
     here = position_name(row, col)
@@ -646,6 +659,9 @@ def describe_where(area: str, row: int, col: int, floor: int | None = None) -> s
     from engine import position_name
 
     area = normalize_area(area)
+    if area == AREA_CABIN:
+        from cabin import describe_cabin_where
+        return describe_cabin_where(row, col)
     if is_cabin_place(area, row, col):
         return "in the cabin"
     here = position_name(row, col)
@@ -820,7 +836,9 @@ def exit_summary(area: str) -> str:
         return "Walk south from the bottom-right hill (row 3 col 3) to return to the cabin. The mine entrance is at row 1 col 2."
     if area == AREA_MINE:
         return "Climb up the shaft, or ride the elevator to the entrance, then walk home from the hills."
-    return "Walk north from the cabin to reach the hills (bottom-right, row 3 col 3)."
+    if area == AREA_CABIN:
+        return "Leave through the door at bottom-left (row 3 col 1) to step back onto the farm cabin tile."
+    return "Walk north from the cabin to reach the hills (bottom-right, row 3 col 3). Press E to step inside the cabin."
 
 
 def elsewhere_lines(state: dict, viewer: str | None, crops: dict | None = None) -> list[str]:
@@ -835,6 +853,11 @@ def elsewhere_lines(state: dict, viewer: str | None, crops: dict | None = None) 
     elif view_area == AREA_HILLS:
         lines.append("  " + farm_summary(state, crops))
         lines.append("  " + mine_summary(state))
+    elif view_area == AREA_CABIN:
+        from cabin import cabin_summary
+        lines.append("  " + farm_summary(state, crops))
+        lines.append("  " + hills_summary(state))
+        lines.append("  " + cabin_summary(state))
     else:
         lines.append("  " + farm_summary(state, crops))
         lines.append("  " + hills_summary(state))

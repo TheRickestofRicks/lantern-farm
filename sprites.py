@@ -79,6 +79,11 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
             if tile.get("elevator"):
                 key += "_elevator"
         return key
+    if typ in {"cabin_floor", "cabin_bed", "cabin_chest", "cabin_fireplace", "cabin_door", "cabin_kitchen"}:
+        kind = typ[len("cabin_"):]
+        if typ == "cabin_fireplace" and tile.get("fire"):
+            return "cabin_interior_fireplace_lit"
+        return f"cabin_interior_{kind}"
     if typ in {"grass", "hillside", "mine_entrance"}:
         if typ == "mine_entrance":
             key = "mine_entrance_closed" if tile.get("closed", True) else "mine_entrance"
@@ -184,6 +189,9 @@ def parse_sprite_key(key: str) -> dict:
     hills = _parse_hills_sprite_key(key)
     if hills:
         return hills
+    interior = _parse_cabin_interior_sprite_key(key)
+    if interior:
+        return interior
     if key == "cabin" or key.startswith("cabin_"):
         weather = "sun"
         fire = False
@@ -1337,6 +1345,102 @@ def svg_hills_tile(info: dict) -> str:
     return _svg("\n".join(layers))
 
 
+
+def _parse_cabin_interior_sprite_key(key: str) -> dict | None:
+    if not key.startswith("cabin_interior_"):
+        return None
+    rest = key[len("cabin_interior_"):]
+    fire = False
+    if rest.endswith("_lit"):
+        fire = True
+        rest = rest[: -len("_lit")]
+    if rest not in {"floor", "bed", "chest", "fireplace", "door", "kitchen"}:
+        return None
+    return {"kind": "cabin_interior", "tile": rest, "fire": fire}
+
+
+def _cabin_floor_ground() -> str:
+    return """
+  <rect width="160" height="160" fill="#c4a06a"/>
+  <rect x="0" y="0" width="160" height="160" fill="#d8b07a"/>
+  <g stroke="#8a5a28" stroke-width="1.2" opacity="0.45">
+    <line x1="0" y1="20" x2="160" y2="20"/>
+    <line x1="0" y1="40" x2="160" y2="40"/>
+    <line x1="0" y1="60" x2="160" y2="60"/>
+    <line x1="0" y1="80" x2="160" y2="80"/>
+    <line x1="0" y1="100" x2="160" y2="100"/>
+    <line x1="0" y1="120" x2="160" y2="120"/>
+    <line x1="0" y1="140" x2="160" y2="140"/>
+  </g>
+  <g stroke="#6b3e16" stroke-width="0.8" opacity="0.2">
+    <line x1="40" y1="0" x2="40" y2="20"/>
+    <line x1="110" y1="20" x2="110" y2="40"/>
+    <line x1="28" y1="40" x2="28" y2="60"/>
+    <line x1="96" y1="80" x2="96" y2="100"/>
+    <line x1="52" y1="120" x2="52" y2="140"/>
+  </g>
+"""
+
+
+def _cabin_interior_overlay(tile: str, fire: bool = False) -> str:
+    if tile == "bed":
+        return """
+  <rect x="14" y="18" width="132" height="100" rx="8" fill="#6b3a28" stroke="#3a1c12" stroke-width="2"/>
+  <rect x="20" y="36" width="120" height="76" rx="6" fill="#c45a5a"/>
+  <rect x="20" y="36" width="120" height="18" fill="#efe4d0"/>
+  <rect x="24" y="22" width="44" height="18" rx="5" fill="#f4ece0" stroke="#c8b89a" stroke-width="1"/>
+  <rect x="92" y="22" width="44" height="18" rx="5" fill="#f4ece0" stroke="#c8b89a" stroke-width="1"/>
+  <path d="M20,92 q60,18 120,0" fill="none" stroke="#8a2e32" stroke-width="3"/>
+"""
+    if tile == "chest":
+        return """
+  <rect x="36" y="70" width="88" height="54" rx="6" fill="#8a5520" stroke="#3a2414" stroke-width="2"/>
+  <rect x="36" y="62" width="88" height="22" rx="6" fill="#a46828" stroke="#3a2414" stroke-width="2"/>
+  <rect x="70" y="78" width="20" height="14" rx="3" fill="#c9a227" stroke="#6b4a10" stroke-width="1.4"/>
+  <line x1="44" y1="96" x2="116" y2="96" stroke="#3a2414" stroke-width="1.5" opacity="0.5"/>
+"""
+    if tile == "fireplace":
+        glow = "#f0a030" if fire else "#2a2420"
+        flame = ""
+        if fire:
+            flame = """
+  <path d="M80,108 c-8,-16 -4,-28 0,-36 c6,10 12,16 8,36 z" fill="#f4d060"/>
+  <path d="M80,108 c-5,-10 -2,-20 0,-26 c4,6 7,10 5,26 z" fill="#f07a20"/>
+"""
+        return f"""
+  <rect x="28" y="18" width="104" height="118" fill="#6a5a52" stroke="#2a2018" stroke-width="2"/>
+  <rect x="40" y="36" width="80" height="86" fill="#3a322c"/>
+  <rect x="48" y="70" width="64" height="52" fill="{glow}"/>
+  {flame}
+  <rect x="24" y="128" width="112" height="14" fill="#4a3a30" stroke="#2a2018" stroke-width="2"/>
+"""
+    if tile == "door":
+        return """
+  <rect x="44" y="18" width="72" height="124" fill="#6b3e16" stroke="#3a2414" stroke-width="3"/>
+  <rect x="52" y="28" width="56" height="48" fill="#8a5520" stroke="#3a2414" stroke-width="1.5"/>
+  <rect x="52" y="84" width="56" height="48" fill="#8a5520" stroke="#3a2414" stroke-width="1.5"/>
+  <circle cx="104" cy="86" r="5" fill="#c9a227"/>
+"""
+    if tile == "kitchen":
+        return """
+  <rect x="16" y="70" width="128" height="62" fill="#6b4a28" stroke="#3a2414" stroke-width="2"/>
+  <rect x="16" y="62" width="128" height="14" fill="#8a5a30" stroke="#3a2414" stroke-width="2"/>
+  <rect x="28" y="86" width="36" height="28" rx="3" fill="#4a5560"/>
+  <circle cx="46" cy="100" r="10" fill="#2a3038" stroke="#c0c8d0" stroke-width="1.5"/>
+  <rect x="80" y="36" width="28" height="28" fill="#8a3a22" stroke="#3a2414" stroke-width="2"/>
+  <rect x="84" y="28" width="20" height="10" fill="#4a3a30"/>
+  <ellipse cx="118" cy="96" rx="14" ry="10" fill="#c45a3a" stroke="#6b2a18" stroke-width="1.5"/>
+"""
+    return ""
+
+
+def svg_cabin_interior(info: dict) -> str:
+    tile = (info or {}).get("tile") or "floor"
+    fire = bool((info or {}).get("fire"))
+    body = _cabin_floor_ground() + _cabin_interior_overlay(tile, fire)
+    return _svg(body)
+
+
 def svg_for_key(key: str) -> str:
     info = parse_sprite_key(key)
     kind = info.get("kind")
@@ -1344,6 +1448,8 @@ def svg_for_key(key: str) -> str:
         return svg_hills_tile(info)
     if info.get("mine") or kind in {"mine_floor", "mine_safe"}:
         return svg_mine_tile(info)
+    if kind == "cabin_interior":
+        return svg_cabin_interior(info)
     if kind == "cabin":
         return svg_cabin(info.get("weather") or "sun", fire=bool(info.get("fire")))
     if kind == "unknown":

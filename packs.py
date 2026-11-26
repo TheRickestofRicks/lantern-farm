@@ -92,6 +92,8 @@ def ground_key_for(parsed: dict) -> str | None:
     if kind in {None, "cabin", "unknown"}:
         return None
     typ = parsed.get("type") or kind
+    if parsed.get("kind") == "cabin_interior":
+        return "cabin_floor"
     if parsed.get("mine") or typ in {"mine_floor", "mine_safe"}:
         return typ
     if parsed.get("hills"):
@@ -198,6 +200,15 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
         return None
     layers.append({"role": "ground", "file": gfile})
     typ = parsed.get("type") or parsed.get("kind")
+    if parsed.get("kind") == "cabin_interior":
+        tile = parsed.get("tile") or "floor"
+        if tile != "floor":
+            name = "cabin_fireplace_lit" if tile == "fireplace" and parsed.get("fire") else f"cabin_{tile}"
+            ffile = _pack_file(manifest, overlays.get(name) or "")
+            if not ffile:
+                return None
+            layers.append({"role": "crop", "file": ffile})
+        return layers
     if parsed.get("mine") or typ in {"mine_floor", "mine_safe"}:
         def add_ov(name: str, role: str = "crop") -> bool:
             ffile = _pack_file(manifest, overlays.get(name) or "")
