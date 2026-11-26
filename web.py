@@ -1182,13 +1182,17 @@ PAGE = r"""<!DOCTYPE html>
       if (hillsParsed) return hillsParsed;
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
         let weather = "sun";
-        if (key.indexOf("cabin_") === 0 && key.length > 6) {
-          const tail = key.slice(6);
-          if (tail === "rain" || tail === "snow" || tail === "storm" || tail === "cloud" || tail === "sun") {
-            weather = tail;
-          }
+        let fire = false;
+        let tail = (key.indexOf("cabin_") === 0 && key.length > 6) ? key.slice(6) : "";
+        const parts = tail.split("_").filter(Boolean);
+        if (parts.length && parts[parts.length - 1] === "fire") {
+          fire = true;
+          parts.pop();
         }
-        return {kind: "cabin", weather: weather};
+        if (parts.length && (parts[0] === "rain" || parts[0] === "snow" || parts[0] === "storm" || parts[0] === "cloud" || parts[0] === "sun")) {
+          weather = parts[0];
+        }
+        return {kind: "cabin", weather: weather, fire: fire};
       }
       let weedy = false, weed = false, snow = false, fertilizer = null, vine = null;
       const vineDirs = ["northwest","northeast","southwest","southeast","north","south","east","west"];
@@ -1284,7 +1288,12 @@ PAGE = r"""<!DOCTYPE html>
         const ckey = (w === "sun") ? "cabin" : ("cabin_" + w);
         const file = cabins[ckey] || cabins.cabin;
         if (!file) return null;
-        return ["/static/packs/" + pack.id + "/" + file];
+        const layers = ["/static/packs/" + pack.id + "/" + file];
+        if (parsed.fire) {
+          const smoke = pack.overlays && pack.overlays.cabin_smoke;
+          if (smoke) layers.push("/static/packs/" + pack.id + "/" + smoke);
+        }
+        return layers;
       }
       if (!pack.grounds) return null;
       const layers = [];

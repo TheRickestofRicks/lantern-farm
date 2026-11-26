@@ -52,6 +52,7 @@ Same log cabin in every weather, top-down farm tile, parchment ink-and-watercolo
 - **cabin_rain** — The same cabin in the rain: diagonal rain streaks, wet darker roof and soil, a few puddles, lantern glow on the wet steps.
 - **cabin_storm** — The same cabin in a heavy storm: darker wet soil, dense rain, a distant lightning flash, lantern glowing strongly. Keep a top-down yard (avoid a wide horizon if it fights the neighbouring soil tiles).
 - **cabin_snow** — The same cabin in the snow: a soft cap of snow on the roof, falling flakes, a snowy yard with tufts and stones poking through, lantern light on the steps.
+- **cabin_smoke** — A transparent overlay of thicker chimney smoke rising from the same chimney mouth, used when the fireplace is fueled. The weather cabin tile itself is unchanged; only this smoke is stacked on top.
 
 An early storm take with a strong sky-and-treeline horizon was replaced with a darker, rain-like top-down composition that still reads as a storm. A first watered-snow ground that looked too glossy and framed was redone in the softer pack style.
 

@@ -880,9 +880,8 @@ def svg_cabin(weather: str | None = None, fire: bool = False) -> str:
     overlay = _cabin_weather_overlay(weather)
     fire_bit = ""
     if fire:
+        # Extra chimney smoke only — the weather/ground colours stay the same.
         fire_bit = (
-            f'<ellipse cx="108" cy="88" rx="36" ry="28" fill="#e89030" opacity="0.35"/>'
-            f'<ellipse cx="108" cy="88" rx="18" ry="14" fill="#ffc060" opacity="0.5"/>'
             f'<path d="M111,24 q8,-16 18,-8" stroke="{P["smoke"]}" stroke-width="4" '
             f'fill="none" opacity="0.7" stroke-linecap="round"/>'
             f'<path d="M122,16 q8,-12 14,-4" stroke="{P["smoke"]}" stroke-width="3" '

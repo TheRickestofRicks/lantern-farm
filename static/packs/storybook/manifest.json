@@ -151,7 +151,8 @@
     "tree_stump": "overlays/tree_stump.png",
     "forage_wild_onion": "overlays/forage_wild_onion.png",
     "forage_wild_berry": "overlays/forage_wild_berry.png",
-    "forage_wild_mushroom": "overlays/forage_wild_mushroom.png"
+    "forage_wild_mushroom": "overlays/forage_wild_mushroom.png",
+    "cabin_smoke": "overlays/cabin_smoke.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

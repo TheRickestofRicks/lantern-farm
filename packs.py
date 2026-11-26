@@ -176,7 +176,13 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
         )
         if not cfile:
             return None
-        return [{"role": "cabin", "file": cfile}]
+        layers = [{"role": "cabin", "file": cfile}]
+        if parsed.get("fire"):
+            overlays = manifest.get("overlays") or {}
+            sfile = _pack_file(manifest, overlays.get("cabin_smoke") or "")
+            if sfile:
+                layers.append({"role": "smoke", "file": sfile})
+        return layers
     grounds = manifest.get("grounds") or {}
     overlays = manifest.get("overlays") or {}
     layers: list[dict] = []
