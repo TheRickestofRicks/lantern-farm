@@ -2600,7 +2600,7 @@ class ArtPackAndPage(unittest.TestCase):
         expected = {
             "hoe", "shovel", "watering_can",
             "fertilizer_general", "fertilizer_yield", "fertilizer_growth",
-            "bread", "butter", "milk",
+            "bread", "bread_half", "butter", "milk",
             "strawberry_jam", "kabocha_soup", "root_stew",
             "bread_and_butter", "jam_toast", "strawberry_milk",
             "buttered_kabocha", "kabocha_cream_soup",
@@ -5200,6 +5200,300 @@ class WebHudAndOverview(unittest.TestCase):
         self.assertNotIn("placeBits", status)
         self.assertIn('overview-desc', page)
         self.assertIn("overview.textContent = placeBits", page)
+
+
+
+
+class ShopChestWebUi(unittest.TestCase):
+    def _run_jsdom(self, payload, html):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "shop-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-shop-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_item_catalog_exposes_forage_eat_energy(self):
+        import web
+        catalog = web._item_name_catalog(load_crops(), load_rules())
+        self.assertEqual(catalog["wild_onion"].get("eat_energy"), 6)
+        self.assertEqual(catalog["wild_berry"].get("eat_energy"), 8)
+        self.assertNotIn("eat_energy", catalog["wild_mushroom"])
+
+    def test_web_chest_lists_produce_and_eat_forage_not_under_backpack(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from inventory import add_to_chest, add_to_pack, TOOL_CAN, sync_inventory_view
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        state["players"][P1]["energy"] = 50
+        # Pack holds only a watering can; produce and forage live in the chest,
+        # matching the live cabin-chest mix that the shop used to mislabel.
+        state["players"][P1]["pack"] = [None, None, None, None]
+        add_to_pack(state, P1, TOOL_CAN, 1, rules)
+        for item, n in (("spinach", 1), ("turnip", 1), ("wild_onion", 6), ("wood", 8)):
+            add_to_chest(state, item, n, rules)
+        sync_inventory_view(state, rules)
+        self.assertTrue(is_player_in_cabin(state, P1))
+        actions = legal_actions(state, crops, P1, rules)
+        self.assertIn("take spinach 1", actions)
+        self.assertIn("take turnip 1", actions)
+        self.assertIn("take wild_onion 1", actions)
+        self.assertIn("eat wild_onion chest", actions)
+        self.assertIn("eat spinach chest", actions)
+
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertTrue(payload["in_cabin"])
+        self.assertTrue(payload["your_turn"])
+        chest_items = [s.get("item") for s in (payload.get("chest") or []) if s]
+        self.assertIn("spinach", chest_items)
+        self.assertIn("turnip", chest_items)
+        self.assertIn("wild_onion", chest_items)
+        pack_items = [s.get("item") for s in (payload.get("pack") or []) if s]
+        self.assertEqual(pack_items, [TOOL_CAN])
+        self.assertEqual((payload.get("item_names") or {}).get("wild_onion", {}).get("eat_energy"), 6)
+
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertTrue(data["invChestPresent"])
+        self.assertRegex(data["invChestText"].lower(), r"spinach")
+        self.assertRegex(data["invChestText"].lower(), r"turnip")
+        self.assertRegex(data["invChestText"].lower(), r"wild onion")
+        self.assertTrue(any(t.lower().startswith("take") for t in data["invChestButtons"]))
+        self.assertTrue(any(t.lower().startswith("eat") for t in data["invChestButtons"]))
+        self.assertRegex(data["invPackText"].lower(), r"watering can")
+        self.assertNotRegex(data["invPackText"].lower(), r"spinach|turnip|wild onion")
+        # Combined inventory totals must not be sold as "from the backpack".
+        self.assertFalse(
+            data["shopBackpackPresent"],
+            "chest produce was listed under From the backpack: " + (data.get("shopBackpackText") or ""),
+        )
+        self.assertTrue(data["shopChestPresent"])
+        self.assertRegex(data["shopChestText"].lower(), r"spinach")
+        self.assertRegex(data["shopChestText"].lower(), r"turnip")
+        self.assertRegex(data["shopChestText"].lower(), r"wild onion")
+        self.assertTrue(any(t.lower().startswith("take") for t in data["shopChestButtons"]))
+        self.assertTrue(any("eat" in t.lower() and "6" in t for t in data["shopChestButtons"]))
+        self.assertTrue(any(t.lower().startswith("eat") for t in data.get("eatButtons") or []))
+
+
+
+
+class FarmPlotActionsArea(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+
+    def _farm_strawberry_at(self, row, col):
+        tile = engine.get_tile(self.state, row, col)
+        tile["type"] = "soil"
+        tile["tilled"] = True
+        tile["crop"] = {
+            "kind": "strawberry",
+            "stage": "sprouting",
+            "days_grown": 1,
+            "planted_day": 1,
+            "growth": 20,
+            "health": 100,
+        }
+
+    def test_farm_plot_actions_refuse_in_the_hills_and_do_not_touch_the_farm_tile(self):
+        from hills import set_player_place, AREA_HILLS, AREA_FARM, HILLS_GATE
+        self._farm_strawberry_at(*HILLS_GATE)
+        crop = copy.deepcopy(engine.get_tile(self.state, *HILLS_GATE)["crop"])
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 100
+        commands = [
+            "harvest",
+            "harvest 3 3",
+            "water",
+            "till",
+            "plant spinach",
+            "pluck",
+            "unearth",
+            "fertilize",
+        ]
+        for cmd in commands:
+            ok, msg = do_action(self.state, self.crops, cmd, player=P1, rules=self.rules)
+            self.assertFalse(ok, cmd)
+            self.assertIn("hills", msg.lower(), cmd)
+            self.assertIn("nothing to", msg.lower(), cmd)
+            self.assertNotIn("filling out", msg.lower(), cmd)
+            self.assertNotIn("strawberry", msg.lower(), cmd)
+        self.assertEqual(engine.get_tile(self.state, *HILLS_GATE)["crop"], crop)
+        set_player_place(self.state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+
+    def test_farm_plot_actions_refuse_in_the_mine(self):
+        from hills import set_player_place, AREA_MINE
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=1)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "harvest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("mine", msg.lower())
+        self.assertIn("nothing to harvest", msg.lower())
+        self.assertNotIn("filling out", msg.lower())
+
+    def test_eat_half_loaf_is_a_snack_and_marks_ate_today(self):
+        from inventory import add_to_pack, pack_has, item_eat_energy
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 50
+        add_to_pack(self.state, P1, "bread_half", 1, self.rules)
+        self.assertEqual(item_eat_energy("bread_half", self.crops, self.rules), 5)
+        self.assertIn("eat bread_half", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "eat half loaf", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("5", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 55)
+        self.assertEqual(self.state["players"][P1]["snacks_eaten"], 1)
+        self.assertTrue(self.state["players"][P1].get("ate_today"))
+        self.assertFalse(pack_has(self.state, P1, "bread_half", 1, self.rules))
+
+
+class HillsHotkeysWeb(unittest.TestCase):
+    def _run(self, payload, html):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "hills-hotkeys.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-hotkeys-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_h_forages_in_the_hills_and_farm_keys_are_hidden(self):
+        import web
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE, get_hills_tile
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        state["players"][P1]["energy"] = 80
+        set_player_place(state, P1, AREA_HILLS, *HILLS_GATE)
+        tile = get_hills_tile(state, *HILLS_GATE)
+        tile["forage"] = {"kind": "wild_onion"}
+        tile["tree"] = None
+        payload = web.api_payload(state, crops, player=P1)
+        html = web.render_page(viewer=P1)
+        data = self._run(payload, html)
+        keys = data["keysText"].lower()
+        self.assertIn("forage", keys)
+        self.assertIn("chop", keys)
+        self.assertRegex(keys, r"h or g forage")
+        self.assertNotRegex(keys, r"\btill\b")
+        self.assertNotRegex(keys, r"\bwater\b")
+        self.assertNotRegex(keys, r"\bplant\b")
+        self.assertNotRegex(keys, r"\bu\b unearth")
+        self.assertNotRegex(keys, r"\bfertilize\b")
+        self.assertNotRegex(keys, r"\bharvest\b")
+        self.assertIn("forage", data["commands"])
+        self.assertNotIn("harvest", data["commands"])
+        self.assertNotIn("till", data["commands"])
+        self.assertIn("chop", data["commands"])
+
+    def test_web_shows_eat_for_a_half_loaf_in_the_pack(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from inventory import add_to_pack
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        state["players"][P1]["energy"] = 50
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        state["players"][P1]["pack"] = [None, None, None, None]
+        add_to_pack(state, P1, "bread_half", 1, rules)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertEqual((payload.get("item_names") or {}).get("bread_half", {}).get("eat_energy"), 5)
+        self.assertIn("eat bread_half", legal_actions(state, crops, P1, rules))
+        html = web.render_page(viewer=P1)
+        # Reuse the shop UI runner, which inspects Eat buttons on item cards.
+        shop_runner = Path(__file__).resolve().parent / "tests" / "shop-ui.test.js"
+        self.assertTrue(shop_runner.is_file())
+        import shutil, subprocess, tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory(prefix="lantern-half-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(shop_runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp, capture_output=True, text=True, env=env, timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertRegex((data.get("invPackText") or "").lower(), r"half loaf")
+        self.assertTrue(any("eat" in t.lower() and "5" in t for t in data.get("invChestButtons") and [] or data.get("eatButtons") or []))
+        eats = [t for t in (data.get("eatButtons") or []) if "eat" in t.lower()]
+        self.assertTrue(eats, data)
 
 
 

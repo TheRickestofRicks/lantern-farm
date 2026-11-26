@@ -1283,6 +1283,28 @@ def parse_row_col(row, col) -> tuple[int | None, int | None, str | None]:
     return r, c, None
 
 
+
+FARM_PLOT_VERBS = ("till", "plant", "water", "harvest", "pluck", "unearth", "fertilize")
+
+
+def farm_action_refused(state: dict, player: str | None, verb: str) -> str | None:
+    """Farm plot work is only for farm tiles. Refuse politely in the hills or mine."""
+    if not player:
+        return None
+    from hills import player_area, AREA_FARM, AREA_HILLS, AREA_MINE
+    area = player_area(state, player)
+    if area == AREA_FARM:
+        return None
+    if area == AREA_HILLS:
+        where = "in the hills"
+    elif area == AREA_MINE:
+        where = "in the mine"
+    else:
+        where = "here"
+    word = verb if verb != "pluck" else "pluck"
+    return f"There's nothing to {word} here {where}."
+
+
 def get_tile(state: dict, row: int, col: int, area: str | None = None) -> dict:
     from hills import AREA_HILLS, normalize_area, get_hills_tile
     if area and normalize_area(area) == AREA_HILLS:
@@ -2007,6 +2029,9 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "till")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -2068,6 +2093,9 @@ def unearth(
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "unearth")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -2112,6 +2140,9 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
     if not info:
         known = ", ".join(crops.get("crops", {}))
         return False, f"Unknown crop {kind!r}. The shop sells: {known}."
+    refused = farm_action_refused(state, player, "plant")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -2162,6 +2193,9 @@ def water(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "water")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -2480,6 +2514,9 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "harvest")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -2589,6 +2626,9 @@ def fertilize(
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "fertilize")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     if tile["type"] != "soil":
         return False, f"You can only fertilize soil. {position_name(r, c)} is {tile['type']}."
@@ -2949,6 +2989,9 @@ def pluck(state: dict, crops: dict, row, col, player: str | None = None) -> tupl
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
+    refused = farm_action_refused(state, player, "pluck")
+    if refused:
+        return False, refused
     tile = get_tile(state, r, c)
     here = position_name(r, c)
     if tile["type"] == "cabin":
@@ -3490,6 +3533,7 @@ def eat(
     slot["energy"] = energy + gained
     hp_gained = heal_hp(state, player, restore, rules)
     slot["snacks_eaten"] = eaten + 1
+    slot["ate_today"] = True
     left = cap_snacks - (eaten + 1)
     snack_bit = "No snacks left this turn." if left <= 0 else f"{left} snack(s) left this turn."
     bits = []
@@ -4644,6 +4688,11 @@ def do_action(
             stood = _must_stand_here(state, actor, r, c)
             if stood:
                 return False, stood
+
+    if verb in FARM_PLOT_VERBS:
+        refused = farm_action_refused(state, actor, verb)
+        if refused:
+            return False, refused
 
     cost_verb = verb
     if verb == "enter":

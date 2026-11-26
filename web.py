@@ -930,10 +930,10 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>P</kbd> plant
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
-        &middot; <kbd>C</kbd> chop
-        &middot; <kbd>G</kbd> forage
         &middot; <kbd>U</kbd> unearth
         &middot; <kbd>F</kbd> fertilize
+        &middot; <kbd>C</kbd> chop
+        &middot; <kbd>G</kbd> forage
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
@@ -1477,8 +1477,8 @@ PAGE = r"""<!DOCTYPE html>
         if (!prefix) prefix = (info && info.name) || spacedName(kind);
         return n + " " + prefix + " " + noun;
       }
-      const name = info.name || spacedName(kind);
-      const fruit = n === 1 ? name : (info.name_plural || (name + "s"));
+      const name = (info && info.name) || spacedName(kind);
+      const fruit = n === 1 ? name : ((info && info.name_plural) || (name + "s"));
       return n + " " + fruit;
     }
     function shopOwnedKey(kind, info, opts, data) {
@@ -1679,6 +1679,7 @@ PAGE = r"""<!DOCTYPE html>
       lastData = data;
       if (data && data.viewer) PLAYER = data.viewer;
       renderForecast(data);
+      renderKeys(data);
       const s = data.state;
       const sky = weatherWord[s.weather] || s.weather;
       const capE = data.max_energy || 100;
@@ -2397,16 +2398,48 @@ PAGE = r"""<!DOCTYPE html>
       return item.endsWith("_seed") || item.endsWith("_seedling") || item.endsWith("_crown") || item.endsWith("_crowns");
     }
     function snackEnergy(item, data) {
-      // Same edible list as the engine (item_eat_energy): recipes and staples,
-      // then any catalog item with eat_energy (half loaf, wild onion, wild berry,
-      // harvested crops). Seeds/crowns and cook-only foods stay hidden.
+      // Recipes and staples first; then forage / item catalog; harvested crop
+      // fruit after. Seeds/crowns and cook-only foods (no eat_energy) are not
+      // snacks. Shop buy rows never use this.
       const rec = recipeInfo(item, data);
       if (rec && rec.eat_energy) return rec.eat_energy;
       if (isStockItem(item)) return 0;
       const named = data && data.item_names && data.item_names[item];
       if (named && named.eat_energy) return named.eat_energy;
+      const forage = (data && data.forage && data.forage[item]) || {};
+      if (forage.eat_energy) return forage.eat_energy;
       const info = (data && data.crops && data.crops[item]) || {};
       return info.eat_energy || 0;
+    }
+    function slotsOfChest(data) {
+      const chest = (data && data.chest) || (data && data.state && data.state.chest) || [];
+      return Array.isArray(chest) ? chest : [];
+    }
+    function countItemInSlots(slots, kind) {
+      let n = 0;
+      (slots || []).forEach(function (slot) {
+        if (slot && slot.item === kind) n += Number(slot.count || 0);
+      });
+      return n;
+    }
+    function renderChestCards(parent, data, opts) {
+      const chest = slotsOfChest(data);
+      if (!chest.length) {
+        const empty = document.createElement("p");
+        empty.className = "shop-empty";
+        empty.textContent = "The chest is empty.";
+        parent.appendChild(empty);
+        return;
+      }
+      const canAct = !!(data && data.your_turn && data.in_cabin);
+      chest.forEach(function (slot) {
+        appendItemCard(parent, slot, {
+          take: true,
+          canAct: canAct,
+          yourTurn: !!(data && data.your_turn),
+          data: data
+        });
+      });
     }
 
     function appendItemCard(parent, slot, opts) {
@@ -2543,6 +2576,17 @@ PAGE = r"""<!DOCTYPE html>
       held.forEach(function (slot) {
         appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
+      const chestTitle = document.createElement("div");
+      chestTitle.className = "shop-section-title";
+      chestTitle.textContent = "Cabin chest";
+      el.appendChild(chestTitle);
+      if (!data.in_cabin) {
+        const note = document.createElement("p");
+        note.className = "inv-slots";
+        note.textContent = "Walk to the cabin to take items from the chest.";
+        el.appendChild(note);
+      }
+      renderChestCards(el, data);
     }
 
     function renderShop(data) {
@@ -2556,12 +2600,12 @@ PAGE = r"""<!DOCTYPE html>
         shop.appendChild(note);
       }
       const crops = data.crops || {};
-      const inv = data.state.inventory || {};
       const season = (data.state && data.state.season) || "";
+      const packHeld = packSlotsOf(data);
       const forSale = [];
       const sellables = [];
       for (const [kind, info] of Object.entries(crops)) {
-        const fruit = inv[kind] || 0;
+        const fruit = countItemInSlots(packHeld, kind);
         const shopSeasons = (info.shop_seasons && info.shop_seasons.length) ? info.shop_seasons : (info.seasons || []);
         const inSeason = info.available !== false && shopSeasons.indexOf(season) !== -1;
         if (inSeason) forSale.push([kind, info]);
@@ -2616,22 +2660,13 @@ PAGE = r"""<!DOCTYPE html>
           appendShopCard(shop, data, pair[0], pair[1], {buy: false, sell: true});
         });
       }
-      if (data.in_cabin && data.your_turn) {
+      if (data.in_cabin) {
         const chestTitle = document.createElement("div");
         chestTitle.className = "shop-section-title";
         chestTitle.textContent = "Cabin chest";
         shop.appendChild(chestTitle);
-        const chest = data.chest || (data.state && data.state.chest) || [];
-        if (!chest.length) {
-          const empty = document.createElement("p");
-          empty.className = "shop-empty";
-          empty.textContent = "The chest is empty.";
-          shop.appendChild(empty);
-        }
         const canAct = !!(data.your_turn && data.in_cabin);
-        chest.forEach(function (slot) {
-          appendItemCard(shop, slot, {take: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
-        });
+        renderChestCards(shop, data);
         const pack = packSlotsOf(data);
         const held = pack.filter(function (s) { return s && s.item; });
         if (held.length) {
@@ -2846,30 +2881,105 @@ PAGE = r"""<!DOCTYPE html>
       return false;
     }
 
-    function keyTill() {
+    function currentArea(data) {
+      data = data || lastData;
+      return viewArea(data) || (standingFrom(data) || {}).area || "farm";
+    }
+    function standingTile(data) {
+      data = data || lastData;
+      const stand = standingFrom(data);
+      if (!stand) return null;
+      const area = stand.area || viewArea(data);
+      if (area === "farm") {
+        const tiles = (data && data.state && data.state.tiles) || [];
+        return (tiles[stand.r - 1] || [])[stand.c - 1] || null;
+      }
+      if (viewArea(data) === area) {
+        const tiles = viewTiles(data);
+        return (tiles[stand.r - 1] || [])[stand.c - 1] || null;
+      }
+      return null;
+    }
+    function standingHasForage(data) {
+      const tile = standingTile(data);
+      return !!(tile && tile.forage && tile.forage.kind);
+    }
+    function farmActionToast(verb, data) {
+      const area = currentArea(data);
+      const where = (area === "hills") ? "in the hills" : (area === "mine") ? "in the mine" : "here";
+      showToast("There's nothing to " + verb + " here " + where + ".", false);
+    }
+    function runFarmKey(verb, send) {
       if (!needTurn() || !needHere()) return;
-      actCmd("till");
+      if (currentArea(lastData) !== "farm") {
+        farmActionToast(verb, lastData);
+        return;
+      }
+      send();
+    }
+    function renderKeys(data) {
+      const el = $("keys");
+      if (!el) return;
+      const area = currentArea(data);
+      const walk = '<kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> walk'
+        + ' &middot; <kbd>1</kbd>&ndash;<kbd>9</kbd> walk to that plot';
+      const common = ' &middot; <kbd>S</kbd> shop'
+        + ' &middot; <kbd>J</kbd> journal'
+        + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note'
+        + ' &middot; <kbd>Enter</kbd> in the note box ends the turn'
+        + ' &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note'
+        + ' &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth or end turn';
+      let work;
+      if (area === "hills") {
+        work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
+          + ' &middot; <kbd>C</kbd> chop';
+      } else if (area === "mine") {
+        work = ' &middot; <kbd>C</kbd> chop'
+          + ' &middot; <kbd>G</kbd> forage';
+      } else {
+        work = ' &middot; <kbd>T</kbd> till'
+          + ' &middot; <kbd>W</kbd> water'
+          + ' &middot; <kbd>P</kbd> plant'
+          + ' &middot; <kbd>H</kbd> harvest'
+          + ' &middot; <kbd>Q</kbd> pluck a weed'
+          + ' &middot; <kbd>U</kbd> unearth'
+          + ' &middot; <kbd>F</kbd> fertilize'
+          + ' &middot; <kbd>C</kbd> chop'
+          + ' &middot; <kbd>G</kbd> forage';
+      }
+      el.innerHTML = walk + work + common;
+    }
+
+    function keyTill() {
+      runFarmKey("till", function () { actCmd("till"); });
     }
 
     function keyWater() {
-      if (!needTurn() || !needHere()) return;
-      actCmd("water");
+      runFarmKey("water", function () { actCmd("water"); });
     }
 
     function keyHarvest() {
       if (!needTurn() || !needHere()) return;
+      const area = currentArea(lastData);
+      if (area === "hills" && standingHasForage(lastData)) {
+        actCmd("forage");
+        return;
+      }
+      if (area !== "farm") {
+        farmActionToast("harvest", lastData);
+        return;
+      }
       actCmd("harvest");
     }
 
     function keyPluck() {
-      if (!needTurn() || !needHere()) return;
-      actCmd("pluck");
+      runFarmKey("pluck", function () { actCmd("pluck"); });
     }
 
     function standingCropName(data) {
       const stand = standingFrom(data);
-      if (!stand || !data || !data.state || !data.state.tiles) return null;
-      const tile = data.state.tiles[stand.r - 1][stand.c - 1];
+      if (!stand || (stand.area && stand.area !== "farm")) return null;
+      const tile = standingTile(data);
       const crop = tile && tile.crop;
       if (!crop || !crop.kind) return null;
       const info = cropInfo(crop.kind);
@@ -2881,6 +2991,11 @@ PAGE = r"""<!DOCTYPE html>
 
     function keyUnearth(immediate) {
       if (!needTurn() || !needHere()) return;
+      if (currentArea(lastData) !== "farm") {
+        unearthConfirm = false;
+        farmActionToast("unearth", lastData);
+        return;
+      }
       const stand = standingFrom(lastData);
       const name = standingCropName(lastData);
       if (!name || !stand) {
@@ -2917,6 +3032,10 @@ PAGE = r"""<!DOCTYPE html>
 
     function keyFertilize() {
       if (!needTurn() || !needHere()) return;
+      if (currentArea(lastData) !== "farm") {
+        farmActionToast("fertilize", lastData);
+        return;
+      }
       const pack = (lastData && lastData.pack) || (lastData && lastData.state && lastData.state.players && lastData.viewer && lastData.state.players[lastData.viewer] && lastData.state.players[lastData.viewer].pack) || [];
       const kinds = fertilizerKindsInPack(pack);
       if (!kinds.length) {
@@ -2933,6 +3052,10 @@ PAGE = r"""<!DOCTYPE html>
 
     function keyPlant() {
       if (!needTurn() || !needHere()) return;
+      if (currentArea(lastData) !== "farm") {
+        farmActionToast("plant", lastData);
+        return;
+      }
       const kinds = seedKinds((lastData && lastData.state && lastData.state.inventory) || {});
       if (!kinds.length) {
         plantPick = null;
