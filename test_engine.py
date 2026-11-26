@@ -1698,6 +1698,29 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertNotIn("1 turnip seeds", item_name("turnip_seed", 1, self.crops, self.rules))
 
 
+    def test_every_harvest_crop_except_rhubarb_is_edible(self):
+        from engine import eat_energy_for, do_action
+        from inventory import item_eat_energy
+        for kind, info in self.crops["crops"].items():
+            energy = eat_energy_for(self.crops, kind)
+            if kind == "rhubarb":
+                self.assertIsNone(energy, "rhubarb should be cook-only")
+                self.assertIsNone(item_eat_energy(kind, self.crops, self.rules))
+            else:
+                self.assertIsNotNone(energy, f"{kind} should be edible raw")
+                self.assertGreater(int(energy), 0, kind)
+                self.assertIsNone(eat_energy_for(self.crops, f"{kind}_seed"))
+        give_item(self.state, "radish", 1, player=P1)
+        self.state["players"][P1]["energy"] = 20
+        restore = eat_energy_for(self.crops, "radish")
+        ok, msg = do_action(self.state, self.crops, "eat radish", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 20 + restore)
+        give_item(self.state, "rhubarb", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "eat rhubarb", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("edible raw", msg.lower())
+
     def test_mini_map_crop_labels_fit_without_truncation(self):
         from describe import MAP_LABEL_WIDTH, _ascii_cell, ascii_map, map_crop_label
         from engine import crop_name, crop_info, get_tile

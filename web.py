@@ -2189,6 +2189,19 @@ PAGE = r"""<!DOCTYPE html>
       const staples = (data && data.staples) || {};
       return staples[item] || null;
     }
+    function isStockItem(item) {
+      item = String(item || "");
+      return item.endsWith("_seed") || item.endsWith("_seedling") || item.endsWith("_crown") || item.endsWith("_crowns");
+    }
+    function snackEnergy(item, data) {
+      // Recipes and staples first; harvested crop fruit after. Seeds/crowns and
+      // cook-only crops (no eat_energy) are not snacks. Shop rows never use this.
+      const rec = recipeInfo(item, data);
+      if (rec && rec.eat_energy) return rec.eat_energy;
+      if (isStockItem(item)) return 0;
+      const info = (data && data.crops && data.crops[item]) || {};
+      return info.eat_energy || 0;
+    }
 
     function appendItemCard(parent, slot, opts) {
       opts = opts || {};
@@ -2232,12 +2245,16 @@ PAGE = r"""<!DOCTYPE html>
         }
       }
       const rec = recipeInfo(slot.item, opts.data);
-      if (rec && rec.sell_price) {
-        addBtn("Sell 1 (" + rec.sell_price + "G)", "sell " + slot.item + " 1", cabinTurn);
+      const crops = (opts.data && opts.data.crops) || {};
+      const crop = crops[slot.item];
+      const sellPrice = (rec && rec.sell_price) || (crop && crop.sell_price);
+      if (sellPrice) {
+        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", cabinTurn);
       }
-      if (rec && rec.eat_energy) {
+      const energy = snackEnergy(slot.item, opts.data);
+      if (energy) {
         const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
-        addBtn("Eat (+" + rec.eat_energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
+        addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? cabinTurn : yourTurn);
       }
       if (btns.childNodes.length) body.appendChild(btns);
       row.appendChild(body);

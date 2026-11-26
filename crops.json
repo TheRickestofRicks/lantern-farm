@@ -870,7 +870,7 @@
       "regrow_days": 6,
       "seed_price": 25,
       "sell_price": 28,
-      "eat_energy": 6,
+      "eat_energy": null,
       "available": true,
       "shop_seasons": [
         "spring"
@@ -912,7 +912,7 @@
       "fruiting_seasons": [
         "spring"
       ],
-      "description": "A tart perennial started from a crown. The first year is for roots \u2014 it will not be ready to pull until the spring after its first winter, the way June-bearing strawberries wait. Then it offers stalks each spring, rests through autumn and winter, and lives about three years. The raw stalks are a small, sour snack; they shine in jam."
+      "description": "A tart perennial started from a crown. The first year is for roots \u2014 it will not be ready to pull until the spring after its first winter, the way June-bearing strawberries wait. Then it offers stalks each spring, rests through autumn and winter, and lives about three years. Raw stalks are too sour to snack on, and the leaves are not safe; cook the stalks, or make jam."
     },
     "asparagus": {
       "name": "asparagus",
