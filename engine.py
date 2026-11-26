@@ -123,7 +123,16 @@ def resolve_player_name(text: str | None) -> str | None:
 
 
 def player_requested_carry(state: dict, player: str) -> bool:
-    return bool(player_slot(state, player).get("carry_home"))
+    """True if this player is waiting for a carry home.
+
+    Passing while away from the cabin sets a silent carry_home flag.
+    Ending the turn away from the cabin is the same implicit request,
+    including older saves that only have ended_turn set.
+    """
+    if is_player_in_cabin(state, player):
+        return False
+    slot = player_slot(state, player)
+    return bool(slot.get("carry_home")) or bool(slot.get("ended_turn"))
 
 
 def player_was_carried_home(state: dict, player: str) -> bool:
@@ -2472,13 +2481,57 @@ def _apply_end_note(state: dict, player: str, note: str | None) -> str:
     return text
 
 
+
+def _reachable_elevator_floors(state: dict, floor: int, rules: dict | None = None) -> set[int]:
+    """Elevator stops that a rescue can route through from this floor."""
+    from mine import is_safe_floor, mine_of
+
+    floors: set[int] = set()
+    if is_safe_floor(int(floor), rules):
+        floors.add(int(floor))
+    mine = mine_of(state)
+    for raw in mine.get("checkpoints") or []:
+        try:
+            stop = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if is_safe_floor(stop, rules):
+            floors.add(stop)
+    return floors
+
+
+def _mine_exit_to_hills_energy(state: dict, floor: int, rules: dict | None = None) -> int:
+    """Single-rate energy to reach the hills entrance from this mine floor.
+
+    Climbing up once per floor (including leaving from floor 1) is the baseline.
+    If a reached elevator stop is cheaper — ride from this floor, or climb
+    toward a nearer stop and ride — use that instead.
+    """
+    rules = rules or load_rules()
+    floor = max(1, int(floor))
+    climb = energy_cost("climb_up", rules)
+    down = energy_cost("climb_down", rules)
+    lift = energy_cost("elevator", rules)
+    best = climb * floor
+    for stop in _reachable_elevator_floors(state, floor, rules):
+        if stop == floor:
+            cost = lift
+        elif stop < floor:
+            cost = climb * (floor - stop) + lift
+        else:
+            cost = down * (stop - floor) + lift
+        if cost < best:
+            best = cost
+    return best
+
+
 def carry_home_path(
     state: dict,
     player: str,
     rules: dict | None = None,
 ) -> tuple[list[tuple[str, int, int]] | None, int]:
-    """Places and double-movement energy to carry someone from here to the cabin."""
-    from hills import player_area, path_places, AREA_FARM, AREA_MINE, is_cabin_place
+    """Places (hills/farm steps) and double-travel energy to carry someone home, including a mine rescue."""
+    from hills import player_area, path_places, AREA_FARM, AREA_HILLS, AREA_MINE, is_cabin_place
 
     rules = rules or load_rules()
     area = player_area(state, player)
@@ -2486,7 +2539,15 @@ def carry_home_path(
     if is_cabin_place(area, *here):
         return [], 0
     if area == AREA_MINE:
-        return None, 0
+        from hills import MINE_ENTRANCE
+        hills_places = path_places(AREA_HILLS, MINE_ENTRANCE, AREA_FARM, (CABIN_ROW, CABIN_COL))
+        if not hills_places:
+            return None, 0
+        from mine import player_floor
+        floor = player_floor(state, player) or 1
+        mine_cost = _mine_exit_to_hills_energy(state, int(floor), rules)
+        hills_cost = step_energy(rules) * 2 * len(hills_places)
+        return hills_places, mine_cost * 2 + hills_cost
     places = path_places(area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
     if not places:
         return None, 0
@@ -2499,7 +2560,7 @@ def walk_player_home(
     passenger: str,
     rules: dict | None = None,
 ) -> tuple[bool, str]:
-    """Carry a waiting player to the cabin bed at double movement cost per step."""
+    """Carry a waiting player to the cabin bed at double travel cost, including out of the mine."""
     from hills import (
         player_area,
         set_player_place,
@@ -2538,17 +2599,22 @@ def walk_player_home(
             f"Stand on the same tile as {display_name(passenger)} ({where}), "
             "then carry them to bed."
         )
-    if carea == AREA_MINE or parea == AREA_MINE:
-        return False, (
-            "Leave the mine first. Climb up or take the elevator to the entrance, "
-            "then carry them to bed."
-        )
     places, cost = carry_home_path(state, carrier, rules)
     if places is None:
         return False, "There's no path to the cabin from here."
     slot = player_slot(state, carrier)
     energy = int(slot["energy"])
     if cost > energy:
+        if carea == AREA_MINE:
+            from mine import player_floor
+            floor = player_floor(state, carrier) or 1
+            return (
+                False,
+                f"Not enough energy. Carrying {display_name(passenger)} to bed "
+                f"from mine floor {int(floor)} costs {cost} energy "
+                f"(double the way out and the walk home); "
+                f"{display_name(carrier)} has {energy} left.",
+            )
         steps = len(places)
         return (
             False,
@@ -2594,10 +2660,11 @@ def end_turn(
         return False, f"It's {display_name(current)}'s turn right now."
     note_text = _apply_end_note(state, player, note)
     slot = player_slot(state, player)
-    if request_carry and not is_player_in_cabin(state, player):
+    # Ending away from the cabin is a silent request to be carried home,
+    # the same flag as passing while away. Ending in the cabin clears it.
+    if not is_player_in_cabin(state, player):
         slot["carry_home"] = True
-    elif not request_carry:
-        # A plain pass or end turn drops a carry request this player had made.
+    else:
         slot["carry_home"] = False
     # ended_turn is a ready-to-end vote. The day turns only when both are ready.
     # If the partner later passes the turn back, this flag is cleared.
@@ -5553,9 +5620,8 @@ def legal_actions(
     if partner and player_requested_carry(state, partner) and not is_player_in_cabin(state, partner):
         from hills import player_area
         if player_area(state, actor) == player_area(state, partner) and player_where(state, actor) == player_where(state, partner):
-            places, cost = carry_home_path(state, actor, rules)
-            energy = int(player_slot(state, actor)["energy"])
-            if places is not None and energy >= cost:
+            places, _cost = carry_home_path(state, actor, rules)
+            if places is not None:
                 actions.append(f"carry {display_name(partner)} to bed")
     return actions
 

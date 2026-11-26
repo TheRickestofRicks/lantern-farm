@@ -7706,6 +7706,138 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertIn("function submitPassTurn()", html)
         self.assertNotIn('focusNoteBox("pass")', html)
 
+    def test_end_turn_away_from_cabin_requests_a_silent_carry(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 40
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(self.state["players"][P1]["ended_turn"])
+        self.assertTrue(self.state["players"][P1].get("carry_home"))
+        self.assertNotIn("carry", msg.lower())
+        self.assertNotIn("wait", msg.lower())
+        self.state["players"][P2]["energy"] = 100
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertIn(f"carry {N1} to bed", actions)
+        ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("tucks", msg)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertTrue(is_player_in_cabin(self.state, P2))
+        self.assertTrue(self.state["players"][P1]["ended_turn"])
+        self.assertTrue(self.state["players"][P1].get("carried_home"))
+        self.assertIn(
+            "You'll sleep in the cabin",
+            sleep_outlook(self.state, P1, self.rules),
+        )
+
+    def test_ended_partner_without_the_carry_flag_can_still_be_carried(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        # Older saves: ready and away, but carry_home was never set (or was cleared).
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["ended_turn"] = True
+        self.state["players"][P1]["carry_home"] = False
+        self.state["players"][P1]["energy"] = 4
+        self.state["current_player"] = P2
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 100
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertIn(f"carry {N1} to bed", actions)
+        ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertTrue(self.state["players"][P1].get("carried_home"))
+
+    def _place_in_mine(self, player, row, col, floor, energy=100):
+        from hills import set_player_place, AREA_MINE, ensure_hills
+        from mine import ensure_mine
+        ensure_hills(self.state, self.rules)
+        ensure_mine(self.state, self.rules, self.crops)
+        self.state["mine_entrance_found"] = True
+        set_player_place(self.state, player, AREA_MINE, row, col, floor=floor)
+        self.state["players"][player]["energy"] = energy
+
+    def test_mine_rescue_from_floor_3_costs_double_and_sleeps_in_the_cabin(self):
+        from hills import player_area, AREA_CABIN
+        from cabin import CABIN_BED
+        from engine import carry_home_path
+        # Live-like: ready on floor 3 with no carry flag, partner stands on the same tile.
+        self._place_in_mine(P1, 2, 3, 3, energy=4)
+        self.state["players"][P1]["ended_turn"] = True
+        self.state["players"][P1]["carry_home"] = False
+        self.state["current_player"] = P2
+        self._place_in_mine(P2, 2, 3, 3, energy=125)
+        places, cost = carry_home_path(self.state, P2, self.rules)
+        self.assertIsNotNone(places)
+        self.assertEqual(cost, 60)  # 3 climb-ups doubled (30) + 3 hills/farm steps doubled (30)
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertIn(f"carry {N1} to bed", actions)
+        line = format_legal_action(f"carry {N1} to bed", self.state, self.crops, P2, self.rules)
+        self.assertIn("60 energy", line)
+        ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("tucks", msg)
+        self.assertIn("into bed", msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 65)
+        self.assertEqual(player_area(self.state, P1), AREA_CABIN)
+        self.assertEqual(player_area(self.state, P2), AREA_CABIN)
+        self.assertEqual(player_where(self.state, P1), CABIN_BED)
+        self.assertEqual(player_where(self.state, P2), CABIN_BED)
+        self.assertTrue(self.state["players"][P1].get("carried_home"))
+        self.assertTrue(self.state["players"][P1]["ended_turn"])
+        self.assertIn("You'll sleep in the cabin", sleep_outlook(self.state, P1, self.rules))
+        self.assertNotIn("pass out", sleep_outlook(self.state, P1, self.rules).lower())
+        # Day turns with cabin sleep, not a mine pass-out.
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["day"]), 2)
+        self.assertNotIn("passed out", msg.lower())
+        self.assertGreaterEqual(self.state["players"][P1]["energy"], 100)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+
+    def test_mine_rescue_uses_the_elevator_when_it_is_cheaper(self):
+        from engine import carry_home_path
+        from mine import mine_of
+        self._place_in_mine(P1, 2, 2, 5, energy=0)
+        self.state["players"][P1]["ended_turn"] = True
+        self._place_in_mine(P2, 2, 2, 5, energy=100)
+        self.state["current_player"] = P2
+        mine_of(self.state).setdefault("checkpoints", [])
+        if 5 not in mine_of(self.state)["checkpoints"]:
+            mine_of(self.state)["checkpoints"].append(5)
+        _places, cost = carry_home_path(self.state, P2, self.rules)
+        # Elevator (5) doubled + 3 walk-home steps doubled (30) = 40,
+        # cheaper than five climb-ups doubled (50) plus the walk (30) = 80.
+        self.assertEqual(cost, 40)
+        ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 60)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+
+    def test_mine_rescue_refuses_without_enough_energy_and_nobody_moves(self):
+        from hills import player_area, AREA_MINE
+        from mine import player_floor
+        self._place_in_mine(P1, 2, 3, 3, energy=4)
+        self.state["players"][P1]["ended_turn"] = True
+        self._place_in_mine(P2, 2, 3, 3, energy=40)
+        self.state["current_player"] = P2
+        here1 = player_where(self.state, P1)
+        here2 = player_where(self.state, P2)
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertIn(f"carry {N1} to bed", actions)
+        ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("Not enough energy", msg)
+        self.assertIn("60 energy", msg)
+        self.assertIn("mine floor 3", msg)
+        self.assertEqual(player_where(self.state, P1), here1)
+        self.assertEqual(player_where(self.state, P2), here2)
+        self.assertEqual(player_area(self.state, P1), AREA_MINE)
+        self.assertEqual(player_floor(self.state, P1), 3)
+        self.assertEqual(self.state["players"][P2]["energy"], 40)
+
+
 
 class TogetherRest(unittest.TestCase):
     def setUp(self):

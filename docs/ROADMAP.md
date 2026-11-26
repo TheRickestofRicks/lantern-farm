@@ -16,6 +16,8 @@ Year 1 winter is in play. See Next for the remaining season work.
 - Proposed: overwintering crops (garlic, spinach, kale, winter onion; wild onion planted in autumn sleeps through winter and wakes in spring).
 - Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating.
 - Mine depth beyond the first floors.
+- Sleeping bag: sleep inside the mine, wake with 50 energy on the same tile without being booted out. It takes a backpack slot (bulky).
+- Slimes: mine enemies that use HP; fleeing or fainting boots you out of the mine (the sleeping bag avoids the boot on a planned sleep).
 - Fireplace fuel-storage upgrade, so wood can be kept by the fireplace instead of carried from the chest for each load.
 - Propane stove, a shop-bought stove that cooks without chopping wood; fuel is purchased from the shop.
 - Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
