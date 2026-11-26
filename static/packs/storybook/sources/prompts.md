@@ -75,3 +75,5 @@ The first cabin tiles had wooden steps leading to a four-pane lantern window and
 ## Item icons
 
 Inventory, shop, chest, kitchen, and recipe-book icons were painted in the same ink-and-watercolour Storybook style as the soil, cabin, and plant tiles: a single centered object on a transparent square, not a flat vector placeholder. Tools, three visually distinct fertilizer sacks (teal general, green yield, steel-blue growth), staples, crafted foods, produce, and seed packets live in `items/`. Raw paintings are kept as `sources/originals/item_*.jpg`. The everbearing seedling icon is a closer crop of the existing seedling overlay.
+
+The first yield fertilizer sack was both open at the top, with granules and berries spilling out, and tied closed at once. It was repainted as a single consistent sack: gathered and tied shut like the general and growth bags, still green, with a fruit emblem on the front and a few green granules beside it. The earlier painting is kept as `sources/originals/item_fertilizer_yield_open.jpg` (and the earlier processed icon as `item_fertilizer_yield_open.png`).
