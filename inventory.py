@@ -447,10 +447,53 @@ def max_stack_for(item: str, *, in_chest: bool = False, rules: dict | None = Non
     return chest_stack_limit(rules) if in_chest else pack_stack_limit(rules)
 
 
+def _folded_item_text(text: str) -> str:
+    return " ".join(str(text or "").strip().lower().replace("_", " ").replace("-", " ").split())
+
+
+_STOCK_TEXT_SUFFIXES = (
+    " seedlings",
+    " seedling",
+    " seeds",
+    " seed",
+    " crowns",
+    " crown",
+)
+
+
+def _canonical_crop_kind(text: str, crops: dict) -> str | None:
+    from engine import crop_info, crop_name, crop_name_plural, normalize_kind, stock_prefix
+
+    folded = _folded_item_text(text)
+    if not folded:
+        return None
+    kind = normalize_kind(folded.replace(" ", "_"))
+    table = crops.get("crops") or {}
+    if kind in table:
+        return kind
+    for crop_kind, info in table.items():
+        names = [
+            stock_prefix(crop_kind, info),
+            crop_name(crop_kind, info),
+            crop_name_plural(crop_kind, info, 2),
+            crop_kind,
+            crop_kind.replace("_", " "),
+        ]
+        shop = (info or {}).get("shop_name") or ""
+        if shop:
+            names.append(shop)
+        for cand in names:
+            if _folded_item_text(cand) == folded:
+                return crop_kind
+    if crop_info(crops, kind) and kind in table:
+        return kind
+    return None
+
+
 def normalize_item(raw: str | None) -> str | None:
     if raw is None:
         return None
-    text = " ".join(str(raw).strip().lower().replace("_", " ").replace("-", " ").split())
+    text = _folded_item_text(raw)
     if not text:
         return None
     compact = text.replace(" ", "")
@@ -458,43 +501,23 @@ def normalize_item(raw: str | None) -> str | None:
         return ITEM_ALIASES[text]
     if compact in ITEM_ALIASES:
         return ITEM_ALIASES[compact]
-    from engine import crop_info, load_crops, normalize_kind, stock_key
+    from engine import crop_info, load_crops, stock_key
 
     crops = load_crops()
-    if text.endswith(" seeds"):
-        kind = normalize_kind(text[: -len(" seeds")])
+    stock_hint = False
+    kind_text = text
+    for suffix in _STOCK_TEXT_SUFFIXES:
+        if text.endswith(suffix):
+            kind_text = text[: -len(suffix)].strip()
+            stock_hint = True
+            break
+    kind = _canonical_crop_kind(kind_text, crops)
+    if kind:
         info = crop_info(crops, kind)
-        if info:
+        if stock_hint and info:
             return stock_key(kind, info)
-    if text.endswith(" seed"):
-        kind = normalize_kind(text[: -len(" seed")])
-        info = crop_info(crops, kind)
-        if info:
-            return stock_key(kind, info)
-    if text.endswith(" seedlings"):
-        kind = normalize_kind(text[: -len(" seedlings")])
-        info = crop_info(crops, kind)
-        if info:
-            return stock_key(kind, info)
-    if text.endswith(" seedling"):
-        kind = normalize_kind(text[: -len(" seedling")])
-        info = crop_info(crops, kind)
-        if info:
-            return stock_key(kind, info)
-    if text.endswith(" crowns"):
-        kind = normalize_kind(text[: -len(" crowns")])
-        info = crop_info(crops, kind)
-        if info:
-            return stock_key(kind, info)
-    if text.endswith(" crown"):
-        kind = normalize_kind(text[: -len(" crown")])
-        info = crop_info(crops, kind)
-        if info:
-            return stock_key(kind, info)
-    kind = normalize_kind(text.replace(" ", "_"))
-    if crop_info(crops, kind):
-        return kind
-    # stock keys already ending in _seed / _seedling
+        if not stock_hint:
+            return kind
     underscored = text.replace(" ", "_")
     if underscored.endswith("_seed") or underscored.endswith("_seedling") or underscored.endswith("_crown"):
         kind = underscored.rsplit("_", 1)[0]
@@ -510,6 +533,26 @@ def normalize_item(raw: str | None) -> str | None:
     if fert:
         return fert
     return None
+
+
+def prefer_available_stock(item: str, containers: list, crops: dict | None = None, rules: dict | None = None) -> str:
+    """If a crop short name isn't in the containers but its seeds/crowns are, use those."""
+    from engine import crop_info, load_crops, stock_key
+
+    crops = crops or load_crops()
+    have = sum(stack_count(container, item) if container is not None else 0 for container in containers)
+    if have > 0:
+        return item
+    table = crops.get("crops") or {}
+    if item not in table:
+        return item
+    info = crop_info(crops, item)
+    key = stock_key(item, info)
+    if key != item and any(
+        stack_count(container, key) > 0 for container in containers if container is not None
+    ):
+        return key
+    return item
 
 
 def item_label(item: str, crops: dict | None = None, rules: dict | None = None) -> str:
@@ -539,7 +582,7 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
         # jams, soups, stews: add s if it does not already end in s
         plural = rec.get("name_plural") or (name if name.endswith("s") else name + "s")
         return f"{count} {plural}"
-    from engine import crop_info, crop_name, crop_name_plural, load_crops, stock_noun
+    from engine import crop_info, crop_name_plural, load_crops, stock_label
 
     crops = crops or load_crops()
     stock = None
@@ -547,6 +590,9 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     if item.endswith("_seedling"):
         kind = item[: -len("_seedling")]
         stock = "seedling"
+    elif item.endswith("_crowns"):
+        kind = item[: -len("_crowns")]
+        stock = "crown"
     elif item.endswith("_crown"):
         kind = item[: -len("_crown")]
         stock = "crown"
@@ -555,8 +601,7 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
         stock = "seed"
     info = crop_info(crops, kind) or {}
     if stock:
-        noun = stock_noun(info, count) if info else (stock if count == 1 else stock + "s")
-        return f"{count} {crop_name(kind, info)} {noun}"
+        return f"{count} {stock_label(kind, info, count)}"
     return f"{count} {crop_name_plural(kind, info, count)}"
 
 

@@ -1614,30 +1614,44 @@ class SpringCropsAndShop(unittest.TestCase):
         from inventory import item_name, add_to_pack, add_to_chest
         from describe import describe_state
         from engine import stock_label
-        for kind in ("strawberry", "kabocha", "turnip", "carrot", "radish", "tomato"):
+        for kind in ("kabocha", "turnip", "carrot", "radish", "tomato"):
             one = item_name(f"{kind}_seed", 1, self.crops, self.rules)
             many = item_name(f"{kind}_seed", 2, self.crops, self.rules)
             self.assertEqual(one, f"1 {kind} seed")
             self.assertEqual(many, f"2 {kind} seeds")
+            self.assertEqual(stock_label(kind, crop_info(self.crops, kind), 1), f"{kind} seed")
             self.assertEqual(stock_label(kind, crop_info(self.crops, kind), 2), f"{kind} seeds")
+        self.assertEqual(
+            item_name("strawberry_seed", 1, self.crops, self.rules),
+            "1 June-bearing strawberry seed",
+        )
+        self.assertEqual(
+            item_name("strawberry_seed", 2, self.crops, self.rules),
+            "2 June-bearing strawberry seeds",
+        )
+        self.assertEqual(
+            stock_label("strawberry", crop_info(self.crops, "strawberry"), 1),
+            "June-bearing strawberry seed",
+        )
         self.assertEqual(item_name("bush_bean_seed", 2, self.crops, self.rules), "2 bush bean seeds")
         self.assertEqual(item_name("pea_seed", 1, self.crops, self.rules), "1 pea seed")
+        self.assertEqual(item_name("potato_seed", 1, self.crops, self.rules), "1 potato seed")
         self.assertEqual(item_name("rhubarb_crown", 1, self.crops, self.rules), "1 rhubarb crown")
         self.assertEqual(item_name("rhubarb_crown", 2, self.crops, self.rules), "2 rhubarb crowns")
         self.assertEqual(item_name("asparagus_crown", 2, self.crops, self.rules), "2 asparagus crowns")
         self.assertEqual(
             item_name("everbearing_seedling", 1, self.crops, self.rules),
-            "1 everbearing strawberry seedling",
+            "1 everbearing strawberry seed",
         )
         self.assertEqual(
             item_name("everbearing_seedling", 2, self.crops, self.rules),
-            "2 everbearing strawberry seedlings",
+            "2 everbearing strawberry seeds",
         )
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["gold"] = 500
         ok, msg = buy(self.state, self.crops, "strawberry", 2, player=P1)
         self.assertTrue(ok, msg)
-        self.assertIn("strawberry seeds", msg)
+        self.assertIn("June-bearing strawberry seeds", msg)
         self.assertNotIn("2 seeds", msg)
         add_to_pack(self.state, P1, "turnip_seed", 2, self.rules)
         add_to_chest(self.state, "carrot_seed", 3, self.rules)
@@ -1648,6 +1662,161 @@ class SpringCropsAndShop(unittest.TestCase):
         import re
         bare = re.findall(r"(?<![A-Za-z])(\d+ seeds)(?![A-Za-z])", text_view)
         self.assertEqual(bare, [])
+
+
+    def test_no_seed_or_crown_display_name_is_bare(self):
+        from inventory import item_label, item_name
+        from engine import action_item_phrase, shop_name, stock_key, stock_label
+        bare = {"seed", "seeds", "crown", "crowns", "seedling", "seedlings"}
+        for kind, info in self.crops["crops"].items():
+            label = stock_label(kind, info)
+            shop = shop_name(kind, info)
+            key = stock_key(kind, info)
+            listed = item_label(key, self.crops, self.rules)
+            phrase = action_item_phrase(key, self.crops, self.rules)
+            for text, where in (
+                (label, "stock_label"),
+                (shop, "shop_name"),
+                (listed, "item_label"),
+                (phrase, "action_item_phrase"),
+            ):
+                words = text.strip()
+                self.assertTrue(words, f"{where} empty for {kind}")
+                self.assertNotIn(words.lower(), bare, f"{where} bare for {kind}: {words!r}")
+                last = words.split()[-1].lower()
+                if (info.get("stock") or "seed") == "crown":
+                    self.assertIn(last, {"crown", "crowns"}, f"{where} for {kind}: {words!r}")
+                else:
+                    self.assertIn(last, {"seed", "seeds"}, f"{where} for {kind}: {words!r}")
+                self.assertGreaterEqual(len(words.split()), 2, f"{where} for {kind} has no crop name: {words!r}")
+        self.assertEqual(item_label("strawberry_seed", self.crops, self.rules), "June-bearing strawberry seed")
+        self.assertEqual(item_label("everbearing_seedling", self.crops, self.rules), "everbearing strawberry seed")
+        self.assertEqual(item_label("lettuce_seed", self.crops, self.rules), "lettuce seed")
+        self.assertEqual(item_label("rhubarb_crown", self.crops, self.rules), "rhubarb crown")
+        self.assertEqual(item_label("asparagus_crown", self.crops, self.rules), "asparagus crown")
+        self.assertEqual(item_name("turnip_seed", 1, self.crops, self.rules), "1 turnip seed")
+        self.assertNotIn("1 turnip seeds", item_name("turnip_seed", 1, self.crops, self.rules))
+
+
+    def test_mini_map_crop_labels_fit_without_truncation(self):
+        from describe import MAP_LABEL_WIDTH, _ascii_cell, ascii_map, map_crop_label
+        from engine import crop_name, crop_info, get_tile
+
+        for kind, info in self.crops["crops"].items():
+            label = map_crop_label(kind, info)
+            name = crop_name(kind, info)
+            self.assertTrue(label, kind)
+            self.assertLessEqual(
+                len(label),
+                MAP_LABEL_WIDTH,
+                f"{kind} map label {label!r} exceeds {MAP_LABEL_WIDTH} chars",
+            )
+            self.assertNotIn("_", label, f"{kind} map label still has underscores: {label!r}")
+            # A proper short form is allowed; a raw mid-word slice is not
+            # (e.g. 'strawbe' from 'strawberry', 'asparag' from 'asparagus').
+            if name.startswith(label) and len(label) < len(name) and not label.endswith("."):
+                self.fail(f"{kind} map label {label!r} looks like a truncated {name!r}")
+            tile = {"type": "soil", "tilled": True, "crop": {"kind": kind, "stage": "mature"}}
+            top, _bot = _ascii_cell(tile)
+            self.assertEqual(top, label)
+            self.assertEqual(top, top.strip())
+
+        self.assertEqual(map_crop_label("strawberry", crop_info(self.crops, "strawberry")), "strawberry")
+        self.assertEqual(map_crop_label("asparagus", crop_info(self.crops, "asparagus")), "asparagus")
+        self.assertEqual(map_crop_label("bush_bean", crop_info(self.crops, "bush_bean")), "bush bean")
+        self.assertEqual(map_crop_label("kabocha", crop_info(self.crops, "kabocha")), "kabocha")
+        self.assertEqual(map_crop_label("everbearing", crop_info(self.crops, "everbearing")), "e.berry")
+
+        # Place the long names on the field and confirm each full label appears.
+        kinds = ("strawberry", "asparagus", "everbearing", "bush_bean", "kabocha")
+        tiles = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)]
+        for (r, c), kind in zip(tiles, kinds):
+            tile = get_tile(self.state, r, c)
+            tile["type"] = "soil"
+            tile["tilled"] = True
+            tile["crop"] = {"kind": kind, "stage": "mature"}
+            tile["watered"] = False
+        text_map = ascii_map(self.state)
+        for kind in kinds:
+            label = map_crop_label(kind, crop_info(self.crops, kind))
+            self.assertIn(label, text_map, f"mini map missing {label!r}\n{text_map}")
+        # The old 7-char mid-word cut must not appear as its own cell label.
+        for bad in ("strawbe", "asparag", "bush_be", "everbea"):
+            self.assertNotRegex(
+                text_map,
+                rf"(?<![A-Za-z.]){bad}(?![A-Za-z.])",
+                f"mini map still truncates to {bad!r}\n{text_map}",
+            )
+
+    def test_listed_legal_actions_parse_and_execute(self):
+        """Every look-line legal action must be directly executable, including display names."""
+        import copy
+        from engine import (
+            described_legal_actions,
+            do_action,
+            legal_actions,
+            strip_action_descriptor,
+            till,
+        )
+        from inventory import item_count, normalize_item
+
+        def check(state, label):
+            listed = described_legal_actions(state, self.crops, P1, self.rules)
+            raw_actions = legal_actions(state, self.crops, player=P1, rules=self.rules)
+            self.assertEqual(len(listed), len(raw_actions), label)
+            for shown, raw in zip(listed, raw_actions):
+                cmd = strip_action_descriptor(shown)
+                scratch = copy.deepcopy(state)
+                ok, msg = do_action(scratch, self.crops, cmd, player=P1, rules=self.rules)
+                self.assertTrue(ok, f"{label}: {shown!r} -> {cmd!r} failed: {msg}")
+                scratch2 = copy.deepcopy(state)
+                ok2, msg2 = do_action(scratch2, self.crops, raw, player=P1, rules=self.rules)
+                self.assertTrue(ok2, f"{label}: canonical {raw!r} failed: {msg2}")
+
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        check(self.state, "starting cabin")
+
+        ok, msg = do_action(self.state, self.crops, "buy radish seed 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertGreaterEqual(item_count(self.state, "radish_seed"), 1)
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "buy radish seeds 2", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold - 12)
+
+        ok, msg = do_action(
+            self.state, self.crops, "take June-bearing strawberry seeds all",
+            player=P1, rules=self.rules,
+        )
+        self.assertTrue(ok, msg)
+        self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
+        ok, msg = do_action(self.state, self.crops, "drop June-bearing strawberry seeds all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "take strawberry all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
+        self.assertEqual(normalize_item("June-bearing strawberry seed"), "strawberry_seed")
+        self.assertEqual(normalize_item("radish seeds"), "radish_seed")
+
+        # Make pack room: tools plus turnip seeds need three of the four slots.
+        ok, msg = do_action(self.state, self.crops, "drop radish seeds all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "drop June-bearing strawberry seeds all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        kit_out(self.state, P1)
+        give_seeds(self.state, "turnip", 2, player=P1)
+        from inventory import pack_has
+        self.assertTrue(pack_has(self.state, P1, "turnip_seed", 2, self.rules))
+        stand(self.state, P1, 1, 1)
+        ok, msg = till(self.state, self.crops, 1, 1, P1)
+        self.assertTrue(ok, msg)
+        check(self.state, "tilled plot with turnip seed in pack")
+        ok, msg = do_action(self.state, self.crops, "plant 1 1 turnip seed", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        give_item(self.state, "strawberry", 3, player=P1)
+        check(self.state, "cabin with produce and tools")
 
     def test_later_crops_remain_plantable_sellable_and_edible_from_the_pack(self):
         kit_out(self.state, P1)
@@ -1854,14 +2023,14 @@ class SpringCropsAndShop(unittest.TestCase):
         gold = self.state["gold"]
         ok, msg = buy(self.state, self.crops, "everbearing", 1)
         self.assertTrue(ok, msg)
-        self.assertIn("seedling", msg.lower())
+        self.assertIn("everbearing strawberry seed", msg.lower())
         self.assertEqual(self.state["gold"], gold - 40)
         self.assertEqual(self.state["inventory"]["everbearing_seedling"], 1)
         r, c = 1, 1
         till(self.state, self.crops, r, c)
         ok, msg = plant(self.state, self.crops, r, c, "everbearing")
         self.assertTrue(ok, msg)
-        self.assertIn("seedling", msg.lower())
+        self.assertIn("everbearing strawberry seed", msg.lower())
         self.assertEqual(self.state["inventory"]["everbearing_seedling"], 0)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertEqual(crop["stage"], "seedling")
@@ -2292,8 +2461,11 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertIn("strawberry_mature", snowy[1]["file"])
         self.assertTrue(layers_for_key("soil_snow", man)[0]["file"].endswith("soil_snow.png"))
         self.assertTrue(layers_for_key("soil_tilled_snow", man)[0]["file"].endswith("soil_tilled_snow.png"))
-        # Other crops still use the default SVG until a later pack batch.
-        self.assertIsNone(layers_for_key("kabocha_sprouting_wet", man))
+        # Spring-shop crops now have Storybook overlays, same layering as strawberry.
+        kabocha = layers_for_key("kabocha_sprouting_wet", man)
+        self.assertEqual([layer["role"] for layer in kabocha], ["ground", "crop"])
+        self.assertIn("soil_watered", kabocha[0]["file"])
+        self.assertIn("kabocha_sprouting", kabocha[1]["file"])
         self.assertIsNone(layers_for_key("soil", None))
         # If a snowy ground is missing, the pack still layers crops on ordinary soil.
         thin = {
@@ -2404,6 +2576,15 @@ class ArtPackAndPage(unittest.TestCase):
             "kabocha", "turnip", "carrot", "strawberry", "everbearing",
             "strawberry_seed", "kabocha_seed", "turnip_seed", "carrot_seed",
             "everbearing_seedling",
+            "radish", "lettuce", "spinach", "pea", "beet", "potato",
+            "bush_bean", "cucumber", "zucchini", "tomato", "pumpkin",
+            "corn", "onion", "rhubarb", "asparagus",
+            "radish_seed", "lettuce_seed", "spinach_seed", "pea_seed",
+            "beet_seed", "potato_seed", "bush_bean_seed", "cucumber_seed",
+            "zucchini_seed", "tomato_seed", "pumpkin_seed", "corn_seed",
+            "onion_seed", "rhubarb_crown", "asparagus_crown",
+            "rhubarb_strawberry_jam", "garden_salad", "roasted_potatoes",
+            "pumpkin_soup",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -3431,16 +3612,16 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         gold = int(self.state["gold"])
         self.assertEqual(
             format_legal_action("buy strawberry 1", self.state, self.crops, P1, self.rules),
-            f"buy strawberry seeds 1 (\u2212{15}G, leaves {gold - 15}G)",
+            f"buy June-bearing strawberry seed 1 (\u2212{15}G, leaves {gold - 15}G)",
         )
         # Chest starts with 2 strawberry seeds and 1 hoe.
         self.assertEqual(
             format_legal_action("take strawberry_seed 1", self.state, self.crops, P1, self.rules),
-            "take strawberry seeds 1 (leaves 1 in chest)",
+            "take June-bearing strawberry seed 1 (leaves 1 in chest)",
         )
         self.assertEqual(
             format_legal_action("take strawberry_seed all", self.state, self.crops, P1, self.rules),
-            "take strawberry seeds all (takes 2)",
+            "take June-bearing strawberry seeds all (takes 2)",
         )
         self.assertEqual(
             format_legal_action("take hoe 1", self.state, self.crops, P1, self.rules),
@@ -3475,8 +3656,8 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertIn("end turn", actions)
         look = describe_state(self.state, self.crops, viewer=P1)
         self.assertIn("move down (to r2 c3, 5 energy)", look)
-        self.assertIn("buy strawberry seeds 1", look)
-        self.assertIn("take strawberry seeds 1 (leaves 1 in chest)", look)
+        self.assertIn("buy June-bearing strawberry seed 1", look)
+        self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
         self.assertIn("end turn (sleep in cabin, 100 energy tomorrow)", look)
         self.assertNotIn("take strawberry_seed", look)
         self.assertNotIn(" 2 seeds", look)

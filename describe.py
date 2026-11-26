@@ -131,20 +131,52 @@ def _item_phrase(key: str, count: int, crops: dict | None = None) -> str:
     if key.endswith("_seedling"):
         kind = key[: -len("_seedling")]
         stock = "seedling"
+    elif key.endswith("_crown") or key.endswith("_crowns"):
+        kind = key[: -len("_crowns")] if key.endswith("_crowns") else key[: -len("_crown")]
+        stock = "crown"
     elif key.endswith("_seed"):
         kind = key[: -len("_seed")]
         stock = "seed"
+    from inventory import item_name
+    if stock:
+        return item_name(key if not key.endswith("_crowns") else kind + "_crown", count, crops)
     info = crop_info(crops or {}, kind) if crops is not None else {}
     if not info and crops is None:
         try:
             info = crop_info(load_crops(), kind) or {}
         except Exception:
             info = {}
-    if stock:
-        noun = stock_noun(info, count) if info else (stock if count == 1 else stock + "s")
-        name = crop_name(kind, info)
-        return f"{count} {name} {noun}"
     return f"{count} {crop_name_plural(kind, info, count)}"
+
+
+# Default mini-map column width. Crop labels must fit this without mid-word cuts.
+MAP_LABEL_WIDTH = 10
+
+# Short forms only when the crop display name is longer than MAP_LABEL_WIDTH.
+MAP_CROP_LABELS = {
+    "everbearing": "e.berry",
+}
+
+
+def map_crop_label(kind: str, info: dict | None = None) -> str:
+    """Mini-map crop name: full display name if it fits, else an explicit short form."""
+    raw = (kind or "").strip()
+    if not raw or raw == "?":
+        return raw or "?"
+    if raw in MAP_CROP_LABELS:
+        return MAP_CROP_LABELS[raw]
+    if info is None:
+        info = crop_info(load_crops(), raw)
+    name = crop_name(raw, info) or raw.replace("_", " ")
+    if len(name) <= MAP_LABEL_WIDTH:
+        return name
+    spaced = raw.replace("_", " ")
+    if len(spaced) <= MAP_LABEL_WIDTH:
+        return spaced
+    raise ValueError(
+        f"No mini-map short label for {raw!r} ({name!r} is {len(name)} chars; "
+        f"max {MAP_LABEL_WIDTH}). Add one to MAP_CROP_LABELS."
+    )
 
 
 def _ascii_cell(tile: dict) -> tuple[str, str]:
@@ -156,7 +188,7 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
     if crop:
         kind = crop.get("kind", "?")
         stage = crop.get("stage", "?")
-        label = {"everbearing": "eberry"}.get(kind, kind)
+        label = map_crop_label(kind)
         short = {
             "seed": "seed",
             "sprouting": "sprout",
@@ -167,7 +199,7 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
             "withered": "wilt",
         }.get(stage, stage[:5])
         mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
-        return f"{str(label)[:7]:<7}", f"{short} {wet}{mark}"
+        return label, f"{short} {wet}{mark}"
     mark = " *" if (tile.get("weedy") or tile.get("weed")) else ""
     if tile.get("tilled"):
         return "tilled", wet + mark

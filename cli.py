@@ -89,7 +89,7 @@ means autumn) to read just that page. Older years are archived and not shown.
 Rows and columns are 1-indexed. Row 1 is the top, col 1 is the left.
 The cabin is top-right (row 1 col 3) and cannot be farmed.
 
-Crops: the shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the seed rack is empty, but bread, butter, and milk stay in the shop. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
+Crops: the shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seeds (40G) in spring and summer. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. In autumn and winter the seed rack is empty, but bread, butter, and milk stay in the shop. Turnip, carrot, and kabocha are later content — still plantable, sellable, and edible if you already have them.
 """
 
 

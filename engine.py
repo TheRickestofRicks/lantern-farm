@@ -145,6 +145,9 @@ def pass_out_energy(rules: dict | None = None) -> int:
 
 def eat_energy_for(crops: dict | None, kind: str) -> int | None:
     """Energy restored by eating a harvested crop raw, or None if it is not edible."""
+    key = (kind or "").strip().lower().replace("-", " ").replace(" ", "_")
+    if key.endswith(("_seed", "_seedling", "_crown", "_crowns")):
+        return None
     info = crop_info(crops or load_crops(), kind)
     if not info:
         return None
@@ -933,7 +936,7 @@ def crop_info(crops: dict, kind: str) -> dict | None:
 
 
 def normalize_kind(kind: str) -> str:
-    k = (kind or "").strip().lower().replace(" ", "_")
+    k = (kind or "").strip().lower().replace("-", " ").replace(" ", "_")
     for suffix in ("_seedling", "_seed", "_crown", "_crowns"):
         if k.endswith(suffix):
             k = k[: -len(suffix)]
@@ -941,6 +944,18 @@ def normalize_kind(kind: str) -> str:
     aliases = {
         "everbearing_strawberry": "everbearing",
         "everbearingstrawberry": "everbearing",
+        "june_bearing_strawberry": "strawberry",
+        "junebearingstrawberry": "strawberry",
+        "june_bearing": "strawberry",
+        "junebearing": "strawberry",
+        "strawberries": "strawberry",
+        "everbearing_strawberries": "everbearing",
+        "turnips": "turnip",
+        "carrots": "carrot",
+        "kabochas": "kabocha",
+        "spinachs": "spinach",
+        "corns": "corn",
+        "rhubarbs": "rhubarb",
         "peas": "pea",
         "beans": "bush_bean",
         "bean": "bush_bean",
@@ -990,7 +1005,13 @@ def stock_key(kind: str, info: dict | None = None) -> str:
 
 
 def stock_noun(info: dict | None = None, count: int = 1) -> str:
+    """Stock word for display: 'seed'/'crown' when count is 1, plural otherwise.
+
+    Seedlings use the same seed/seeds wording as other packets.
+    """
     word = stock_word(info)
+    if word == "seedling":
+        word = "seed"
     if count == 1:
         return word
     if word.endswith("s"):
@@ -998,17 +1019,40 @@ def stock_noun(info: dict | None = None, count: int = 1) -> str:
     return word + "s"
 
 
+_STOCK_TRAILING = (
+    " seedlings",
+    " seedling",
+    " seeds",
+    " seed",
+    " crowns",
+    " crown",
+)
+
+
+def stock_prefix(kind: str, info: dict | None = None) -> str:
+    """Crop qualifier for a seed or crown, e.g. 'June-bearing strawberry'."""
+    shop = str((info or {}).get("shop_name") or "").strip()
+    if shop:
+        low = shop.lower()
+        if low.startswith("seed ") and not low.startswith("seedling"):
+            shop = shop[5:].strip()
+            low = shop.lower()
+        for suffix in _STOCK_TRAILING:
+            if low.endswith(suffix):
+                shop = shop[: -len(suffix)].strip()
+                break
+        if shop:
+            return shop
+    return crop_name(kind, info)
+
+
 def stock_label(kind: str, info: dict | None = None, count: int = 1) -> str:
-    """Crop-specific stock name, e.g. 'strawberry seeds' or '1 kabocha seed'."""
-    name = crop_name(kind, info)
-    noun = stock_noun(info, count)
-    return f"{name} {noun}"
+    """Crop-specific stock name, e.g. '1 turnip seed' uses 'turnip seed'."""
+    return f"{stock_prefix(kind, info)} {stock_noun(info, count)}"
 
 
 def shop_name(kind: str, info: dict | None = None) -> str:
-    if info and info.get("shop_name"):
-        return str(info["shop_name"])
-    return f"{crop_name(kind, info)} {stock_word(info)}"
+    return stock_label(kind, info)
 
 
 def initial_stage(info: dict | None = None) -> str:
@@ -1905,7 +1949,9 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
     r, c, err = parse_row_col(row, col)
     if err:
         return False, err
-    kind = normalize_kind(str(kind))
+    from inventory import normalize_item
+    raw = str(kind)
+    kind = normalize_kind(normalize_item(raw) or raw)
     info = crop_info(crops, kind)
     if not info:
         known = ", ".join(crops.get("crops", {}))
@@ -2527,11 +2573,11 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         return False, f"Unknown item {kind!r}. The shop sells: {known}."
     if not crop_in_shop(info):
         known = ", ".join(shop_listing(crops, state.get("season"))) or "nothing right now"
-        return False, f"The shop isn't selling {shop_name(kind, info)}s yet. It sells: {known}."
+        return False, f"The shop isn't selling {shop_name(kind, info)} yet. It sells: {known}."
     if not crop_in_season(info, state.get("season")):
         season = state.get("season") or "this season"
         known = ", ".join(shop_listing(crops, season)) or "nothing right now"
-        return False, f"The shop isn't selling {shop_name(kind, info)}s this {season}. It sells: {known}."
+        return False, f"The shop isn't selling {shop_name(kind, info)} this {season}. It sells: {known}."
     count, err = _parse_count(n)
     if err:
         return False, err
@@ -2576,6 +2622,12 @@ def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: di
     if player and not is_player_in_cabin(state, player):
         return False, "Sell from the cabin. Carry the goods home first."
     item = normalize_item(str(kind)) or normalize_kind(str(kind))
+    from inventory import pack_of, chest_of, prefer_available_stock
+    holders = []
+    if player:
+        holders.append(pack_of(state, player, rules))
+    holders.append(chest_of(state, rules))
+    item = prefer_available_stock(item, holders, crops, rules)
     price = item_sell_price(item, crops, rules)
     if price is None:
         known = ", ".join(crops.get("crops", {}))
@@ -3205,6 +3257,8 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         if err:
             return False, err
         n = count
+    from inventory import prefer_available_stock
+    item = prefer_available_stock(item, [chest_of(state, rules)], crops, rules)
     have = stack_count(chest_of(state, rules), item)
     if _is_all_count(n):
         n = have
@@ -3254,7 +3308,8 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         if err:
             return False, err
         n = count
-    from inventory import pack_of, stack_count
+    from inventory import pack_of, stack_count, prefer_available_stock
+    item = prefer_available_stock(item, [pack_of(state, player, rules)], crops, rules)
     have = stack_count(pack_of(state, player, rules), item)
     if _is_all_count(n):
         n = have
@@ -3671,20 +3726,34 @@ def strip_action_descriptor(command: str) -> str:
     return _ACTION_DESCRIPTOR.sub("", (command or "").strip()).strip()
 
 
-def action_item_phrase(item: str, crops: dict | None, rules: dict | None) -> str:
-    """Crop-specific command name: 'strawberry seeds', 'strawberry jam', 'hoe'."""
-    from inventory import normalize_item, item_label, is_staple
+def action_item_phrase(
+    item: str,
+    crops: dict | None,
+    rules: dict | None,
+    count: int = 1,
+    *,
+    stock: bool = False,
+) -> str:
+    """Command wording for an item. Buy/plant use stock=True so 'radish' is 'radish seed'."""
+    from inventory import normalize_item, item_label, item_name, is_staple
 
     token = (item or "").strip()
     key = normalize_item(token) or token
+    n = 2 if int(count) != 1 else 1
     if key.endswith("_seed"):
         kind = key[: -len("_seed")]
-        return stock_label(kind, crop_info(crops, kind), 2)
+        return stock_label(kind, crop_info(crops, kind), n)
     if key.endswith("_seedling"):
         kind = key[: -len("_seedling")]
-        return stock_label(kind, crop_info(crops, kind), 2)
+        return stock_label(kind, crop_info(crops, kind), n)
+    if key.endswith("_crown") or key.endswith("_crowns"):
+        kind = key[: -len("_crowns")] if key.endswith("_crowns") else key[: -len("_crown")]
+        return stock_label(kind, crop_info(crops, kind), n)
     if (crops or {}).get("crops", {}).get(key) and not is_staple(key):
-        return stock_label(key, crop_info(crops, key), 2)
+        if stock:
+            return stock_label(key, crop_info(crops, key), n)
+        labeled = item_name(key, n, crops, rules)
+        return labeled.split(" ", 1)[-1] if labeled else key.replace("_", " ")
     return item_label(key, crops, rules)
 
 
@@ -3709,29 +3778,47 @@ def humanize_action_command(command: str, crops: dict | None = None, rules: dict
         elif len(args) >= 3:
             kind = args[2]
         return f"fertilize {kind}" if kind else "fertilize"
+    def _phrase_count(count) -> int:
+        if count is None:
+            return 1
+        if isinstance(count, str) and count.lower() == "all":
+            return 2
+        try:
+            return 1 if int(count) == 1 else 2
+        except (TypeError, ValueError):
+            return 1
+
     if verb == "plant":
-        kind = args[-1] if args else ""
-        return f"plant {kind}".strip()
+        if len(args) >= 3 and args[0].isdigit() and args[1].isdigit():
+            kind = " ".join(args[2:])
+            prefix = f"plant {args[0]} {args[1]} "
+        else:
+            kind = " ".join(args) if args else ""
+            prefix = "plant "
+        info = crop_info(crops, kind) if kind else None
+        if kind and info:
+            return f"{prefix}{stock_label(kind, info, 1)}".strip()
+        return f"{prefix}{kind}".strip()
     if verb in {"take", "drop", "sell"}:
         if not args:
             return verb
         count = args[-1] if args[-1].isdigit() or args[-1].lower() == "all" else None
         item = " ".join(args[:-1] if count is not None else args)
-        phrase = action_item_phrase(item, crops, rules)
+        phrase = action_item_phrase(item, crops, rules, _phrase_count(count))
         return f"{verb} {phrase} {count}" if count is not None else f"{verb} {phrase}"
     if verb == "eat":
         from_chest = bool(args and args[-1].lower() == "chest")
         item = " ".join(args[:-1] if from_chest else args)
-        phrase = action_item_phrase(item, crops, rules)
+        phrase = action_item_phrase(item, crops, rules, 1)
         return f"eat {phrase} chest" if from_chest else f"eat {phrase}"
     if verb == "buy":
         count = args[-1] if args and (args[-1].isdigit() or args[-1].lower() == "all") else None
         item = " ".join(args[:-1] if count is not None else args)
-        phrase = action_item_phrase(item, crops, rules)
-        return f"buy {phrase} {count}" if count is not None else f"buy {phrase}"
+        phrase = action_item_phrase(item, crops, rules, _phrase_count(count), stock=True)
+        return f"buy {phrase} {count}" if count is not None else f"{verb} {phrase}"
     if verb == "craft":
         item = " ".join(args)
-        phrase = action_item_phrase(item, crops, rules)
+        phrase = action_item_phrase(item, crops, rules, 1)
         return f"craft {phrase}"
     return raw
 
@@ -4086,14 +4173,14 @@ def do_action(
     plot_verbs = {"till", "plant", "water", "harvest", "pluck", "unearth"}
     if verb in plot_verbs:
         if verb == "plant":
-            if len(args) == 1:
-                r, c = here
-                kind = args[0]
-            elif len(args) == 3:
+            if len(args) >= 3 and args[0].isdigit() and args[1].isdigit():
                 r, c, err = parse_row_col(args[0], args[1])
                 if err:
                     return False, err
-                kind = args[2]
+                kind = " ".join(args[2:])
+            elif args:
+                r, c = here
+                kind = " ".join(args)
             else:
                 return False, "Usage: plant <kind>   or: plant <row> <col> <kind>"
             stood = _must_stand_here(state, actor, r, c)
@@ -4130,9 +4217,11 @@ def do_action(
     elif verb == "harvest":
         ok, msg = harvest(state, crops, r, c, actor)
     elif verb == "buy":
-        if len(args) != 2:
-            return False, "Usage: buy <kind> <count>   example: buy kabocha 2"
-        ok, msg = buy(state, crops, args[0], args[1], actor)
+        from inventory import parse_item_and_count
+        item, count, err = parse_item_and_count(args)
+        if err or not item:
+            return False, err or "Usage: buy <kind> <count>   example: buy kabocha 2"
+        ok, msg = buy(state, crops, item, count, actor)
     elif verb == "sell":
         from inventory import parse_item_and_count
         item, count, err = parse_item_and_count(args)

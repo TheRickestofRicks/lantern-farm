@@ -1342,13 +1342,23 @@ PAGE = r"""<!DOCTYPE html>
       let kind = key;
       let stock = null;
       if (key.endsWith("_seedling")) { kind = key.slice(0, -9); stock = "seedling"; }
+      else if (key.endsWith("_crown")) { kind = key.slice(0, -6); stock = "crown"; }
       else if (key.endsWith("_seed")) { kind = key.slice(0, -5); stock = "seed"; }
       const info = (data && data.crops && data.crops[kind]) || cropInfo(kind);
-      const name = info.name || spacedName(kind);
       if (stock) {
-        const noun = stock + (n === 1 ? "" : "s");
-        return n + " " + name + " " + noun;
+        const noun = (stock === "crown") ? (n === 1 ? "crown" : "crowns") : (n === 1 ? "seed" : "seeds");
+        let prefix = "";
+        const shop = (info && info.shop_name) || "";
+        if (shop) {
+          let s = String(shop).trim();
+          const low = s.toLowerCase();
+          if (low.startsWith("seed ") && !low.startsWith("seedling")) s = s.slice(5).trim();
+          prefix = s.replace(/\s+(seedlings?|seeds?|crowns?)$/i, "").trim();
+        }
+        if (!prefix) prefix = (info && info.name) || spacedName(kind);
+        return n + " " + prefix + " " + noun;
       }
+      const name = info.name || spacedName(kind);
       const fruit = n === 1 ? name : (info.name_plural || (name + "s"));
       return n + " " + fruit;
     }
@@ -3142,12 +3152,13 @@ def _fertilizer_catalog(rules: dict | None = None) -> dict:
 
 
 def _crop_catalog(crops: dict) -> dict:
+    from engine import shop_name
     out = {}
     for kind, info in crops.get("crops", {}).items():
         out[kind] = {
             "name": info.get("name") or kind,
             "name_plural": info.get("name_plural") or "",
-            "shop_name": info.get("shop_name") or "",
+            "shop_name": shop_name(kind, info),
             "stock": info.get("stock") or "seed",
             "seed_price": int(info["seed_price"]),
             "sell_price": int(info["sell_price"]),

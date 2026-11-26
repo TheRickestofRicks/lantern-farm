@@ -256,7 +256,7 @@ configured.
 ## Crops
 
 Content is added season by season. In spring the shop sells June-bearing
-strawberry seeds, everbearing strawberry seedlings, and a full bed of
+strawberry seeds, everbearing strawberry seeds, and a full bed of
 spring-planted crops: quick cool-weather vegetables, summer fruiting crops,
 autumn squash and grain, and perennial rhubarb and asparagus crowns. Those
 longer crops are planted in spring and mature in summer or early autumn.
