@@ -148,6 +148,35 @@
       "eat_energy": 70,
       "sell_price": 88,
       "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen."
+    },
+    "wild_onion_soup": {
+      "name": "wild onion soup",
+      "ingredients": {
+        "wild_onion": 1,
+        "milk": 1
+      },
+      "eat_energy": 28,
+      "sell_price": 32,
+      "description": "A small pot of soup from a wild onion and a bottle of milk. More filling than eating them raw."
+    },
+    "wild_berry_jam": {
+      "name": "wild berry jam",
+      "ingredients": {
+        "wild_berry": 2
+      },
+      "eat_energy": 32,
+      "sell_price": 55,
+      "description": "Two handfuls of wild berries simmered into a jar of jam. A sweeter snack than the berries raw."
+    },
+    "mushroom_soup": {
+      "name": "mushroom soup",
+      "ingredients": {
+        "wild_mushroom": 1,
+        "milk": 1
+      },
+      "eat_energy": 32,
+      "sell_price": 40,
+      "description": "A cooked wild mushroom simmered with milk. The safe way to eat what you find in the autumn hills."
     }
   },
   "fertilizers": {

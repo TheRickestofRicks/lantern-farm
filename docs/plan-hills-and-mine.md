@@ -93,12 +93,18 @@ One basic axe starts in the cabin chest.
 
 **Wild plants** spawn like weeds: 0–2 a day on empty grass, never on the
 mine mouth or a tree, capped so the hills do not fill up, seeded from
-`weather_seed`, day, and plot. Seasonal and edible: spring wild onion
-(8 energy), summer wild berry (10), autumn wild mushroom (12), winter
-none for now. `forage` costs 5, like pluck, and goes to the pack
-(refused if full). Wood and forage sell at the cabin. Cozy forage
-recipes can wait until a later pass. The hills show weather, including
-snow, but have no wet/dry soil.
+`weather_seed`, day, and plot. Seasonal: spring wild onion, summer wild
+berry, autumn wild mushroom, winter none for now. `forage` costs 5,
+like pluck, and goes to the pack (refused if full). The shop doesn't
+buy foraged goods (wood still sells at the cabin). Wild onion (+6
+energy and HP) and wild berry (+8) are edible raw; wild mushroom is
+cook-only, like rhubarb (`eat` says it isn't edible raw). Each has a
+cabin recipe: wild onion soup (1 wild onion + 1 milk, +28 energy, 32G),
+wild berry jam (2 wild berries, +32 energy, 55G), and mushroom soup
+(1 wild mushroom + 1 milk, +32 energy, 40G). Wild berries also count
+toward strawberry jam's berry pool, alongside June-bearing and
+everbearing strawberries. The hills show weather, including snow, but
+have no wet/dry soil.
 
 Existing saves migrate in place: farm tiles, gold, packs, turn, and
 energy are untouched. Players gain `area` (default `farm`) and `hp`
@@ -147,7 +153,9 @@ r3c3), `chop`, `forage`, plus the usual `move`, `go cabin`, `take axe
 1`. Legal actions list them so they parse and execute from the printed
 list.
 
-Phase 1 items: wood, wild onion, wild berry, wild mushroom, axe.
+Phase 1 items: wood, wild onion, wild berry, wild mushroom, axe,
+plus the three forage recipes (wild onion soup, wild berry jam,
+mushroom soup).
 
 
 ## Art, mini-map, and the page
@@ -160,6 +168,8 @@ pattern as crops.
   mine entrance (and snow).
 - **Overlays:** tree sapling / young / grown / stump, each wild plant.
 - **Items:** axe, wood, wild onion, wild berry, wild mushroom.
+  The three forage dishes use Classic SVG placeholders until Storybook
+  icons are painted.
 
 Mini-map: the same 3×3 ASCII, headed “Mini map — the farm” or “Mini
 map — the hills”. New labels must fit `MAP_LABEL_WIDTH` (10). The web

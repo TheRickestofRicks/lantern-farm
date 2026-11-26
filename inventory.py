@@ -79,28 +79,27 @@ FORAGE_ITEMS = {
     "wild_onion": {
         "name": "wild onion",
         "name_plural": "wild onions",
-        "sell_price": 8,
-        "eat_energy": 8,
+        "eat_energy": 6,
         "seasons": ("spring",),
-        "description": "A wild spring onion, pulled from the hills.",
+        "description": "A wild spring onion, pulled from the hills. A small snack, or the start of a soup.",
     },
     "wild_berry": {
         "name": "wild berry",
         "name_plural": "wild berries",
-        "sell_price": 10,
-        "eat_energy": 10,
+        "eat_energy": 8,
         "seasons": ("summer",),
-        "description": "A handful of wild summer berries.",
+        "description": "A handful of wild summer berries. Good raw, or simmered into jam.",
     },
     "wild_mushroom": {
         "name": "wild mushroom",
         "name_plural": "wild mushrooms",
-        "sell_price": 12,
-        "eat_energy": 12,
         "seasons": ("autumn",),
-        "description": "A wild autumn mushroom from the hills.",
+        "description": "A wild autumn mushroom from the hills. Not safe to eat raw — cook it into a soup.",
     },
 }
+
+# Berry kinds that can stand in for strawberry_jam's `berries` requirement.
+JAM_BERRY_ITEMS = ("strawberry", "everbearing", "wild_berry")
 
 # Recipes that are already in the book when a farm begins (or an older save is migrated).
 STARTING_DISCOVERED_RECIPES = ("strawberry_jam", "kabocha_soup")
@@ -192,6 +191,27 @@ DEFAULT_RECIPES = {
         "eat_energy": 52,
         "sell_price": 62,
         "description": "A bowl of roasted pumpkin soup. Restores more energy than eating the pumpkin raw, and sells for more than the squash alone.",
+    },
+    "wild_onion_soup": {
+        "name": "wild onion soup",
+        "ingredients": {"wild_onion": 1, "milk": 1},
+        "eat_energy": 28,
+        "sell_price": 32,
+        "description": "A small pot of soup from a wild onion and a bottle of milk. More filling than eating them raw.",
+    },
+    "wild_berry_jam": {
+        "name": "wild berry jam",
+        "ingredients": {"wild_berry": 2},
+        "eat_energy": 32,
+        "sell_price": 55,
+        "description": "Two handfuls of wild berries simmered into a jar of jam. A sweeter snack than the berries raw.",
+    },
+    "mushroom_soup": {
+        "name": "mushroom soup",
+        "ingredients": {"wild_mushroom": 1, "milk": 1},
+        "eat_energy": 32,
+        "sell_price": 40,
+        "description": "A cooked wild mushroom simmered with milk. The safe way to eat what you find in the autumn hills.",
     },
 }
 
@@ -291,6 +311,14 @@ ITEM_ALIASES = {
     "roast potatoes": "roasted_potatoes",
     "pumpkin soup": "pumpkin_soup",
     "pumpkin_soup": "pumpkin_soup",
+    "wild onion soup": "wild_onion_soup",
+    "wild_onion_soup": "wild_onion_soup",
+    "onion soup": "wild_onion_soup",
+    "wild berry jam": "wild_berry_jam",
+    "wild_berry_jam": "wild_berry_jam",
+    "berry jam": "wild_berry_jam",
+    "mushroom soup": "mushroom_soup",
+    "mushroom_soup": "mushroom_soup",
     "fertilizer_general": "fertilizer_general",
     "general fertilizer": "fertilizer_general",
     "general fert": "fertilizer_general",
@@ -379,6 +407,10 @@ def is_fertilizer(item: str | None) -> bool:
 
 def is_staple(item: str | None) -> bool:
     return (item or "") in STAPLES
+
+
+def is_forage_item(item: str | None) -> bool:
+    return (item or "") in FORAGE_ITEMS
 
 
 def staple_info(item: str | None, rules: dict | None = None) -> dict | None:
@@ -676,9 +708,13 @@ def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = N
         except (KeyError, TypeError, ValueError):
             return None
     if item in FORAGE_ITEMS:
+        # Foraged goods are not sold at the shop.
+        raw = FORAGE_ITEMS[item].get("sell_price")
+        if raw is None:
+            return None
         try:
-            return int(FORAGE_ITEMS[item]["sell_price"])
-        except (KeyError, TypeError, ValueError):
+            return int(raw)
+        except (TypeError, ValueError):
             return None
     if item in STAPLES:
         stap = staple_info(item, rules) or STAPLES[item]

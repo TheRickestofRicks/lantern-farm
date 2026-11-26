@@ -2675,6 +2675,9 @@ def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: di
     item = prefer_available_stock(item, holders, crops, rules)
     price = item_sell_price(item, crops, rules)
     if price is None:
+        from inventory import is_forage_item
+        if is_forage_item(item) or is_forage_item(normalize_item(str(kind))):
+            return False, "The shop doesn't buy foraged goods."
         known = ", ".join(crops.get("crops", {}))
         return False, f"Unknown or unsellable item {kind!r}. You can sell: {known}."
     count, err = _parse_count(n)
@@ -3260,6 +3263,7 @@ def eat(
         item_label,
         chest_of,
         stack_count,
+        is_forage_item,
     )
 
     rules = rules or load_rules()
@@ -3270,7 +3274,7 @@ def eat(
     restore = item_eat_energy(item, crops, rules)
     if restore is None:
         label = item_label(item, crops, rules) if item else str(kind)
-        if crop_info(crops, item):
+        if crop_info(crops, item) or is_forage_item(item):
             return False, f"{label} isn't edible raw."
         return False, f"Unknown snack '{kind}'. Eat a harvested crop or a crafted food."
     kind = item
@@ -3488,7 +3492,8 @@ def recipe_ingredients_met(rec: dict, counts: dict[str, int]) -> bool:
     from inventory import recipe_ingredients
     for item, n in recipe_ingredients(rec):
         if item == "strawberry" and int(rec.get("berries") or 0):
-            if counts.get("strawberry", 0) + counts.get("everbearing", 0) < n:
+            from inventory import JAM_BERRY_ITEMS
+            if sum(counts.get(b, 0) for b in JAM_BERRY_ITEMS) < n:
                 return False
             continue
         if counts.get(item, 0) < n:
@@ -3591,8 +3596,8 @@ def format_recipe_book(
         bits = []
         for item, n in recipe_ingredients(rec):
             if item == "strawberry" and int(rec.get("berries") or 0):
-                noun = "strawberry" if n == 1 else "strawberries"
-                bits.append(f"{n} {noun} (any kind)")
+                noun = "berry" if n == 1 else "berries"
+                bits.append(f"{n} {noun} (strawberries or wild berries)")
             else:
                 bits.append(item_name(item, n, crops, rules))
         ings = ", ".join(bits) if bits else "no extra ingredients"
@@ -3652,22 +3657,24 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
         if available(item) < int(n):
             return False, f"Not enough {item_name(item, int(n), crops, rules)} to craft {rec.get('name') or key}."
     if berry_need:
-        berries = available("strawberry") + available("everbearing")
+        from inventory import JAM_BERRY_ITEMS
+        berries = sum(available(b) for b in JAM_BERRY_ITEMS)
         if berries < berry_need:
-            return False, f"Not enough strawberries. {rec.get('name') or key} needs {berry_need}."
+            return False, f"Not enough berries. {rec.get('name') or key} needs {berry_need}."
     # Consume.
     for item, n in needed.items():
         item = normalize_item(item) or item
         take_available(state, item, int(n), player, pack_only=False, rules=rules)
     if berry_need:
+        from inventory import JAM_BERRY_ITEMS
         left = berry_need
-        for berry in ("strawberry", "everbearing"):
+        for berry in JAM_BERRY_ITEMS:
             if left <= 0:
                 break
             got = take_available(state, berry, left, player, pack_only=False, rules=rules)
             left -= got
         if left > 0:
-            return False, "Not enough strawberries."
+            return False, "Not enough berries."
     # Result.
     leftover = store_item(state, key, 1, player, prefer="pack", rules=rules)
     where = "the chest" if leftover or not pack_space_for(state, player, key, 1, rules) else "the pack"

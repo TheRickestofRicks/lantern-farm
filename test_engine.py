@@ -3413,7 +3413,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertNotIn("bread_and_butter", found)
         book = format_recipe_book(self.state, self.crops, self.rules, player=P1)
         self.assertIn("strawberry jam", book)
-        self.assertIn("3 strawberries (any kind)", book)
+        self.assertIn("3 berries (strawberries or wild berries)", book)
         self.assertIn("kabocha soup", book)
         self.assertNotIn("jam toast", book)
         self.assertNotIn("bread and butter", book)
@@ -4449,6 +4449,127 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertNotIn('id="elsewhere"', html)
         self.assertIn("<kbd>C</kbd>", html)
         self.assertIn("<kbd>G</kbd>", html)
+
+
+class ForageFood(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 40
+        self.state["players"][P1]["hp"] = 80
+        self.state["players"][P1]["snacks_eaten"] = 0
+
+    def test_forage_eat_values_and_mushroom_is_cook_only(self):
+        from inventory import item_eat_energy, item_sell_price, pack_has
+        from hills import player_hp
+
+        self.assertEqual(item_eat_energy("wild_onion", self.crops, self.rules), 6)
+        self.assertEqual(item_eat_energy("wild_berry", self.crops, self.rules), 8)
+        self.assertIsNone(item_eat_energy("wild_mushroom", self.crops, self.rules))
+        for item in ("wild_onion", "wild_berry", "wild_mushroom"):
+            self.assertIsNone(item_sell_price(item, self.crops, self.rules))
+
+        give_item(self.state, "wild_onion", 1, player=P1)
+        give_item(self.state, "wild_berry", 1, player=P1)
+        give_item(self.state, "wild_mushroom", 1, player=P1)
+
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("eat wild_onion", actions)
+        self.assertIn("eat wild_berry", actions)
+        self.assertNotIn("eat wild_mushroom", actions)
+        self.assertFalse(any(a.startswith("sell wild") for a in actions))
+
+        ok, msg = do_action(self.state, self.crops, "eat wild onion", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 46)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 86)
+        self.assertFalse(pack_has(self.state, P1, "wild_onion", 1, self.rules))
+
+        ok, msg = do_action(self.state, self.crops, "eat wild berry", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 54)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 94)
+        self.assertFalse(pack_has(self.state, P1, "wild_berry", 1, self.rules))
+
+        ok, msg = do_action(self.state, self.crops, "eat wild mushroom", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("isn't edible raw", msg)
+        self.assertTrue(pack_has(self.state, P1, "wild_mushroom", 1, self.rules))
+
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn("eat wild_mushroom", actions)
+        self.assertFalse(any(a.startswith("sell wild") for a in actions))
+
+    def test_shop_does_not_buy_foraged_goods(self):
+        from inventory import pack_has
+
+        give_item(self.state, "wild_onion", 1, player=P1)
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "sell wild onion", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertEqual(msg, "The shop doesn't buy foraged goods.")
+        self.assertEqual(self.state["gold"], gold)
+        self.assertTrue(pack_has(self.state, P1, "wild_onion", 1, self.rules))
+
+        for cmd in ("sell wild berry", "sell wild mushroom", "sell wild_onion 1"):
+            ok, msg = do_action(self.state, self.crops, cmd, player=P1, rules=self.rules)
+            self.assertFalse(ok, msg)
+            self.assertEqual(msg, "The shop doesn't buy foraged goods.", cmd)
+
+    def test_forage_recipes_craft_and_wild_berries_count_toward_jam(self):
+        from inventory import (
+            pack_has,
+            recipes,
+            ingredient_cost,
+            ingredient_eat_total,
+            item_sell_price,
+            item_eat_energy,
+        )
+
+        for key in ("wild_onion_soup", "wild_berry_jam", "mushroom_soup"):
+            rec = recipes(self.rules)[key]
+            self.assertGreater(
+                item_sell_price(key, self.crops, self.rules),
+                ingredient_cost(rec, self.crops, self.rules),
+                key,
+            )
+            self.assertGreater(
+                item_eat_energy(key, self.crops, self.rules),
+                ingredient_eat_total(rec, self.crops, self.rules),
+                key,
+            )
+
+        give_item(self.state, "wild_onion", 1, player=P1)
+        give_item(self.state, "milk", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft wild onion soup", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "wild_onion_soup", 1, self.rules) or pack_has(self.state, P1, "wild_onion_soup", 1))
+        self.assertFalse(pack_has(self.state, P1, "wild_onion", 1, self.rules))
+
+        give_item(self.state, "wild_berry", 2, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft wild berry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "wild_berry_jam", 1, self.rules))
+
+        give_item(self.state, "wild_mushroom", 1, player=P1)
+        give_item(self.state, "milk", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft mushroom soup", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "mushroom_soup", 1, self.rules))
+
+        # Wild berries fill strawberry jam's berry pool.
+        give_item(self.state, "strawberry", 1, player=P1)
+        give_item(self.state, "wild_berry", 2, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+        self.assertFalse(pack_has(self.state, P1, "strawberry", 1, self.rules))
+        self.assertFalse(pack_has(self.state, P1, "wild_berry", 1, self.rules))
+
 
 
 class HillsJsdomUi(unittest.TestCase):
