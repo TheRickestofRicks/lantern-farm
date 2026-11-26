@@ -180,6 +180,7 @@ DEFAULT_RECIPES = {
         "ingredients": {"sugar": 1},
         "eat_energy": 40,
         "sell_price": 90,
+        "sellable": True,
         "description": "Three berries simmered with sugar into a jar of jam. A hearty snack, still worth a little more than the fruit and sugar apart.",
     },
     "kabocha_soup": {
@@ -187,27 +188,31 @@ DEFAULT_RECIPES = {
         "ingredients": {"kabocha": 1},
         "eat_energy": 55,
         "sell_price": 70,
-        "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone.",
+        "sellable": False,
+        "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw.",
     },
     "root_stew": {
         "name": "root stew",
         "ingredients": {"carrot": 1, "turnip": 1},
         "eat_energy": 50,
         "sell_price": 70,
-        "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw.",
+        "sellable": False,
+        "description": "A carrot and a turnip stewed together. Warm and filling.",
     },
     "bread_and_butter": {
         "name": "bread and butter",
         "ingredients": {"bread": 1, "butter": 1},
         "eat_energy": 22,
         "sell_price": 28,
-        "description": "A loaf split and spread with butter. More filling than eating them separately, and worth a little more gold.",
+        "sellable": False,
+        "description": "A loaf split and spread with butter. More filling than eating them separately.",
     },
     "jam_toast": {
         "name": "jam toast",
         "ingredients": {"bread": 1, "strawberry_jam": 1},
         "eat_energy": 58,
         "sell_price": 115,
+        "sellable": False,
         "description": "Toast with a spoon of strawberry jam. A sweeter snack than the jam alone.",
     },
     "strawberry_milk": {
@@ -215,6 +220,7 @@ DEFAULT_RECIPES = {
         "ingredients": {"milk": 1, "strawberry": 1},
         "eat_energy": 45,
         "sell_price": 45,
+        "sellable": False,
         "description": "Cold milk stirred with a crushed strawberry. Restores more than the fruit and milk on their own.",
     },
     "buttered_kabocha": {
@@ -222,13 +228,15 @@ DEFAULT_RECIPES = {
         "ingredients": {"kabocha": 1, "butter": 1},
         "eat_energy": 42,
         "sell_price": 75,
-        "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw, and sells for more than the two apart.",
+        "sellable": False,
+        "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw.",
     },
     "kabocha_cream_soup": {
         "name": "kabocha cream soup",
         "ingredients": {"kabocha": 1, "milk": 1, "butter": 1},
         "eat_energy": 70,
         "sell_price": 88,
+        "sellable": False,
         "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen.",
     },
     "rhubarb_strawberry_jam": {
@@ -236,6 +244,7 @@ DEFAULT_RECIPES = {
         "ingredients": {"rhubarb": 2, "strawberry": 1, "sugar": 1},
         "eat_energy": 45,
         "sell_price": 95,
+        "sellable": True,
         "description": "Tart rhubarb simmered with a strawberry and sugar. A brighter jam than strawberries alone, and worth more than the fruit and sugar apart.",
     },
     "garden_salad": {
@@ -243,7 +252,8 @@ DEFAULT_RECIPES = {
         "ingredients": {"lettuce": 1, "tomato": 1, "cucumber": 1},
         "eat_energy": 36,
         "sell_price": 72,
-        "description": "A bowl of lettuce, tomato, and cucumber. Cooler than eating the vegetables raw, and worth a little more gold.",
+        "sellable": False,
+        "description": "A bowl of lettuce, tomato, and cucumber. Cooler than eating the vegetables raw.",
     },
     "roasted_potatoes": {
         "name": "roasted potatoes",
@@ -251,20 +261,23 @@ DEFAULT_RECIPES = {
         "ingredients": {"potato": 2, "butter": 1},
         "eat_energy": 42,
         "sell_price": 52,
-        "description": "Two potatoes roasted with a pat of butter. Heartier than the potatoes raw, and worth more than selling them apart.",
+        "sellable": False,
+        "description": "Two potatoes roasted with a pat of butter. Heartier than the potatoes raw.",
     },
     "pumpkin_soup": {
         "name": "pumpkin soup",
         "ingredients": {"pumpkin": 1},
         "eat_energy": 52,
         "sell_price": 62,
-        "description": "A bowl of roasted pumpkin soup. Restores more energy than eating the pumpkin raw, and sells for more than the squash alone.",
+        "sellable": False,
+        "description": "A bowl of roasted pumpkin soup. Restores more energy than eating the pumpkin raw.",
     },
     "wild_onion_soup": {
         "name": "wild onion soup",
         "ingredients": {"wild_onion": 1, "milk": 1},
         "eat_energy": 28,
         "sell_price": 32,
+        "sellable": False,
         "description": "A small pot of soup from a wild onion and a bottle of milk. More filling than eating them raw.",
     },
     "wild_berry_jam": {
@@ -272,6 +285,7 @@ DEFAULT_RECIPES = {
         "ingredients": {"wild_berry": 3, "sugar": 1},
         "eat_energy": 32,
         "sell_price": 55,
+        "sellable": True,
         "description": "Three handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw.",
     },
     "mushroom_soup": {
@@ -279,6 +293,7 @@ DEFAULT_RECIPES = {
         "ingredients": {"wild_mushroom": 1, "milk": 1},
         "eat_energy": 32,
         "sell_price": 40,
+        "sellable": False,
         "description": "A cooked wild mushroom simmered with milk. The safe way to eat what you find in the autumn hills.",
     },
 }
@@ -842,6 +857,21 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     return f"{count} {crop_name_plural(kind, info, count)}"
 
 
+def _recipe_looks_like_jam(item: str | None, rec: dict | None = None) -> bool:
+    """True for jars of jam, not for meals that merely use jam (like jam toast)."""
+    key = str(item or "").strip().lower().replace(" ", "_")
+    name = str((rec or {}).get("name") or "").strip().lower()
+    return key.endswith("_jam") or name.endswith(" jam") or name == "jam"
+
+
+def recipe_is_sellable(item: str | None, rec: dict | None = None) -> bool:
+    """True when the shop will buy this cooked recipe. Jams only, for now."""
+    rec = rec or {}
+    if "sellable" in rec:
+        return bool(rec.get("sellable"))
+    return _recipe_looks_like_jam(item, rec)
+
+
 def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
     if item in MATERIALS:
         try:
@@ -865,6 +895,9 @@ def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = N
             return None
     rec = recipes(rules).get(item)
     if rec:
+        # Keep sell_price on the recipe for later, but only jams are for sale now.
+        if not recipe_is_sellable(item, rec):
+            return None
         price = rec.get("sell_price")
         if price is None:
             return None

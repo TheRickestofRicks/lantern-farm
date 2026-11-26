@@ -20,6 +20,7 @@ The current playable-season work, in order:
 - Mine depth beyond the first floors.
 - Fireplace fuel-storage upgrade, so wood can be kept by the fireplace instead of carried from the chest for each load.
 - Propane stove, a shop-bought stove that cooks without chopping wood; fuel is purchased from the shop.
+- Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
 - Well-rested bed upgrade (+5 when you sleep in the upgraded bed above 10 energy). Together rest is already in and stays a separate bonus.
 - Journal history: the human player can browse journals from previous years in the journal UI, with a “Copy year” / export button that produces a clean text summary of that year to paste to the AI player.
 
@@ -33,3 +34,4 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Yearly wet/dry season variants, with hints so the year-to-year change is readable.
 - Coffee (+40 energy now, with a sleep penalty). Herbal tea is already in the shop.
 - Open questions from granular growth: mixed jam berries, fertilizer prices after a season of play, and the pack stack cap.
+- Winter market stall or special order board that occasionally buys a cooked meal.

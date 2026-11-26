@@ -81,6 +81,17 @@ def display_name(player: str | None) -> str:
     return "Someone"
 
 
+def object_pronoun(player: str | None) -> str:
+    """Object pronoun for flavour lines (him, her, or them)."""
+    rec = player_record(player) or {}
+    word = str(rec.get("object_pronoun") or rec.get("pronoun") or "them").strip().lower()
+    if word in {"he", "him"}:
+        return "him"
+    if word in {"she", "her"}:
+        return "her"
+    return "them"
+
+
 def starting_player() -> str:
     ids = player_ids()
     wanted = str(load_config().get("starting_player") or "").strip().lower()

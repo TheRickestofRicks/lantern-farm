@@ -5,12 +5,14 @@
     {
       "id": "player1",
       "name": "Player 1",
-      "color": "#6b8f3a"
+      "color": "#6b8f3a",
+      "object_pronoun": "them"
     },
     {
       "id": "player2",
       "name": "Player 2",
-      "color": "#c47a3a"
+      "color": "#c47a3a",
+      "object_pronoun": "them"
     }
   ],
   "starting_player": "player1",

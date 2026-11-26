@@ -91,7 +91,8 @@
       "description": "Three berries simmered with sugar into a jar of jam. A hearty snack, still worth a little more than the fruit and sugar apart.",
       "ingredients": {
         "sugar": 1
-      }
+      },
+      "sellable": true
     },
     "kabocha_soup": {
       "name": "kabocha soup",
@@ -100,7 +101,8 @@
       },
       "eat_energy": 55,
       "sell_price": 70,
-      "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw, and sells for more than the kabocha alone."
+      "description": "A bowl of roasted kabocha soup. Restores more energy than eating the squash raw.",
+      "sellable": false
     },
     "root_stew": {
       "name": "root stew",
@@ -110,7 +112,8 @@
       },
       "eat_energy": 50,
       "sell_price": 70,
-      "description": "A carrot and a turnip stewed together. Warm, filling, and worth more than selling the roots raw."
+      "description": "A carrot and a turnip stewed together. Warm and filling.",
+      "sellable": false
     },
     "bread_and_butter": {
       "name": "bread and butter",
@@ -120,7 +123,8 @@
       },
       "eat_energy": 22,
       "sell_price": 28,
-      "description": "A loaf split and spread with butter. More filling than eating them separately, and worth a little more gold."
+      "description": "A loaf split and spread with butter. More filling than eating them separately.",
+      "sellable": false
     },
     "jam_toast": {
       "name": "jam toast",
@@ -130,7 +134,8 @@
       },
       "eat_energy": 58,
       "sell_price": 115,
-      "description": "Toast with a spoon of strawberry jam. A sweeter snack than the jam alone."
+      "description": "Toast with a spoon of strawberry jam. A sweeter snack than the jam alone.",
+      "sellable": false
     },
     "strawberry_milk": {
       "name": "strawberry milk",
@@ -140,7 +145,8 @@
       },
       "eat_energy": 45,
       "sell_price": 45,
-      "description": "Cold milk stirred with a crushed strawberry. Restores more than the fruit and milk on their own."
+      "description": "Cold milk stirred with a crushed strawberry. Restores more than the fruit and milk on their own.",
+      "sellable": false
     },
     "buttered_kabocha": {
       "name": "buttered kabocha",
@@ -150,7 +156,8 @@
       },
       "eat_energy": 42,
       "sell_price": 75,
-      "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw, and sells for more than the two apart."
+      "description": "Roasted kabocha with a melt of butter. Heartier than the squash raw.",
+      "sellable": false
     },
     "kabocha_cream_soup": {
       "name": "kabocha cream soup",
@@ -161,7 +168,8 @@
       },
       "eat_energy": 70,
       "sell_price": 88,
-      "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen."
+      "description": "A richer kabocha soup finished with milk and butter. The coziest bowl in the kitchen.",
+      "sellable": false
     },
     "wild_onion_soup": {
       "name": "wild onion soup",
@@ -171,7 +179,8 @@
       },
       "eat_energy": 28,
       "sell_price": 32,
-      "description": "A small pot of soup from a wild onion and a bottle of milk. More filling than eating them raw."
+      "description": "A small pot of soup from a wild onion and a bottle of milk. More filling than eating them raw.",
+      "sellable": false
     },
     "wild_berry_jam": {
       "name": "wild berry jam",
@@ -181,7 +190,8 @@
       },
       "eat_energy": 32,
       "sell_price": 55,
-      "description": "Three handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw."
+      "description": "Three handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw.",
+      "sellable": true
     },
     "mushroom_soup": {
       "name": "mushroom soup",
@@ -191,7 +201,8 @@
       },
       "eat_energy": 32,
       "sell_price": 40,
-      "description": "A cooked wild mushroom simmered with milk. The safe way to eat what you find in the autumn hills."
+      "description": "A cooked wild mushroom simmered with milk. The safe way to eat what you find in the autumn hills.",
+      "sellable": false
     }
   },
   "fertilizers": {

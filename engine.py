@@ -778,20 +778,24 @@ def parse_pass_turn_command(command: str) -> tuple[bool, str]:
 
 
 def parse_walk_home_command(command: str) -> tuple[bool, str | None]:
-    """True if this is walk <name> home, plus the raw name (not yet resolved)."""
+    """True if this is carry <name> to bed (or the older walk <name> home)."""
     raw = strip_action_descriptor(command or "").strip()
     parts = raw.split()
-    if len(parts) < 3:
+    if len(parts) < 3 or parts[0].lower() not in {"walk", "carry"}:
         return False, None
-    if parts[0].lower() not in {"walk", "carry"}:
+    low = [p.lower() for p in parts]
+    if low[-2:] == ["to", "bed"]:
+        mid = " ".join(parts[1:-2]).strip()
+    elif len(low) >= 4 and low[-3:] == ["to", "the", "bed"]:
+        mid = " ".join(parts[1:-3]).strip()
+    elif low[-1] == "home":
+        mid = " ".join(parts[1:-1]).strip()
+        if mid.lower().startswith("to "):
+            mid = mid[3:].strip()
+    else:
         return False, None
-    if parts[-1].lower() != "home":
-        return False, None
-    mid = " ".join(parts[1:-1]).strip()
     if not mid or mid.lower() in {"to", "the"}:
         return False, None
-    if mid.lower().startswith("to "):
-        mid = mid[3:].strip()
     return True, mid
 
 
@@ -2406,6 +2410,9 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
                 slot = state["players"][key]
                 slot.setdefault("energy", max_energy(rules))
                 slot.setdefault("ended_turn", False)
+                # ended_turn is a ready-to-end vote. A leftover True from an older
+                # save means that player was done for the day; the partner may now
+                # pass the turn back, which clears it. Do not rewrite live saves.
                 # Missing positions go to the cabin. Never change mid-turn energy.
                 if "row" not in slot or "col" not in slot:
                     slot["row"] = CABIN_ROW
@@ -2485,7 +2492,7 @@ def walk_player_home(
     passenger: str,
     rules: dict | None = None,
 ) -> tuple[bool, str]:
-    """Carry a waiting player to the cabin at double movement cost per step."""
+    """Carry a waiting player to the cabin bed at double movement cost per step."""
     from hills import (
         player_area,
         set_player_place,
@@ -2503,13 +2510,14 @@ def walk_player_home(
     passenger = resolve_player_name(passenger)
     if not passenger:
         names = " or ".join(display_name(p) for p in known_players())
-        return False, f"Walk who home? Try: walk {names.split(' or ')[0] if names else 'them'} home."
+        sample = names.split(" or ")[0] if names else "them"
+        return False, f"Carry who to bed? Try: carry {sample} to bed."
     if passenger == carrier:
-        return False, "You can't walk yourself home that way. Use: go cabin"
+        return False, "You can't carry yourself to bed that way. Use: go cabin"
     if not player_requested_carry(state, passenger):
         return False, (
-            f"{display_name(passenger)} hasn't asked to be carried home. "
-            "They can pass their turn and opt to wait."
+            f"{display_name(passenger)} isn't waiting to be carried. "
+            "They can pass their turn while away from the cabin."
         )
     if is_player_in_cabin(state, passenger):
         return False, f"{display_name(passenger)} is already at the cabin."
@@ -2521,12 +2529,12 @@ def walk_player_home(
         where = describe_area_where(parea, *phere)
         return False, (
             f"Stand on the same tile as {display_name(passenger)} ({where}), "
-            "then walk them home."
+            "then carry them to bed."
         )
     if carea == AREA_MINE or parea == AREA_MINE:
         return False, (
             "Leave the mine first. Climb up or take the elevator to the entrance, "
-            "then walk them home."
+            "then carry them to bed."
         )
     places, cost = carry_home_path(state, carrier, rules)
     if places is None:
@@ -2537,20 +2545,24 @@ def walk_player_home(
         steps = len(places)
         return (
             False,
-            f"Not enough energy. Walking {display_name(passenger)} home is "
+            f"Not enough energy. Carrying {display_name(passenger)} to bed is "
             f"{steps_phrase(steps)} at double cost ({cost} energy); "
             f"{display_name(carrier)} has {energy} left.",
         )
-    set_player_place(state, carrier, AREA_FARM, CABIN_ROW, CABIN_COL)
-    set_player_place(state, passenger, AREA_FARM, CABIN_ROW, CABIN_COL)
+    from cabin import CABIN_BED
+    from hills import AREA_CABIN
+    # Same energy as the walk to the cabin door; stepping inside to the bed is free.
+    set_player_place(state, carrier, AREA_CABIN, *CABIN_BED)
+    set_player_place(state, passenger, AREA_CABIN, *CABIN_BED)
     slot["energy"] = energy - cost
     pslot = player_slot(state, passenger)
     pslot["carry_home"] = False
     pslot["carried_home"] = True
     steps = len(places)
+    from config import object_pronoun
     msg = (
-        f"{display_name(carrier)} walks {display_name(passenger)} home to the cabin "
-        f"({steps_phrase(steps)}, {cost} energy)."
+        f"{display_name(carrier)} carries {display_name(passenger)} home "
+        f"and tucks {object_pronoun(passenger)} into bed."
     )
     log_append(state, msg, carrier)
     return True, msg
@@ -2580,6 +2592,8 @@ def end_turn(
     elif not request_carry:
         # A plain pass or end turn drops a carry request this player had made.
         slot["carry_home"] = False
+    # ended_turn is a ready-to-end vote. The day turns only when both are ready.
+    # If the partner later passes the turn back, this flag is cleared.
     slot["ended_turn"] = True
     everyone_done = all(
         bool(player_slot(state, name).get("ended_turn"))
@@ -2587,102 +2601,48 @@ def end_turn(
         if name
     )
     partner = other_player(player, rules)
-    waiting = [
-        name for name in known_players()
-        if player_requested_carry(state, name) and not is_player_in_cabin(state, name)
-    ]
-    # If this player just asked to be carried and the partner already ended,
-    # hand the turn back once so they can walk them home (or decline).
-    if everyone_done and waiting and request_carry and partner:
-        pslot = player_slot(state, partner)
-        if not pslot.get("carry_reopened"):
-            pslot["ended_turn"] = False
-            pslot["carry_reopened"] = True
-            state["current_player"] = partner
-            everyone_done = False
-            from hills import player_area, describe_where as describe_place_where, AREA_MINE
-            from mine import player_floor
-            here_area = player_area(state, player)
-            here_floor = player_floor(state, player) if here_area == AREA_MINE else None
-            here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
-            msg = (
-                f"{display_name(player)} passes the turn {here} and waits to be carried home. "
-                f"It is {display_name(partner)}'s turn to walk {display_name(player)} home, "
-                "or end the turn to leave them."
-            )
-            log_append(state, msg, player)
-            return True, msg
-    night_notes = []
-    from hills import player_area, describe_where as describe_place_where, AREA_MINE
-    from mine import player_floor, wake_place_after_mine_passout, mine_of
-    next_season_changed = False
-    if everyone_done:
-        nxt_day = int(state.get("day") or 1) + 1
-        next_season_changed = season_for_day(nxt_day, crops) != (state.get("season") or "spring")
-    for name in known_players():
-        area = player_area(state, name)
-        prow, pcol = player_where(state, name)
-        floor = player_floor(state, name) if area == AREA_MINE else None
-        where = describe_place_where(area, prow, pcol, floor=floor)
-        if is_player_in_cabin(state, name):
-            night_notes.append(
-                cabin_sleep_note(
-                    name,
-                    preview_wake_energy(state, name, rules),
-                    cabin_fire_will_burn(state, rules),
-                    player_ate_today(state, name, rules),
-                    together_rest_applies(state, rules),
-                )
-            )
-        elif area == AREA_MINE:
-            wake_area, wr, wc, wfloor = wake_place_after_mine_passout(
-                state, rules, season_changed=next_season_changed
-            )
-            wake_at = describe_place_where(wake_area, wr, wc, floor=wfloor)
-            night_notes.append(
-                f"{display_name(name)} passed out in the mine and wakes {wake_at} "
-                f"with {pass_out_energy(rules)} energy."
-            )
-        else:
-            night_notes.append(
-                f"{display_name(name)} passed out {where} and wakes with {pass_out_energy(rules)} energy."
-            )
     outlook = sleep_outlook(state, player, rules)
     from hills import player_area, describe_where as describe_place_where, AREA_MINE
     from mine import player_floor
     here_area = player_area(state, player)
     here_floor = player_floor(state, player) if here_area == AREA_MINE else None
     here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
-    verb_phrase = "passes the turn" if as_pass or request_carry else "ends the turn"
-    wait_bit = " and waits to be carried home" if request_carry and not is_player_in_cabin(state, player) else ""
+    ready_line = player_ready_line(state, player) or f"{display_name(player)} is ready to end the day"
     if everyone_done:
-        _ok, day_msg = advance_day(state, crops, rules)
+        rest = _collect_rest_outcomes(state, rules, crops)
+        night = " ".join(item["note"] for item in rest)
+        _ok, _day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
+        # Re-read notes already logged by advance_day: use the compact status instead
+        # of repeating the verbose dawn paragraph in the action message.
+        notes = []
+        for entry in (state.get("log") or []):
+            if int(entry.get("day") or 0) == int(state.get("day") or 0):
+                text = str(entry.get("text") or "")
+                if text.startswith("Day ") and " dawns" in text:
+                    continue
+                if text:
+                    notes.append(text)
+        # Only the notes just written for this dawn (advance_day logs header + notes).
+        # The loop above may pick up other same-day log lines if any were added after
+        # increment; that's usually just this dawn's events.
+        brief = format_dawn_status(state, crops, rules, notes, rest, viewer=player)
         nxt = state["current_player"]
-        cap = max_energy(rules)
-        night = " ".join(night_notes)
-        header = (
-            f"{display_name(player)} {verb_phrase} {here}{wait_bit}. {outlook}. "
-            f"The day turns. {day_msg} {night} "
-            f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
-        )
         log_append(
             state,
-            f"{display_name(player)} {verb_phrase} {here}{wait_bit}. A new day begins. {night} "
+            f"{ready_line} {here}. A new day begins. {night} "
             f"It is {display_name(nxt)}'s turn.",
             player,
         )
-        return True, header
+        return True, brief
     nxt = other_player(player, rules)
     state["current_player"] = nxt
-    # Same-day handoff keeps the other player's energy for this day.
-    # (Passing out or sleeping is resolved when the day actually turns.)
     cap = max_energy(rules)
     msg = (
-        f"{display_name(player)} {verb_phrase} {here}{wait_bit}. {outlook}. "
+        f"{ready_line}. {outlook}. "
         f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
     )
-    log_append(state, msg, player)
+    log_append(state, f"{ready_line} {here}. {outlook}. It is {display_name(nxt)}'s turn.", player)
     return True, msg
 
 
@@ -2707,44 +2667,21 @@ def pass_turn(
         return False, "There is no one to pass the turn to."
     waiting = not is_player_in_cabin(state, player)
     partner_slot = player_slot(state, partner)
-    partner_ended = bool(partner_slot.get("ended_turn"))
-    can_reopen = waiting and partner_ended and not partner_slot.get("carry_reopened")
-    if partner_ended and not can_reopen:
-        return False, (
-            f"{display_name(partner)} has already ended their turn. "
-            "End your turn to finish the day."
-        )
+    was_ready = bool(partner_slot.get("ended_turn"))
     _apply_end_note(state, player, note)
     slot = player_slot(state, player)
     if waiting:
         slot["carry_home"] = True
     else:
         slot["carry_home"] = False
-    from hills import player_area, describe_where as describe_place_where, AREA_MINE
-    from mine import player_floor
-    here_area = player_area(state, player)
-    here_floor = player_floor(state, player) if here_area == AREA_MINE else None
-    here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
-    cap = max_energy(rules)
-    if can_reopen:
-        partner_slot["ended_turn"] = False
+    # Receiving the turn back clears a ready-to-end vote so they can act again.
+    partner_slot["ended_turn"] = False
+    if was_ready:
         partner_slot["carry_reopened"] = True
-        state["current_player"] = partner
-        msg = (
-            f"{display_name(player)} passes the turn {here} and waits to be carried home. "
-            f"{display_name(player)}'s day is not over. "
-            f"It is {display_name(partner)}'s turn to walk {display_name(player)} home, "
-            "or end the turn to leave them."
-        )
-        log_append(state, msg, player)
-        return True, msg
+    # Waiting to be carried is a silent flag. The partner sees "carry X to bed"
+    # when they stand on the same tile; it is not announced in the log or toast.
     state["current_player"] = partner
-    wait_bit = " and waits to be carried home" if waiting else ""
-    msg = (
-        f"{display_name(player)} passes the turn to {display_name(partner)} {here}{wait_bit}. "
-        f"{display_name(player)}'s day is not over. "
-        f"It is {display_name(partner)}'s turn, {player_slot(state, partner)['energy']}/{cap} energy."
-    )
+    msg = f"{display_name(player)} passes the turn to {display_name(partner)}."
     log_append(state, msg, player)
     return True, msg
 
@@ -3676,9 +3613,15 @@ def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: di
     item = prefer_available_stock(item, holders, crops, rules)
     price = item_sell_price(item, crops, rules)
     if price is None:
-        from inventory import is_forage_item
+        from inventory import is_forage_item, recipes, recipe_is_sellable
         if is_forage_item(item) or is_forage_item(normalize_item(str(kind))):
             return False, "The shop doesn't buy foraged goods."
+        recs = recipes(rules)
+        rec = recs.get(item)
+        if rec and not recipe_is_sellable(item, rec):
+            return False, (
+                "The shop only buys jam for now. Eat cooked meals, or keep them for later."
+            )
         known = ", ".join(crops.get("crops", {}))
         return False, f"Unknown or unsellable item {kind!r}. You can sell: {known}."
     count, err = _parse_count(n)
@@ -4020,6 +3963,301 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
     return notes
 
 
+
+_WEED_CREPT_RE = re.compile(r"^A small weed has crept in at .+\.$")
+_READY_PICK_RE = re.compile(r"^The (.+) at (.+) looks ready to pick\.$")
+_HILLS_FORAGE_MANY_RE = re.compile(r"^(\d+) (.+) sprouted in the hills\.$")
+_HILLS_FORAGE_ONE_RE = re.compile(r"^A (.+) sprouted in the hills\.$")
+_ROW_COL_RE = re.compile(r"row (\d+) col (\d+)")
+
+DAWN_SKY_SHORT = {
+    "sun": "sunny",
+    "cloud": "overcast",
+    "rain": "rainy",
+    "storm": "stormy",
+    "snow": "snowy",
+}
+
+
+def _place_tag(text: str) -> str:
+    """Turn 'bottom-left, row 3 col 1' or 'hills row 3 col 2' into r3c1 / hills r3c2."""
+    m = _ROW_COL_RE.search(text or "")
+    if not m:
+        return (text or "").strip()
+    tag = f"r{m.group(1)}c{m.group(2)}"
+    if "hills" in (text or "").lower():
+        return f"hills {tag}"
+    if "mine" in (text or "").lower():
+        return f"mine {tag}"
+    return tag
+
+
+def compact_dawn_event_notes(notes: list[str]) -> list[str]:
+    """Merge repeated weed lines and shorten dawn event notes for the status toast."""
+    weeds = 0
+    ready: list[tuple[str, str]] = []
+    hills_forage: dict[str, int] = {}
+    other: list[str] = []
+    for raw in notes:
+        note = (raw or "").strip()
+        if not note:
+            continue
+        if _WEED_CREPT_RE.match(note):
+            weeds += 1
+            continue
+        m = _READY_PICK_RE.match(note)
+        if m:
+            ready.append((m.group(1), _place_tag(m.group(2))))
+            continue
+        m = _HILLS_FORAGE_MANY_RE.match(note)
+        if m:
+            noun = m.group(2)
+            hills_forage[noun] = hills_forage.get(noun, 0) + int(m.group(1))
+            continue
+        m = _HILLS_FORAGE_ONE_RE.match(note)
+        if m:
+            noun = m.group(1)
+            hills_forage[noun] = hills_forage.get(noun, 0) + 1
+            continue
+        # Shorten common long notes; keep the rest, but collapse row/col wording.
+        brief = note
+        brief = re.sub(
+            r"A tree at hills row (\d+) col (\d+) has grown tall\.",
+            r"Tree grown tall at hills r\1c\2.",
+            brief,
+        )
+        brief = re.sub(
+            r"The (.+) at .+row (\d+) col (\d+).+ is now ([^.]+)\.",
+            lambda m: f"{m.group(1).capitalize()} {m.group(4)} at r{m.group(2)}c{m.group(3)}.",
+            brief,
+        )
+        other.append(brief)
+    bits: list[str] = []
+    if ready:
+        parts = []
+        for i, (kind, tag) in enumerate(ready):
+            label = kind.capitalize() if i == 0 else kind
+            if i == 0:
+                parts.append(f"{label} ready at {tag}")
+            else:
+                parts.append(f"{kind} at {tag}")
+        bits.append(", ".join(parts) + ".")
+    if weeds == 1:
+        bits.append("1 weed.")
+    elif weeds:
+        bits.append(f"{weeds} weeds.")
+    if hills_forage:
+        parts = []
+        for noun, n in hills_forage.items():
+            short = noun
+            if short.lower().startswith("wild "):
+                short = short[5:]
+            if n == 1 and short.endswith("s") and not short.endswith("ss"):
+                # "mushrooms" stays if the source already used singular "mushroom"
+                pass
+            label = f"hill {short}"
+            parts.append(f"{n} {label}" if n != 1 else f"1 {label}")
+        bits.append(", ".join(parts) + ".")
+    bits.extend(other)
+    return bits
+
+
+def compact_log_entries_for_look(entries: list[dict]) -> list[dict]:
+    """Merge consecutive same-day weed-crept-in log lines for the CLI look view."""
+    out: list[dict] = []
+    i = 0
+    while i < len(entries):
+        entry = entries[i] if isinstance(entries[i], dict) else {}
+        text = str(entry.get("text") or "").strip()
+        day = entry.get("day")
+        if _WEED_CREPT_RE.match(text):
+            n = 0
+            sample = entry
+            while i < len(entries):
+                nxt = entries[i] if isinstance(entries[i], dict) else {}
+                nt = str(nxt.get("text") or "").strip()
+                if nxt.get("day") != day or not _WEED_CREPT_RE.match(nt):
+                    break
+                n += 1
+                i += 1
+            merged = dict(sample)
+            merged["text"] = "A small weed has crept in." if n == 1 else f"{n} weeds crept in."
+            out.append(merged)
+            continue
+        out.append(entry)
+        i += 1
+    return out
+
+
+def player_ready_line(state: dict, player: str | None) -> str | None:
+    """Status line when a player has voted to end the day, or None."""
+    name = normalize_player(player)
+    if not name or not player_slot(state, name).get("ended_turn"):
+        return None
+    who = display_name(name)
+    if is_player_in_cabin(state, name):
+        return f"{who} is ready for bed"
+    return f"{who} is ready to end the day"
+
+
+def ready_status_lines(state: dict, rules: dict | None = None) -> list[str]:
+    """Ready-to-end lines for players who have voted and are waiting."""
+    current = normalize_player(state.get("current_player"))
+    lines = []
+    for name in known_players():
+        if name == current:
+            continue
+        line = player_ready_line(state, name)
+        if line:
+            lines.append(line + ".")
+    return lines
+
+
+def viewer_status_banner(
+    state: dict,
+    viewer: str | None,
+    crops: dict | None = None,
+    rules: dict | None = None,
+) -> str:
+    """Short green-banner text for the web UI.
+
+    Built from the current turn, the partner's ready-to-end vote, their latest
+    note, and log events since the viewer's last action — not from a stale
+    client-side toast.
+    """
+    rules = rules or load_rules()
+    viewer = normalize_player(viewer)
+    current = normalize_player(state.get("current_player"))
+    partner = other_player(viewer, rules) if viewer else None
+    parts: list[str] = []
+
+    note = state.get("last_note") or {}
+    if isinstance(note, dict):
+        src = normalize_player(note.get("from"))
+        text = str(note.get("text") or "").strip()
+        if text and src and src != viewer:
+            parts.append(f"{display_name(src)}: {text}")
+
+    if partner:
+        ready = player_ready_line(state, partner)
+        if ready:
+            parts.append(ready + ".")
+
+    if viewer and current == viewer and not any("is ready" in p for p in parts):
+        # If the partner handed the turn back without ending, mention the pass.
+        log = state.get("log") or []
+        last_me = -1
+        for i, entry in enumerate(log):
+            if isinstance(entry, dict) and normalize_player(entry.get("player")) == viewer:
+                last_me = i
+        for entry in log[last_me + 1 :]:
+            text = str((entry or {}).get("text") or "").strip()
+            low = text.lower()
+            if "passes the turn" in low or "carries " in low and "into bed" in low:
+                if not text.endswith("."):
+                    text += "."
+                parts.append(text)
+                break
+
+    if viewer and current == viewer:
+        parts.append("Your turn.")
+    elif current:
+        parts.append(f"It is {display_name(current)}'s turn.")
+    return " ".join(parts)
+
+
+def format_dawn_status(
+    state: dict,
+    crops: dict,
+    rules: dict | None,
+    notes: list[str],
+    rest: list[dict],
+    viewer: str | None,
+) -> str:
+    """Concise green-status / CLI summary after the day turns. Full detail stays in the log."""
+    rules = rules or load_rules()
+    d = int(state.get("day") or 1)
+    season = state.get("season") or season_for_day(d, crops)
+    within = day_in_season(d, crops)
+    total = days_per_season(crops)
+    sky = DAWN_SKY_SHORT.get(state.get("weather"), state.get("weather") or "")
+    parts = [f"Day {d} · {season} {within}/{total} · {sky}."]
+    parts.extend(compact_dawn_event_notes(notes))
+    viewer_key = normalize_player(viewer)
+    rest_bits = []
+    for item in rest:
+        name = normalize_player(item.get("player"))
+        energy = int(item.get("energy") or 0)
+        you = bool(viewer_key and name == viewer_key)
+        who = "You" if you else display_name(name)
+        if item.get("in_cabin"):
+            if you:
+                rest_bits.append(f"You: {energy}.")
+            else:
+                rest_bits.append(f"{display_name(name)}: {energy}.")
+        elif item.get("in_mine"):
+            rest_bits.append(f"{who} passed out in the mine ({energy} energy).")
+        else:
+            rest_bits.append(f"{who} passed out ({energy} energy).")
+    parts.extend(rest_bits)
+    current = normalize_player(state.get("current_player"))
+    if viewer_key and current == viewer_key:
+        parts.append("Your turn.")
+    elif current:
+        parts.append(f"It is {display_name(current)}'s turn.")
+    return " ".join(part for part in parts if part)
+
+
+def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
+    """Sleep / pass-out notes for the log, captured before wake positions change."""
+    from hills import player_area, describe_where as describe_place_where, AREA_MINE
+    from mine import player_floor, wake_place_after_mine_passout
+
+    next_season_changed = False
+    nxt_day = int(state.get("day") or 1) + 1
+    next_season_changed = season_for_day(nxt_day, crops) != (state.get("season") or "spring")
+    out: list[dict] = []
+    for name in known_players():
+        area = player_area(state, name)
+        prow, pcol = player_where(state, name)
+        floor = player_floor(state, name) if area == AREA_MINE else None
+        where = describe_place_where(area, prow, pcol, floor=floor)
+        in_cabin = is_player_in_cabin(state, name)
+        in_mine = area == AREA_MINE
+        if in_cabin:
+            energy = preview_wake_energy(state, name, rules)
+            note = cabin_sleep_note(
+                name,
+                energy,
+                cabin_fire_will_burn(state, rules),
+                player_ate_today(state, name, rules),
+                together_rest_applies(state, rules),
+            )
+        elif in_mine:
+            energy = pass_out_energy(rules)
+            wake_area, wr, wc, wfloor = wake_place_after_mine_passout(
+                state, rules, season_changed=next_season_changed
+            )
+            wake_at = describe_place_where(wake_area, wr, wc, floor=wfloor)
+            note = (
+                f"{display_name(name)} passed out in the mine and wakes {wake_at} "
+                f"with {energy} energy."
+            )
+        else:
+            energy = pass_out_energy(rules)
+            note = (
+                f"{display_name(name)} passed out {where} and wakes with {energy} energy."
+            )
+        out.append({
+            "player": name,
+            "in_cabin": in_cabin,
+            "in_mine": in_mine,
+            "energy": energy,
+            "note": note,
+        })
+    return out
+
+
 def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bool, str]:
     """Apply evening growth and dawn the next day. Used when both players end their turn."""
     rules = rules or load_rules()
@@ -4050,6 +4288,18 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
     ensure_hills(state, rules)
     notes.extend(tick_hills(state, rules))
 
+    header, notes = _dawn_header_and_log(state, crops, notes, log=True)
+    return True, " ".join([header] + notes)
+
+
+def _dawn_header_and_log(
+    state: dict,
+    crops: dict,
+    notes: list[str],
+    *,
+    log: bool = True,
+) -> tuple[str, list[str]]:
+    """Build the verbose dawn header, and optionally write full detail to the log."""
     season = state["season"]
     d = state["day"]
     within = day_in_season(d, crops)
@@ -4062,12 +4312,11 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
         "snow": "a snowy morning",
     }.get(state["weather"], state["weather"])
     header = f"Day {d} dawns, {season} (day {within} of {total}), {sky}."
-    parts = [header] + notes
-    msg = " ".join(parts)
-    log_append(state, header)
-    for note in notes:
-        log_append(state, note)
-    return True, msg
+    if log:
+        log_append(state, header)
+        for note in notes:
+            log_append(state, note)
+    return header, notes
 
 
 def sleep(state: dict, crops: dict, rules: dict | None = None) -> tuple[bool, str]:
@@ -4627,6 +4876,68 @@ def recipe_ingredients_met(rec: dict, counts: dict[str, int]) -> bool:
     return True
 
 
+def pack_item_counts(state: dict, player: str | None, rules: dict | None = None) -> dict[str, int]:
+    """Item counts in one player's backpack only."""
+    from inventory import pack_of
+    if not player:
+        return {}
+    rules = rules or load_rules()
+    return dict(_counts_by_item(pack_of(state, player, rules)))
+
+
+def recipe_ingredient_rows(
+    rec: dict,
+    counts: dict[str, int],
+    crops: dict | None = None,
+    rules: dict | None = None,
+) -> list[dict]:
+    """Have/need rows for a recipe, counted from the given inventory (usually the pack)."""
+    from inventory import recipe_ingredients, item_name, JAM_BERRY_ITEMS, SOUP_MUSHROOM_ITEMS
+    rows: list[dict] = []
+    berry_need = int(rec.get("berries") or 0)
+    for item, n in recipe_ingredients(rec):
+        need = int(n)
+        if item == "strawberry" and berry_need:
+            have = sum(int(counts.get(b, 0) or 0) for b in JAM_BERRY_ITEMS)
+            label = "a berry (strawberries or wild berries)" if need == 1 else f"{need} berries (strawberries or wild berries)"
+            rows.append({"item": "berry", "need": need, "have": have, "label": label})
+            continue
+        if item in SOUP_MUSHROOM_ITEMS:
+            have = sum(int(counts.get(m, 0) or 0) for m in SOUP_MUSHROOM_ITEMS)
+            label = "a mushroom (wild or oyster)" if need == 1 else f"{need} mushrooms (wild or oyster)"
+            rows.append({"item": "mushroom", "need": need, "have": have, "label": label})
+            continue
+        have = int(counts.get(item, 0) or 0)
+        label = item_name(item, need, crops, rules)
+        rows.append({"item": item, "need": need, "have": have, "label": label})
+    return rows
+
+
+def format_ingredient_have_need(rows: list[dict]) -> str:
+    bits = []
+    for row in rows:
+        bits.append(f"{row['label']} {int(row['have'])}/{int(row['need'])}")
+    return ", ".join(bits)
+
+
+def recipe_missing_from_pack(
+    state: dict,
+    rec: dict,
+    player: str | None,
+    rules: dict | None = None,
+    crops: dict | None = None,
+) -> list[str]:
+    """Labels for ingredients still needed in the backpack."""
+    rows = recipe_ingredient_rows(rec, pack_item_counts(state, player, rules), crops, rules)
+    missing = []
+    for row in rows:
+        short = max(0, int(row["need"]) - int(row["have"]))
+        if short:
+            # Re-label with the shortfall count when possible.
+            missing.append(row["label"] if int(row["have"]) == 0 else f"{short} more for {row['label']}")
+    return missing
+
+
 def recipe_is_craftable(
     state: dict,
     rec_id: str,
@@ -4634,18 +4945,12 @@ def recipe_is_craftable(
     rules: dict | None = None,
     crops: dict | None = None,
 ) -> bool:
-    from inventory import recipes, pack_of, chest_of, stack_count
+    from inventory import recipes
     rules = rules or load_rules()
     rec = recipes(rules).get(rec_id)
-    if not rec:
+    if not rec or not player:
         return False
-    counts: dict[str, int] = {}
-    if player:
-        for item, n in _counts_by_item(pack_of(state, player, rules)).items():
-            counts[item] = counts.get(item, 0) + n
-    for item, n in _counts_by_item(chest_of(state, rules)).items():
-        counts[item] = counts.get(item, 0) + n
-    return recipe_ingredients_met(rec, counts)
+    return recipe_ingredients_met(rec, pack_item_counts(state, player, rules))
 
 
 def discovered_recipe_ids(state: dict, rules: dict | None = None) -> list[str]:
@@ -4720,17 +5025,10 @@ def format_recipe_book(
     for rec_id in found:
         rec = recs.get(rec_id) or {}
         name = rec.get("name") or rec_id.replace("_", " ")
-        bits = []
-        for item, n in recipe_ingredients(rec):
-            if item == "strawberry" and int(rec.get("berries") or 0):
-                noun = "berry" if n == 1 else "berries"
-                bits.append(f"{n} {noun} (strawberries or wild berries)")
-            elif item in ("wild_mushroom", "oyster_mushroom"):
-                bits.append(f"{n} mushroom (wild or oyster)" if n != 1 else "a mushroom (wild or oyster)")
-            else:
-                bits.append(item_name(item, n, crops, rules))
-        ings = ", ".join(bits) if bits else "no extra ingredients"
-        sell = rec.get("sell_price")
+        rows = recipe_ingredient_rows(rec, pack_item_counts(state, player, rules), crops, rules)
+        ings = format_ingredient_have_need(rows) if rows else "no extra ingredients"
+        from inventory import recipe_is_sellable
+        sell = rec.get("sell_price") if recipe_is_sellable(rec_id, rec) else None
         eat = rec.get("eat_energy")
         extra = []
         if sell is not None:
@@ -4739,17 +5037,20 @@ def format_recipe_book(
             extra.append(f"eat +{int(eat)} energy")
         tail = f" ({'; '.join(extra)})" if extra else ""
         ready = ""
-        if player and player_at_cabin_tile(state, player, "kitchen"):
+        missing = [row for row in rows if int(row["have"]) < int(row["need"])]
+        if missing:
+            ready = " Missing from the backpack — take them from the chest first."
+        elif player and player_at_cabin_tile(state, player, "kitchen"):
             if not stove_is_fueled(state):
                 ready = " The stove needs wood first."
-            elif recipe_is_craftable(state, rec_id, player, rules, crops):
+            else:
                 ready = " Ready to cook."
         lines.append(f"  {name}: {ings}.{tail}{ready}")
     return "\n".join(lines) + "\n"
 
 
 def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
-    """Cook a recipe at the cabin, using pack first, then the chest."""
+    """Cook a recipe at the kitchen, using ingredients from the backpack only."""
     from inventory import (
         recipes,
         normalize_item,
@@ -4782,56 +5083,73 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
         return False, f"Unknown recipe {recipe!r}. You can craft: {names}."
     if key not in discovered_recipe_ids(state, rules):
         return False, f"You haven't found that recipe yet."
-    # Check ingredients (pack + chest).
+    # Ingredients must be in the backpack. The chest is not drawn from
+    # (a later pantry upgrade will sit beside the stove for that).
+    name = rec.get("name") or key.replace("_", " ")
+    missing = recipe_missing_from_pack(state, rec, player, rules, crops)
+    if missing:
+        listed = ", ".join(missing)
+        pronoun = "it" if len(missing) == 1 else "them"
+        return False, (
+            f"Can't cook {name}. Missing from the backpack: {listed}. "
+            f"Take {pronoun} from the chest first."
+        )
     needed = dict(rec.get("ingredients") or {})
     berry_need = int(rec.get("berries") or 0)
-    from inventory import SOUP_MUSHROOM_ITEMS
+    from inventory import SOUP_MUSHROOM_ITEMS, JAM_BERRY_ITEMS, add_to_pack
     mushroom_need = 0
     for raw in list(needed):
         item = normalize_item(raw) or raw
         if item in SOUP_MUSHROOM_ITEMS:
             mushroom_need += int(needed.pop(raw))
-    def available(item):
-        return stack_count(pack_of(state, player, rules), item) + stack_count(chest_of(state, rules), item)
+    taken: list[tuple[str, int]] = []
+
+    def take(item: str, n: int) -> int:
+        got = take_available(state, item, int(n), player, pack_only=True, rules=rules)
+        if got:
+            taken.append((item, got))
+        return got
+
+    def restore_taken() -> None:
+        for item, n in reversed(taken):
+            add_to_pack(state, player, item, n, rules)
+        taken.clear()
+        sync_inventory_view(state, rules)
+
     for item, n in needed.items():
         item = normalize_item(item) or item
-        if available(item) < int(n):
-            return False, f"Not enough {item_name(item, int(n), crops, rules)} to craft {rec.get('name') or key}."
-    if berry_need:
-        from inventory import JAM_BERRY_ITEMS
-        berries = sum(available(b) for b in JAM_BERRY_ITEMS)
-        if berries < berry_need:
-            return False, f"Not enough berries. {rec.get('name') or key} needs {berry_need}."
-    if mushroom_need:
-        mushrooms = sum(available(m) for m in SOUP_MUSHROOM_ITEMS)
-        if mushrooms < mushroom_need:
+        if take(item, int(n)) < int(n):
+            restore_taken()
             return False, (
-                f"Not enough mushrooms. {rec.get('name') or key} needs "
-                f"{mushroom_need} (wild or oyster)."
+                f"Can't cook {name}. Missing from the backpack: {item_name(item, int(n), crops, rules)}. "
+                "Take them from the chest first."
             )
-    # Consume.
-    for item, n in needed.items():
-        item = normalize_item(item) or item
-        take_available(state, item, int(n), player, pack_only=False, rules=rules)
     if berry_need:
-        from inventory import JAM_BERRY_ITEMS
         left = berry_need
         for berry in JAM_BERRY_ITEMS:
             if left <= 0:
                 break
-            got = take_available(state, berry, left, player, pack_only=False, rules=rules)
-            left -= got
+            left -= take(berry, left)
         if left > 0:
-            return False, "Not enough berries."
+            restore_taken()
+            return False, (
+                f"Can't cook {name}. Missing from the backpack: "
+                f"{berry_need} berries (strawberries or wild berries). "
+                "Take them from the chest first."
+            )
     if mushroom_need:
         left = mushroom_need
         for mushroom in SOUP_MUSHROOM_ITEMS:
             if left <= 0:
                 break
-            got = take_available(state, mushroom, left, player, pack_only=False, rules=rules)
-            left -= got
+            left -= take(mushroom, left)
         if left > 0:
-            return False, "Not enough mushrooms."
+            restore_taken()
+            return False, (
+                f"Can't cook {name}. Missing from the backpack: "
+                f"{mushroom_need} mushrooms (wild or oyster). "
+                "Take them from the chest first."
+            )
     # Result.
     leftover = store_item(state, key, 1, player, prefer="pack", rules=rules)
     where = "the chest" if leftover or not pack_space_for(state, player, key, 1, rules) else "the pack"
@@ -5144,14 +5462,9 @@ def legal_actions(
                     actions.append("drink herbal_tea chest")
     actions.append("end turn")
     partner = other_player(actor, rules)
-    partner_ended = bool(partner and player_slot(state, partner).get("ended_turn"))
-    can_pass = not partner_ended
-    if partner_ended and actor and not is_player_in_cabin(state, actor):
-        # Away from the cabin, a pass asks for a walk home and can reopen
-        # the partner once if they already ended.
-        if partner and not player_slot(state, partner).get("carry_reopened"):
-            can_pass = True
-    if can_pass:
+    if partner:
+        # Pass is always allowed, including when the partner is ready to end
+        # the day: that hands the turn back and clears their ready vote.
         actions.append("pass turn")
     if partner and player_requested_carry(state, partner) and not is_player_in_cabin(state, partner):
         from hills import player_area
@@ -5159,7 +5472,7 @@ def legal_actions(
             places, cost = carry_home_path(state, actor, rules)
             energy = int(player_slot(state, actor)["energy"])
             if places is not None and energy >= cost:
-                actions.append(f"walk {display_name(partner)} home")
+                actions.append(f"carry {display_name(partner)} to bed")
     return actions
 
 
@@ -5544,17 +5857,15 @@ def action_descriptor(
         faint = pass_out_energy(rules)
         if actor and is_player_in_cabin(state, actor):
             cap = preview_wake_energy(state, actor, rules)
-            desc = f"sleep in cabin, {cap} energy tomorrow"
+            desc = f"ready for bed, {cap} energy tomorrow; day turns when both are ready"
             if together_rest_applies(state, rules):
                 desc += ", sleeping close tonight"
             return desc
-        return f"pass out, {faint} energy"
+        return f"ready to end the day (pass out, {faint} energy); day turns when both are ready"
     if verb == "pass":
         partner = other_player(actor, rules) if actor else None
         who = display_name(partner) if partner else "the other player"
-        if actor and not is_player_in_cabin(state, actor):
-            return f"hand the turn to {who} and wait to be carried home; your day is not over"
-        return f"hand the turn to {who}; your day is not over"
+        return f"hand the turn to {who}"
     is_wh, who_raw = parse_walk_home_command(command)
     if is_wh:
         passenger = resolve_player_name(who_raw) if who_raw else None
@@ -5562,9 +5873,9 @@ def action_descriptor(
         if actor:
             places, cost = carry_home_path(state, actor, rules)
             if places is None:
-                return f"carry {name} to the cabin, double movement"
-            return f"carry {name} to the cabin, double movement, {_energy_word(cost)}"
-        return f"carry {name} to the cabin, double movement"
+                return f"carry {name} to bed, double movement"
+            return f"carry {name} to bed, double movement, {_energy_word(cost)}"
+        return f"carry {name} to bed, double movement"
     return ""
 
 
@@ -5619,7 +5930,7 @@ def do_action(
     if verb == "sleep":
         return (
             False,
-            "The day advances when both players have ended their turn. Use: end turn",
+            "The day advances when both players are ready to end the turn. Use: end turn",
         )
     if verb in {"new", "reset"}:
         return False, 'To start a new farm, run: python3 cli.py new "Farm name"'

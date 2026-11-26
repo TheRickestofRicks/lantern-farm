@@ -44,6 +44,8 @@ from engine import (
     players_at,
     position_name,
     sleep_outlook,
+    ready_status_lines,
+    compact_log_entries_for_look,
     stage_label,
     till_hold_phrase,
     weather_forecast,
@@ -470,8 +472,7 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
         slot = player_slot(state, name)
         energy = int(slot.get("energy", 0))
         hp, cap_hp = player_hp(state, name, rules)
-        ended = " (ended turn)" if slot.get("ended_turn") and name != current else ""
-        bits.append(f"{display_name(name)} {energy}/{cap} energy, {hp}/{cap_hp} HP{ended}")
+        bits.append(f"{display_name(name)} {energy}/{cap} energy, {hp}/{cap_hp} HP")
     lines = [
         flavor("title_line") or "Lantern Farm  🏮",
         f"Day {day}  ·  {season.capitalize()} (day {within} of {total})  ·  "
@@ -484,6 +485,7 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
         places.append(f"{display_name(name)} is {describe_area_where(player_area(state, name), prow, pcol)}")
     if places:
         lines.append(", ".join(places) + ".")
+    lines.extend(ready_status_lines(state))
     if current:
         lines.append(sleep_outlook(state, current) + ".")
     if viewer:
@@ -586,7 +588,7 @@ def describe_state(
     if log:
         lines.append("")
         lines.append("Recent log:")
-        for entry in log[-8:]:
+        for entry in compact_log_entries_for_look(log[-8:]):
             lines.append(f"  [day {entry.get('day', '?')}] {entry.get('text', '')}")
 
     lines.append("")
@@ -631,7 +633,8 @@ def describe_state(
         "tilled empty plot. Staples stay year-round, including herbal tea (drink one a day "
         "for +10 energy tomorrow if you sleep in the cabin). "
         "Till, plant, and water cost energy (see rules.json); crafting at the kitchen costs 5. Harvest, buy, sell, take, drop, and eat are free. "
-        "The day advances when both players have ended their turn."
+        "The day advances when both players are ready to end the turn. "
+        "A player who is ready can still take the turn back if the other player passes."
     )
     return "\n".join(lines) + "\n"
 

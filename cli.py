@@ -50,7 +50,7 @@ Actions:
   chop                    (on a grown tree in the hills; axe in the backpack)
   forage                  (on a forage tile in the hills)
   eat <crop>
-  pass turn               (hand the turn over; your day is not over. Away from the cabin, you wait to be walked home)
+  pass turn               (hand the turn over; your day is not over)
   buy <kind> <count>      (at the cabin)
   sell <kind> <count>     (at the cabin, from backpack or chest)
   take <item> [count]     (chest to backpack, at the cabin; count or all)

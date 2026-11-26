@@ -38,6 +38,7 @@ from engine import (
     normalize_player,
     session,
     sleep_outlook,
+    viewer_status_banner,
     energy_cost,
     weather_forecast,
 )
@@ -288,7 +289,7 @@ PAGE = r"""<!DOCTYPE html>
     .status .stat.energy.over-max b { color: var(--gold2); }
     .gold { color: var(--gold); }
     .turn { color: var(--gold2); }
-    .ended { opacity: 0.7; font-size: 0.95em; }
+    .ended, .ready { opacity: 0.85; font-size: 0.95em; }
     .playing-as { width: 100%; color: var(--muted); font-size: 0.95rem; }
     main {
       flex: 1 1 auto;
@@ -1907,13 +1908,15 @@ PAGE = r"""<!DOCTYPE html>
         const over = en > capBase;
         const capHp = data.max_hp || 100;
         const hpPair = (data.hp && data.hp[name]) || [slot.hp != null ? slot.hp : capHp, slot.hp_max || capHp];
-        const ended = slot.ended_turn && name !== current ? " <span class='ended'>(ended)</span>" : "";
+        const readyBit = (data.ready_labels && data.ready_labels[name])
+          ? " <span class='ready'>" + data.ready_labels[name] + "</span>"
+          : "";
         return displayName(name)
           + " <span class='stat energy" + (over ? " over-max" : "") + "' title='Energy' aria-label='Energy " + en + " of " + capBase + "'>"
           + energyIcon() + "<b>" + en + "/" + capBase + "</b></span>"
           + " <span class='stat hp' title='HP' aria-label='HP " + hpPair[0] + " of " + hpPair[1] + "'>"
           + hpIcon() + "<b>" + hpPair[0] + "/" + hpPair[1] + "</b></span>"
-          + ended;
+          + readyBit;
       }
       const energyBits = PLAYERS.map(function (p) { return "<span>" + energyBit(p.id) + "</span>"; }).join("");
       const placeBits = PLAYERS.map(function (p) {
@@ -1950,9 +1953,9 @@ PAGE = r"""<!DOCTYPE html>
         if (!data.your_turn) {
           endBtn.textContent = "Waiting for " + displayName(current);
         } else if (data.in_cabin) {
-          endBtn.textContent = "Sleep in the cabin";
+          endBtn.textContent = "Ready for bed";
         } else {
-          endBtn.textContent = "End turn (you'll pass out)";
+          endBtn.textContent = "Ready to end the day";
         }
       }
       const actions = data.actions || [];
@@ -1966,7 +1969,7 @@ PAGE = r"""<!DOCTYPE html>
       if (walkHomeBtn) {
         let walkCmd = null;
         for (let i = 0; i < actions.length; i++) {
-          if (/^walk .+ home$/.test(actions[i])) { walkCmd = actions[i]; break; }
+          if (/^carry .+ to bed$/.test(actions[i]) || /^walk .+ home$/.test(actions[i])) { walkCmd = actions[i]; break; }
         }
         if (walkCmd && data.your_turn) {
           walkHomeBtn.hidden = false;
@@ -2128,7 +2131,7 @@ PAGE = r"""<!DOCTYPE html>
         return label + " (" + hint + ")";
       }
       function hotkeyForAction(act) {
-        if (act === "enter cabin" || act === "leave cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace") return "E";
+        if (act === "enter cabin" || act === "leave cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace" || act === "fuel stove") return "E";
         if (act === "mine") return "M";
         if (act === "rest") return "R";
         return "";
@@ -2894,27 +2897,27 @@ PAGE = r"""<!DOCTYPE html>
         btn.addEventListener("click", function () { actCmd(cmd); });
         btns.appendChild(btn);
       }
-      if (opts.take) {
-        if (count <= 1) addBtn("Take", "take " + slot.item + " 1", atChest);
+      if (opts.take && atChest) {
+        if (count <= 1) addBtn("Take", "take " + slot.item + " 1", true);
         else {
-          addBtn("Take 1", "take " + slot.item + " 1", atChest);
-          addBtn("Take all", "take " + slot.item + " all", atChest);
+          addBtn("Take 1", "take " + slot.item + " 1", true);
+          addBtn("Take all", "take " + slot.item + " all", true);
         }
       }
-      if (opts.drop) {
-        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1", atChest);
+      if (opts.drop && atChest) {
+        if (count <= 1) addBtn("Drop", "drop " + slot.item + " 1", true);
         else {
-          addBtn("Drop 1", "drop " + slot.item + " 1", atChest);
-          addBtn("Drop all", "drop " + slot.item + " all", atChest);
+          addBtn("Drop 1", "drop " + slot.item + " 1", true);
+          addBtn("Drop all", "drop " + slot.item + " all", true);
         }
       }
       const rec = recipeInfo(slot.item, opts.data);
       const crops = (opts.data && opts.data.crops) || {};
       const crop = crops[slot.item];
       const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
-      const sellPrice = (rec && rec.sell_price) || (crop && crop.sell_price) || named.sell_price;
-      if (sellPrice) {
-        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", atCabin);
+      const sellPrice = named.sell_price || (crop && crop.sell_price) || (rec && rec.sellable && rec.sell_price);
+      if (sellPrice && atCabin) {
+        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", true);
       }
       const energy = snackEnergy(slot.item, opts.data);
       if (energy) {
@@ -2923,26 +2926,38 @@ PAGE = r"""<!DOCTYPE html>
         const haveE = (me.energy != null) ? me.energy : 0;
         const foodCap = (opts.data && opts.data.base_energy != null && opts.data.base_energy > 0)
           ? opts.data.base_energy : 100;
-        const canEat = haveE < foodCap && (opts.take ? atChest : yourTurn);
-        addBtn("Eat (+" + energy + ")", eatCmd, canEat);
+        if (opts.take) {
+          if (atChest && haveE < foodCap) addBtn("Eat (+" + energy + ")", eatCmd, true);
+        } else if (yourTurn) {
+          addBtn("Eat (+" + energy + ")", eatCmd, haveE < foodCap);
+        }
       }
       if (slot.item === "herbal_tea") {
         const me = (opts.data && opts.data.players && opts.data.players[PLAYER]) || {};
         const drank = !!me.herbal_tea;
-        const drinkCmd = opts.take ? "drink herbal_tea chest" : "drink herbal_tea";
-        addBtn("Drink (+10 tomorrow)", drinkCmd, !drank && (opts.take ? atChest : yourTurn));
+        if (opts.take) {
+          if (atChest && !drank) addBtn("Drink (+10 tomorrow)", "drink herbal_tea chest", true);
+        } else if (yourTurn) {
+          addBtn("Drink (+10 tomorrow)", "drink herbal_tea", !drank);
+        }
       }
-      if (slot.item === "wood" && opts.data && (opts.data.in_cabin || opts.data.at_fireplace)) {
+      // Fuel actions are pack-only and only appear on the matching cabin tile,
+      // never as a greyed-out placeholder.
+      if (slot.item === "wood" && opts.drop && opts.data && opts.data.your_turn) {
         const viewers = (opts.data.players || {});
         const me = viewers[PLAYER] || {};
         const haveE = (me.energy != null) ? me.energy : 0;
-        const cost = (opts.data.fuel_fireplace_energy != null) ? opts.data.fuel_fireplace_energy : 5;
-        const fueled = !!opts.data.fireplace_fueled;
-        addBtn(
-          fueled ? "Fireplace fueled" : ("Fuel fireplace (" + cost + " energy)"),
-          "fuel fireplace",
-          !fueled && atFire && haveE >= cost
-        );
+        if (opts.data.at_fireplace) {
+          const cost = (opts.data.fuel_fireplace_energy != null) ? opts.data.fuel_fireplace_energy : 5;
+          if (!opts.data.fireplace_fueled && haveE >= cost) {
+            addBtn("Fuel fireplace (" + cost + " energy)", "fuel fireplace", true);
+          }
+        } else if (opts.data.at_kitchen) {
+          const cost = (opts.data.fuel_stove_energy != null) ? opts.data.fuel_stove_energy : 5;
+          if (!opts.data.stove_fueled && haveE >= cost) {
+            addBtn("Fuel stove (" + cost + " energy)", "fuel stove", true);
+          }
+        }
       }
       if (btns.childNodes.length) body.appendChild(btns);
       row.appendChild(body);
@@ -3008,6 +3023,12 @@ PAGE = r"""<!DOCTYPE html>
         if (entry.eat_energy) bits.push("eat +" + entry.eat_energy + " energy");
         meta.textContent = bits.join(" · ");
         row.appendChild(meta);
+        if (entry.missing) {
+          const need = document.createElement("div");
+          need.className = "recipe-meta";
+          need.textContent = "Missing from the backpack — take them from the chest first.";
+          row.appendChild(need);
+        }
         if (entry.description) {
           const desc = document.createElement("div");
           desc.className = "recipe-meta";
@@ -3223,6 +3244,10 @@ PAGE = r"""<!DOCTYPE html>
         const sig = JSON.stringify(data.state);
         if (sig !== lastSig) {
           lastSig = sig;
+          pendingNoteAction = "end";
+          if (Object.prototype.hasOwnProperty.call(data, "banner")) {
+            showToast(data.banner || "", true);
+          }
           try {
             render(data);
           } catch (err) {
@@ -3269,13 +3294,22 @@ PAGE = r"""<!DOCTYPE html>
       actCmd(endTurnCommand());
     }
 
-    function submitNoteAction() {
+    function submitPassTurn() {
       if (!needTurn()) return;
-      const action = pendingNoteAction || "end";
       endConfirm = false;
       plantPick = null;
-      if (action === "pass") actCmd(passTurnCommand());
-      else actCmd(endTurnCommand());
+      pendingNoteAction = "end";
+      actCmd(passTurnCommand());
+    }
+
+    function submitNoteAction() {
+      // Enter in the note field is always End turn — the primary action.
+      // Pass is only triggered by the Pass turn button (which includes any note).
+      if (!needTurn()) return;
+      endConfirm = false;
+      plantPick = null;
+      pendingNoteAction = "end";
+      actCmd(endTurnCommand());
     }
 
     $("end-turn").addEventListener("click", function () {
@@ -3284,7 +3318,7 @@ PAGE = r"""<!DOCTYPE html>
     const passTurnBtn = $("pass-turn");
     if (passTurnBtn) {
       passTurnBtn.addEventListener("click", function () {
-        focusNoteBox("pass");
+        submitPassTurn();
       });
     }
     const walkHomeBtn = $("walk-home");
@@ -3581,13 +3615,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       endConfirm = false;
       box.focus();
-      if (pendingNoteAction === "pass") {
-        showToast("Add a note if you like, then press Enter to pass the turn.", true);
-      } else if (pendingNoteAction === "pass home") {
-        showToast("Add a note if you like, then press Enter to pass and wait to be carried home.", true);
-      } else {
-        showToast("Add a note if you like, then press Enter to end your turn.", true);
-      }
+      showToast("Add a note if you like, then press Enter to end your turn.", true);
     }
 
     function requestEndTurn(immediate) {
@@ -3871,7 +3899,8 @@ PAGE = r"""<!DOCTYPE html>
           "climb down",
           "climb up",
           "leave mine",
-          "fuel fireplace"
+          "fuel fireplace",
+          "fuel stove"
         ]);
         if (interact) {
           unearthConfirm = false;
@@ -4043,10 +4072,10 @@ def _item_name_catalog(crops: dict, rules: dict | None = None, state: dict | Non
 
 def _recipe_catalog(rules: dict | None = None) -> dict:
     """Crafted foods the UI can sell or eat from a backpack or chest row."""
-    from inventory import recipes
+    from inventory import recipes, recipe_is_sellable
     out = {}
     for item, rec in recipes(rules).items():
-        sell = rec.get("sell_price")
+        sell = rec.get("sell_price") if recipe_is_sellable(item, rec) else None
         eat = rec.get("eat_energy")
         try:
             sell = int(sell) if sell is not None else None
@@ -4116,11 +4145,14 @@ def _staple_catalog(rules: dict | None = None) -> dict:
 
 
 def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: str | None) -> list[dict]:
-    from inventory import recipes, recipe_ingredients, item_name
+    from inventory import recipes, recipe_is_sellable
     from engine import (
         ensure_discovered_recipes,
         discovered_recipe_ids,
         recipe_is_craftable,
+        pack_item_counts,
+        recipe_ingredient_rows,
+        format_ingredient_have_need,
         is_player_in_cabin,
     )
     ensure_discovered_recipes(state, rules)
@@ -4128,15 +4160,11 @@ def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: s
     out = []
     from cabin import player_at_cabin_tile
     at_kitchen = bool(player and player_at_cabin_tile(state, player, "kitchen"))
+    pack_counts = pack_item_counts(state, player, rules)
     for rec_id in discovered_recipe_ids(state, rules):
         rec = recs.get(rec_id) or {}
-        bits = []
-        for item, n in recipe_ingredients(rec):
-            if item == "strawberry" and int(rec.get("berries") or 0):
-                bits.append(("1 strawberry (any kind)" if n == 1 else f"{n} strawberries (any kind)"))
-            else:
-                bits.append(item_name(item, n, crops, rules))
-        sell = rec.get("sell_price")
+        rows = recipe_ingredient_rows(rec, pack_counts, crops, rules)
+        sell = rec.get("sell_price") if recipe_is_sellable(rec_id, rec) else None
         eat = rec.get("eat_energy")
         try:
             sell = int(sell) if sell is not None else None
@@ -4146,13 +4174,16 @@ def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: s
             eat = int(eat) if eat is not None else None
         except (TypeError, ValueError):
             eat = None
+        missing = [row for row in rows if int(row["have"]) < int(row["need"])]
         out.append({
             "id": rec_id,
             "name": rec.get("name") or rec_id.replace("_", " "),
-            "ingredients_text": ", ".join(bits),
+            "ingredients_text": format_ingredient_have_need(rows),
+            "ingredients": rows,
             "description": rec.get("description") or "",
             "sell_price": sell,
             "eat_energy": eat,
+            "missing": bool(missing),
             "craftable": at_kitchen and stove_is_fueled(state) and recipe_is_craftable(state, rec_id, player, rules, crops),
         })
     return out
@@ -4245,6 +4276,23 @@ def _payload_view_tiles(view_tiles, crops: dict):
     return rows
 
 
+def ready_labels_for(state: dict) -> dict:
+    """Map player id -> short ready label for the HUD, omitting the current player."""
+    from engine import player_ready_line, normalize_player, known_players
+    from config import display_name
+    current = normalize_player(state.get("current_player"))
+    labels = {}
+    for name in known_players():
+        if name == current:
+            continue
+        line = player_ready_line(state, name)
+        if not line:
+            continue
+        prefix = display_name(name) + " "
+        labels[name] = line[len(prefix):] if line.startswith(prefix) else line
+    return labels
+
+
 def api_payload(
     state: dict,
     crops: dict,
@@ -4296,6 +4344,7 @@ def api_payload(
     return {
         "ok": ok,
         "message": message,
+        "banner": viewer_status_banner(state, viewer, crops, rules),
         "state": state,
         "sprites": sprites,
         "view_area": view_area,
@@ -4328,6 +4377,7 @@ def api_payload(
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
         "in_cabin_interior": bool(viewer and player_area(state, viewer) == AREA_CABIN),
         "at_kitchen": bool(viewer and player_at_cabin_tile(state, viewer, "kitchen")),
+        "ready_labels": ready_labels_for(state),
         "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
         "fireplace_fueled": bool(state.get("fireplace_fueled")),
