@@ -2592,6 +2592,38 @@ class ArtPackAndPage(unittest.TestCase):
 
 
 
+    def test_storybook_root_crops_sit_above_the_tile_label(self):
+        """Mature/withered roots must clear the bottom tile caption (~100px)."""
+        from packs import PACKS_ROOT
+
+        # The web tile label sits at the bottom with padding that covers
+        # roughly the lower fifth of a 512px overlay. Keep the root shoulder
+        # above that band so it stays visible.
+        max_bottom = 410
+        names = [
+            "carrot_mature.png", "carrot_withered.png",
+            "beet_mature.png", "beet_withered.png",
+            "turnip_mature.png", "turnip_withered.png",
+            "radish_mature.png", "radish_withered.png",
+            "onion_mature.png", "onion_withered.png",
+        ]
+        for name in names:
+            path = PACKS_ROOT / "storybook" / "overlays" / name
+            width, height, color, raw = self._png_info(path)
+            self.assertEqual((width, height, color), (512, 512, 6), name)
+            rows = self._unfilter_rows(width, height, 4, raw)
+            bottom = 0
+            for y, row in enumerate(rows):
+                if any(row[i + 3] > 20 for i in range(0, width * 4, 4)):
+                    bottom = y + 1
+            self.assertLessEqual(
+                bottom, max_bottom,
+                f"{name} content ends at y={bottom}, under the tile label",
+            )
+            for x, y in ((0, 0), (511, 0), (0, 511), (511, 511)):
+                self.assertLessEqual(rows[y][x * 4 + 3], 16, f"{name} corner {x},{y}")
+
+
     def test_storybook_item_icons_are_square_and_transparent(self):
         from packs import PACKS_ROOT, load_manifest, public_packs, safe_pack_file
 
