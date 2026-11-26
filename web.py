@@ -1024,7 +1024,6 @@ PAGE = r"""<!DOCTYPE html>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
         <button class="btn" id="pass-turn" type="button">Pass turn</button>
-        <button class="btn" id="pass-turn-home" type="button">Pass turn, carry me home</button>
         <button class="btn" id="walk-home" type="button" hidden>Walk them home</button>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
       </div>
@@ -1959,14 +1958,9 @@ PAGE = r"""<!DOCTYPE html>
       const actions = data.actions || [];
       const passBtn = $("pass-turn");
       if (passBtn) {
-        passBtn.hidden = !data.your_turn;
-        passBtn.disabled = !data.your_turn;
-      }
-      const passHomeBtn = $("pass-turn-home");
-      if (passHomeBtn) {
-        const canPassHome = !!(data.your_turn && actions.indexOf("pass turn home") !== -1);
-        passHomeBtn.hidden = !canPassHome;
-        passHomeBtn.disabled = !canPassHome;
+        const canPass = !!(data.your_turn && actions.indexOf("pass turn") !== -1);
+        passBtn.hidden = !canPass;
+        passBtn.disabled = !canPass;
       }
       const walkHomeBtn = $("walk-home");
       if (walkHomeBtn) {
@@ -3166,7 +3160,8 @@ PAGE = r"""<!DOCTYPE html>
         if (data.ok) {
           plantPick = null;
           endConfirm = false;
-          if (String(command || "").toLowerCase().indexOf("end turn") === 0) {
+          const doneCmd = String(command || "").toLowerCase();
+          if (doneCmd.indexOf("end turn") === 0 || doneCmd === "pass" || doneCmd.indexOf("pass ") === 0) {
             const box = $("end-note");
             if (box) box.value = "";
           }
@@ -3260,11 +3255,10 @@ PAGE = r"""<!DOCTYPE html>
       return "end turn";
     }
 
-    function passTurnCommand(home) {
+    function passTurnCommand() {
       const note = noteText();
-      const base = home ? "pass turn home" : "pass turn";
-      if (note) return base + ": " + note;
-      return base;
+      if (note) return "pass turn: " + note;
+      return "pass turn";
     }
 
     function submitEndTurn() {
@@ -3280,8 +3274,7 @@ PAGE = r"""<!DOCTYPE html>
       const action = pendingNoteAction || "end";
       endConfirm = false;
       plantPick = null;
-      if (action === "pass") actCmd(passTurnCommand(false));
-      else if (action === "pass home") actCmd(passTurnCommand(true));
+      if (action === "pass") actCmd(passTurnCommand());
       else actCmd(endTurnCommand());
     }
 
@@ -3292,12 +3285,6 @@ PAGE = r"""<!DOCTYPE html>
     if (passTurnBtn) {
       passTurnBtn.addEventListener("click", function () {
         focusNoteBox("pass");
-      });
-    }
-    const passTurnHomeBtn = $("pass-turn-home");
-    if (passTurnHomeBtn) {
-      passTurnHomeBtn.addEventListener("click", function () {
-        focusNoteBox("pass home");
       });
     }
     const walkHomeBtn = $("walk-home");
@@ -3679,11 +3666,10 @@ PAGE = r"""<!DOCTYPE html>
         setStatus("Say what to do, like: enter mine");
         return;
       }
-      const cmd = resolveLegalCommand(raw, data);
-      if (!cmd) {
-        setStatus("That isn't a legal action right now.");
-        return;
-      }
+      // Send known typo-corrected legal commands when they match, otherwise
+      // send what was typed so the server can print a specific refusal
+      // (still growing, no axe, pack full) instead of going silent.
+      const cmd = resolveLegalCommand(raw, data) || raw;
       setStatus("");
       input.value = "";
       actCmd(cmd);

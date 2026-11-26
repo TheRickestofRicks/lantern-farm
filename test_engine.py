@@ -4597,6 +4597,120 @@ class HillsPhaseOne(unittest.TestCase):
             tick_hills(self.state, self.rules)
         self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "sapling")
 
+    def test_grown_tall_note_matches_a_choppable_tree(self):
+        from hills import (
+            set_player_place, AREA_HILLS, make_tree, get_hills_tile,
+            _grow_trees, tree_days_for, has_grown_tree,
+        )
+        tile = get_hills_tile(self.state, 3, 2)
+        needed = tree_days_for("young", self.rules)
+        tile["tree"] = make_tree("young", planted_day=1, days_grown=needed - 1)
+        tile["forage"] = None
+        notes = _grow_trees(self.state, self.rules, log=True)
+        self.assertTrue(
+            any("hills row 3 col 2 has grown tall" in n for n in notes),
+            notes,
+        )
+        self.assertTrue(has_grown_tree(get_hills_tile(self.state, 3, 2)))
+        self._axe(P1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        self.state["current_player"] = P1
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(str(msg).strip())
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+
+    def test_pending_young_tree_is_repaired_and_choppable(self):
+        from hills import (
+            set_player_place, AREA_HILLS, make_tree, get_hills_tile,
+            finish_pending_tree_growth, tree_days_for, has_grown_tree,
+        )
+        tile = get_hills_tile(self.state, 3, 2)
+        needed = tree_days_for("young", self.rules)
+        tile["tree"] = make_tree("young", planted_day=1, days_grown=needed)
+        tile["forage"] = None
+        self.assertTrue(finish_pending_tree_growth(tile, self.rules))
+        self.assertTrue(has_grown_tree(tile))
+        self._axe(P1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        self.state["current_player"] = P1
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(str(msg).strip())
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
+
+    def test_chop_refusals_are_never_silent(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from engine import legal_actions
+        from inventory import add_to_pack, sync_inventory_view, pack_has, TOOL_AXE
+
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        self.state["current_player"] = P1
+        tile = get_hills_tile(self.state, 3, 2)
+
+        tile["tree"] = None
+        tile["forage"] = None
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertTrue(str(msg).strip())
+        self.assertIn("no grown tree", msg.lower())
+
+        tile["tree"] = make_tree("sapling", planted_day=1, days_grown=0)
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertTrue(str(msg).strip())
+        self.assertIn("sapling", msg.lower())
+
+        tile["tree"] = make_tree("grown", planted_day=1)
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertTrue(str(msg).strip())
+        self.assertIn("axe", msg.lower())
+        self.assertIn("chop", legal_actions(self.state, self.crops, P1, self.rules))
+
+        self._axe(P1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        for kind in ("radish", "lettuce", "spinach"):
+            add_to_pack(self.state, P1, kind, 8, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self.assertTrue(pack_has(self.state, P1, TOOL_AXE, 1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertTrue(str(msg).strip())
+        self.assertIn("backpack", msg.lower())
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "grown")
+        self.assertIn("chop", legal_actions(self.state, self.crops, P1, self.rules))
+
+    def test_cli_chop_without_do_prints_on_stdout(self):
+        import contextlib
+        import io
+        import cli
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from engine import save_state, STATE_PATH, ROOT
+
+        self.assertNotEqual(STATE_PATH.resolve(), (ROOT / "state.json").resolve())
+        tile = get_hills_tile(self.state, 3, 2)
+        tile["tree"] = make_tree("grown", planted_day=1)
+        tile["forage"] = None
+        self._axe(P1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        self.state["current_player"] = P1
+        save_state(self.state)
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(["--player", P1, "chop"])
+        text = out.getvalue()
+        self.assertEqual(code, 0, text + err.getvalue())
+        self.assertTrue(text.strip(), "CLI stdout was empty for chop")
+        self.assertIn("wood", text.lower())
+        self.assertNotIn("Unknown command", err.getvalue())
+
     def test_stump_becomes_a_mushroom_log_or_a_sapling_never_both(self):
         from hills import (
             make_tree, get_hills_tile, tick_hills, tree_days_for, stump_becomes_log,
@@ -6545,8 +6659,13 @@ class MineActionsWeb(unittest.TestCase):
         self.assertTrue(data["debugOptionsIncludeEnter"])
         self.assertTrue(data["clickedEnter"])
         self.assertIn("enter mine", data["commandsAfterClick"])
-        self.assertIn("legal action", data["rejectedStatus"].lower())
-        self.assertEqual(data["commandsAfterReject"], data["commandsAfterClick"])
+        # Unknown typed commands are sent so the server can print a specific
+        # refusal, instead of failing silently with "isn't a legal action".
+        self.assertIn("not a real action", data["commandsAfterReject"])
+        self.assertGreater(
+            len(data["commandsAfterReject"]),
+            len(data["commandsAfterClick"]),
+        )
         self.assertIn("enter mine", data["commandsAfterDebug"])
         self.assertGreater(data["commandsAfterDebug"].count("enter mine"), data["commandsAfterClick"].count("enter mine"))
         self.assertEqual(data["debugInputAfterSend"], "")
@@ -7189,16 +7308,15 @@ class PassTurnAndWalkHome(unittest.TestCase):
         stand(self.state, P2, CABIN_ROW, CABIN_COL)
 
     def test_pass_turn_is_legal_any_time_and_hands_off_without_ending_the_day(self):
-        from hills import set_player_place, AREA_FARM
-        set_player_place(self.state, P1, AREA_FARM, 2, 1)
         self.state["players"][P1]["energy"] = 0
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("pass turn", actions)
-        self.assertIn("pass turn home", actions)
+        self.assertNotIn("pass turn home", actions)
         self.assertIn("end turn", actions)
         line = format_legal_action("pass turn", self.state, self.crops, P1, self.rules)
         self.assertIn("hand the turn", line)
         self.assertIn("day is not over", line)
+        self.assertNotIn("wait to be carried", line)
         self.assertNotIn("end your turn", line)
         ok, msg = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -7221,7 +7339,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["day"]), 2)
 
-    def test_pass_turn_home_then_walk_home_costs_double_and_sleeps_in_the_cabin(self):
+    def test_pass_turn_away_then_walk_home_costs_double_and_sleeps_in_the_cabin(self):
         from hills import set_player_place, AREA_HILLS, HILLS_GATE, player_area, AREA_FARM
         from inventory import add_to_chest, sync_inventory_view
         # P1 is in the hills at the gate; P2 stays in the cabin with plenty of energy.
@@ -7242,7 +7360,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
         self.state["current_player"] = P1
-        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, msg = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(self.state["players"][P1].get("carry_home"))
         self.assertIn("waits to be carried home", msg)
@@ -7298,7 +7416,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P1]["energy"] = 0
         self.state["players"][P2]["energy"] = 5  # normal walk would be 5; double is 10
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         self.state["current_player"] = P2
         here1 = player_where(self.state, P1)
@@ -7320,7 +7438,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, f"walk {N2} home", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("hasn't asked", msg)
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         # P2 is still in the cabin, not on P1's tile.
         actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
@@ -7337,7 +7455,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertTrue(ok)
         set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P2]["energy"] = 0
-        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P2, rules=self.rules)
+        ok, msg = do_action(self.state, self.crops, "pass turn", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["day"]), 1)
         self.assertEqual(self.state["current_player"], P1)
@@ -7362,7 +7480,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         from hills import set_player_place, AREA_HILLS, HILLS_GATE
         set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P1]["energy"] = 0
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -7375,11 +7493,11 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 50)
         self.assertFalse(is_player_in_cabin(self.state, P1))
 
-    def test_pass_turn_home_in_the_cabin_does_not_set_a_carry_request(self):
+    def test_pass_turn_in_the_cabin_does_not_set_a_carry_request(self):
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("pass turn", actions)
         self.assertNotIn("pass turn home", actions)
-        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, msg = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertFalse(self.state["players"][P1].get("carry_home"))
         self.assertEqual(self.state["current_player"], P2)
@@ -7399,22 +7517,24 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.state["players"][P1]["energy"] = 0
         payload = web.api_payload(self.state, self.crops, player=P1)
         self.assertIn("pass turn", payload["actions"])
-        self.assertIn("pass turn home", payload["actions"])
+        self.assertNotIn("pass turn home", payload["actions"])
         html = web.render_page(viewer=P1)
         self.assertIn('id="pass-turn"', html)
-        self.assertIn('id="pass-turn-home"', html)
+        self.assertNotIn('id="pass-turn-home"', html)
         self.assertIn('id="walk-home"', html)
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P2]["energy"] = 40
         payload = web.api_payload(self.state, self.crops, player=P2)
         self.assertIn(f"walk {N1} home", payload["actions"])
 
-
-
-
-
+    def test_web_clears_the_note_box_after_pass_or_end_turn(self):
+        import web
+        act = web.PAGE.split("async function actCmd", 1)[1].split("function showAuthNeeded", 1)[0]
+        self.assertIn('box.value = ""', act)
+        self.assertIn('indexOf("end turn")', act)
+        self.assertIn('indexOf("pass ")', act)
 
 class TogetherRest(unittest.TestCase):
     def setUp(self):
@@ -7481,7 +7601,7 @@ class TogetherRest(unittest.TestCase):
         from hills import set_player_place, AREA_HILLS, HILLS_GATE
         set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P1]["energy"] = 0
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P2]["energy"] = 40
@@ -7511,7 +7631,7 @@ class TogetherRest(unittest.TestCase):
         from hills import set_player_place, AREA_HILLS, HILLS_GATE
         set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P1]["energy"] = 0
-        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
         self.assertTrue(ok)
         set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
         self.state["players"][P2]["energy"] = 20  # walk home costs 10, leaving 10
@@ -7570,9 +7690,10 @@ class TogetherRest(unittest.TestCase):
 
     def test_pass_turn_accepts_an_optional_note_like_end_turn(self):
         from engine import parse_pass_turn_command, recent_notes
-        self.assertEqual(parse_pass_turn_command("pass turn: wait for me"), (True, False, "wait for me"))
-        self.assertEqual(parse_pass_turn_command("pass turn home: come get me"), (True, True, "come get me"))
-        self.assertEqual(parse_pass_turn_command("pass turn"), (True, False, ""))
+        self.assertEqual(parse_pass_turn_command("pass turn: wait for me"), (True, "wait for me"))
+        self.assertEqual(parse_pass_turn_command("pass turn home: come get me"), (True, "come get me"))
+        self.assertEqual(parse_pass_turn_command("pass turn"), (True, ""))
+        self.assertEqual(parse_pass_turn_command("pass turn home"), (True, ""))
         ok, msg = do_action(self.state, self.crops, "pass turn: kettle is on", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertFalse(self.state["players"][P1]["ended_turn"])

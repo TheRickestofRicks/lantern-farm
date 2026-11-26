@@ -47,7 +47,10 @@ Actions:
   harvest                 (or harvest <row> <col>)
   pluck                   (or pluck <row> <col>)
   unearth                 (or unearth <row> <col> — shovel in the backpack; removes the plant and untills)
+  chop                    (on a grown tree in the hills; axe in the backpack)
+  forage                  (on a forage tile in the hills)
   eat <crop>
+  pass turn               (hand the turn over; your day is not over. Away from the cabin, you wait to be walked home)
   buy <kind> <count>      (at the cabin)
   sell <kind> <count>     (at the cabin, from backpack or chest)
   take <item> [count]     (chest to backpack, at the cabin; count or all)
@@ -132,6 +135,25 @@ def parse_argv(argv: list[str]) -> tuple[str, list[str], str | None]:
     return key, out, None
 
 
+def _run_do(player: str, action: str) -> int:
+    """Apply one farm action and print its message to stdout. Never silent."""
+    if action.lower() == "look":
+        sys.stdout.write(look(viewer=player))
+        return 0
+    if action.lower() in {"new", "reset"}:
+        sys.stderr.write('To start a new farm, run: python3 cli.py new "Farm name"\n')
+        return 2
+    with session(write=True) as (state, crops):
+        ok, message = do_action(state, crops, action, player=player)
+        text = (message or "").strip() or ("Couldn't do that." if not ok else "Done.")
+        sys.stdout.write(text + "\n")
+        if ok:
+            maybe_notify_after_end_turn(player, state, ok)
+            sys.stdout.write("\n")
+            sys.stdout.write(describe_state(state, crops, viewer=player))
+        return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     player, args, err = parse_argv(raw)
@@ -208,23 +230,21 @@ def main(argv: list[str] | None = None) -> int:
         if not action:
             sys.stderr.write('Usage: python3 cli.py do "water 1 2"\n')
             return 2
-        if action.lower() == "look":
-            sys.stdout.write(look(viewer=player))
-            return 0
-        if action.lower() in {"new", "reset"}:
-            sys.stderr.write('To start a new farm, run: python3 cli.py new "Farm name"\n')
-            return 2
-        with session(write=True) as (state, crops):
-            ok, message = do_action(state, crops, action, player=player)
-            sys.stdout.write(message + "\n")
-            if ok:
-                maybe_notify_after_end_turn(player, state, ok)
-                sys.stdout.write("\n")
-                sys.stdout.write(describe_state(state, crops, viewer=player))
-            return 0 if ok else 1
-    sys.stderr.write(usage())
-    sys.stderr.write(f"\nUnknown command: {cmd}\n")
-    return 2
+        return _run_do(player, action)
+
+    # Implicit do: `python3 cli.py chop` should work like `python3 cli.py do chop`
+    # and always print the result on stdout (a success or a clear refusal).
+    saves.maybe_migrate_live()
+    action = " ".join(args).strip()
+    if (action.startswith('"') and action.endswith('"')) or (
+        action.startswith("'") and action.endswith("'")
+    ):
+        action = action[1:-1].strip()
+    if not action:
+        sys.stderr.write(usage())
+        sys.stderr.write(f"\nUnknown command: {cmd}\n")
+        return 2
+    return _run_do(player, action)
 
 
 if __name__ == "__main__":

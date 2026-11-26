@@ -222,6 +222,27 @@ def has_grown_tree(tile: dict | None) -> bool:
     return bool(isinstance(tree, dict) and tree.get("stage") == "grown")
 
 
+def finish_pending_tree_growth(tile: dict | None, rules: dict | None = None) -> bool:
+    """Advance sapling/young trees that already have enough days in their stage.
+
+    Dawn growth adds a day and then advances. This only repairs a tree whose
+    days already met the threshold without the stage being updated, so a
+    'grown tall' tree is always choppable. Stumps still wait for the dawn roll.
+    Returns True if the tree is grown afterwards.
+    """
+    if not has_tree(tile):
+        return False
+    tree = tile["tree"]
+    while tree.get("stage") in {"sapling", "young"}:
+        stage = tree["stage"]
+        needed = tree_days_for(stage, rules)
+        if int(tree.get("days_grown") or 0) < needed:
+            break
+        tree["stage"] = TREE_NEXT[stage]
+        tree["days_grown"] = 0
+    return has_grown_tree(tile)
+
+
 def has_forage(tile: dict | None) -> bool:
     forage = (tile or {}).get("forage")
     return bool(isinstance(forage, dict) and forage.get("kind"))
@@ -743,6 +764,7 @@ def hills_summary(state: dict) -> str:
     other_trees = 0
     forage = []
     for _r, _c, tile in iter_hills_tiles(state):
+        finish_pending_tree_growth(tile)
         if has_grown_tree(tile):
             grown += 1
         elif has_tree(tile):
@@ -942,6 +964,7 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
     if area != AREA_HILLS:
         return False, "There are no trees to chop on the farm. Walk north from the cabin to the hills."
     tile = get_hills_tile(state, row, col)
+    finish_pending_tree_growth(tile, rules)
     if not has_grown_tree(tile):
         if has_tree(tile):
             stage = tile["tree"]["stage"]

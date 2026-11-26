@@ -708,16 +708,23 @@ def parse_end_turn_command(command: str) -> tuple[bool, str]:
     return False, ""
 
 
-def parse_pass_turn_command(command: str) -> tuple[bool, bool, str]:
-    """True if this is a pass-turn command, plus carry-home request and optional note."""
+def parse_pass_turn_command(command: str) -> tuple[bool, str]:
+    """True if this is a pass-turn command, plus the optional note.
+
+    Older "pass turn home" wording is accepted as the same command. Whether
+    the passer waits to be carried depends on being away from the cabin,
+    not on a separate verb.
+    """
     text = strip_action_descriptor(command or "").strip()
     if not text:
-        return False, False, ""
+        return False, ""
     collapsed = " ".join(text.replace(",", " ").split())
     low = collapsed.lower()
-    if low in {"pass", "pass turn", "pass-turn", "pass_turn"}:
-        return True, False, ""
     if low in {
+        "pass",
+        "pass turn",
+        "pass-turn",
+        "pass_turn",
         "pass turn home",
         "pass-turn home",
         "pass_turn home",
@@ -726,14 +733,15 @@ def parse_pass_turn_command(command: str) -> tuple[bool, bool, str]:
         "pass turn carry me home",
         "pass turn and be carried home",
     }:
-        return True, True, ""
+        return True, ""
 
     def _cut(src: str, prefix: str) -> str | None:
         if src.lower().startswith(prefix):
             return src[len(prefix):].strip()
         return None
 
-    home_prefixes = (
+    # Home aliases first so "pass turn home: note" is not parsed as note "home: note".
+    prefixes = (
         "pass turn and be carried home:",
         "pass turn, carry me home:",
         "pass turn carry me home:",
@@ -750,16 +758,6 @@ def parse_pass_turn_command(command: str) -> tuple[bool, bool, str]:
         "pass-turn home ",
         "pass_turn home ",
         "pass home ",
-    )
-    for prefix in home_prefixes:
-        rest = _cut(text, prefix)
-        if rest is not None:
-            return True, True, rest
-        rest = _cut(collapsed, prefix)
-        if rest is not None:
-            return True, True, rest
-
-    pass_prefixes = (
         "pass turn:",
         "pass-turn:",
         "pass_turn:",
@@ -769,11 +767,14 @@ def parse_pass_turn_command(command: str) -> tuple[bool, bool, str]:
         "pass_turn ",
         "pass ",
     )
-    for prefix in pass_prefixes:
+    for prefix in prefixes:
         rest = _cut(text, prefix)
         if rest is not None:
-            return True, False, rest
-    return False, False, ""
+            return True, rest
+        rest = _cut(collapsed, prefix)
+        if rest is not None:
+            return True, rest
+    return False, ""
 
 
 def parse_walk_home_command(command: str) -> tuple[bool, str | None]:
@@ -2692,8 +2693,6 @@ def pass_turn(
     player: str,
     rules: dict | None = None,
     note: str | None = None,
-    *,
-    request_carry: bool = False,
 ) -> tuple[bool, str]:
     """Hand the turn to the other player without ending this player's day."""
     rules = rules or load_rules()
@@ -2706,7 +2705,7 @@ def pass_turn(
     partner = other_player(player, rules)
     if not partner:
         return False, "There is no one to pass the turn to."
-    waiting = bool(request_carry and not is_player_in_cabin(state, player))
+    waiting = not is_player_in_cabin(state, player)
     partner_slot = player_slot(state, partner)
     partner_ended = bool(partner_slot.get("ended_turn"))
     can_reopen = waiting and partner_ended and not partner_slot.get("carry_reopened")
@@ -2719,7 +2718,7 @@ def pass_turn(
     slot = player_slot(state, player)
     if waiting:
         slot["carry_home"] = True
-    elif not request_carry:
+    else:
         slot["carry_home"] = False
     from hills import player_area, describe_where as describe_place_where, AREA_MINE
     from mine import player_floor
@@ -4869,6 +4868,7 @@ def legal_actions(
         player_area, area_crossing, path_places, is_cabin_place,
         AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, iter_hills_tiles, get_hills_tile,
         has_grown_tree, has_forage, hills_tiles, is_mine_entrance_tile,
+        finish_pending_tree_growth,
     )
     from cabin import (
         iter_cabin_tiles, is_farm_cabin_tile, player_at_cabin_tile, is_cabin_interior,
@@ -4918,13 +4918,11 @@ def legal_actions(
     r, c = here
     if area == AREA_HILLS:
         tile = get_hills_tile(state, r, c) if hills_tiles(state) else {"type": "grass"}
+        finish_pending_tree_growth(tile, rules)
         if has_grown_tree(tile) and energy >= tool_action_cost(state, actor, "chop", rules):
-            from inventory import pack_has, TOOL_AXE
-            if not actor or pack_has(state, actor, TOOL_AXE, 1, rules):
-                from inventory import pack_space_for
-                from hills import chop_wood_count
-                if not actor or pack_space_for(state, actor, "wood", chop_wood_count(rules), rules):
-                    actions.append("chop")
+            # List chop even without an axe or pack space so the command is
+            # visible and chop() can print a specific refusal.
+            actions.append("chop")
         if has_forage(tile) and energy >= energy_cost("forage", rules):
             from inventory import pack_space_for
             kind = (tile.get("forage") or {}).get("kind") or "wild_onion"
@@ -5147,10 +5145,14 @@ def legal_actions(
     actions.append("end turn")
     partner = other_player(actor, rules)
     partner_ended = bool(partner and player_slot(state, partner).get("ended_turn"))
-    if not partner_ended:
+    can_pass = not partner_ended
+    if partner_ended and actor and not is_player_in_cabin(state, actor):
+        # Away from the cabin, a pass asks for a walk home and can reopen
+        # the partner once if they already ended.
+        if partner and not player_slot(state, partner).get("carry_reopened"):
+            can_pass = True
+    if can_pass:
         actions.append("pass turn")
-    if not is_player_in_cabin(state, actor):
-        actions.append("pass turn home")
     if partner and player_requested_carry(state, partner) and not is_player_in_cabin(state, partner):
         from hills import player_area
         if player_area(state, actor) == player_area(state, partner) and player_where(state, actor) == player_where(state, partner):
@@ -5550,11 +5552,7 @@ def action_descriptor(
     if verb == "pass":
         partner = other_player(actor, rules) if actor else None
         who = display_name(partner) if partner else "the other player"
-        home = bool(args and " ".join(args).lower() in {
-            "turn home", "home", "turn and wait", "turn carry me home",
-            "turn and be carried home",
-        })
-        if home:
+        if actor and not is_player_in_cabin(state, actor):
             return f"hand the turn to {who} and wait to be carried home; your day is not over"
         return f"hand the turn to {who}; your day is not over"
     is_wh, who_raw = parse_walk_home_command(command)
@@ -5639,12 +5637,9 @@ def do_action(
     if is_end:
         return end_turn(state, crops, actor, rules, note=note)
 
-    is_pass, request_carry, pass_note = parse_pass_turn_command(raw)
+    is_pass, pass_note = parse_pass_turn_command(raw)
     if is_pass:
-        return pass_turn(
-            state, crops, actor, rules, note=pass_note,
-            request_carry=request_carry,
-        )
+        return pass_turn(state, crops, actor, rules, note=pass_note)
 
     is_walk_home, who_home = parse_walk_home_command(raw)
     if is_walk_home:
@@ -5856,6 +5851,8 @@ def do_action(
             if stood:
                 return False, stood
         ok, msg = chop_tree(state, actor, rules)
+        if not (msg or "").strip():
+            msg = "Couldn't chop that tree." if not ok else "Chopped the tree."
     elif verb == "forage":
         from hills import forage as forage_tile
         if len(args) == 2:
