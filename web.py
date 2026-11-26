@@ -2924,7 +2924,12 @@ PAGE = r"""<!DOCTYPE html>
       const energy = snackEnergy(slot.item, opts.data);
       if (energy) {
         const eatCmd = opts.take ? ("eat " + slot.item + " chest") : ("eat " + slot.item);
-        addBtn("Eat (+" + energy + ")", eatCmd, opts.take ? atChest : yourTurn);
+        const me = (opts.data && opts.data.players && opts.data.players[PLAYER]) || {};
+        const haveE = (me.energy != null) ? me.energy : 0;
+        const foodCap = (opts.data && opts.data.base_energy != null && opts.data.base_energy > 0)
+          ? opts.data.base_energy : 100;
+        const canEat = haveE < foodCap && (opts.take ? atChest : yourTurn);
+        addBtn("Eat (+" + energy + ")", eatCmd, canEat);
       }
       if (slot.item === "herbal_tea") {
         const me = (opts.data && opts.data.players && opts.data.players[PLAYER]) || {};

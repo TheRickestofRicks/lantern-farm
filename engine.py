@@ -2541,7 +2541,7 @@ def end_turn(
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
         nxt = state["current_player"]
-        cap = player_energy_cap(state, nxt, rules)
+        cap = max_energy(rules)
         night = " ".join(night_notes)
         header = (
             f"{display_name(player)} {verb_phrase} {here}{wait_bit}. {outlook}. "
@@ -4157,12 +4157,13 @@ def eat(
     if eaten >= cap_snacks:
         return False, f"{display_name(player)} already had {cap_snacks} snacks this turn."
     from hills import player_hp, heal_hp, max_hp as hills_max_hp
-    cap_e = player_energy_cap(state, player, rules)
+    # Food never fills above the base max (100). Wake bonuses may still
+    # put energy above that at dawn; snacks cannot add to it.
+    cap_e = max_energy(rules)
     energy = int(slot["energy"])
-    hp, cap_hp = player_hp(state, player, rules)
-    if energy >= cap_e and hp >= cap_hp:
-        return False, f"{display_name(player)} is already at full energy and full HP. Sell it or save it."
-    gained = min(restore, cap_e - energy) if energy < cap_e else 0
+    if energy >= cap_e:
+        return False, f"{display_name(player)} is already at full energy. Sell it or save it."
+    gained = min(restore, cap_e - energy)
     taken = take_available(
         state,
         kind,
@@ -4924,7 +4925,7 @@ def legal_actions(
     if actor:
         can_snack = (
             int(player_slot(state, actor).get("snacks_eaten") or 0) < snacks_per_turn(rules)
-            and energy < player_energy_cap(state, actor, rules)
+            and energy < max_energy(rules)
         )
         if can_snack:
             for slot in pack_of(state, actor, rules):
@@ -5311,7 +5312,7 @@ def action_descriptor(
         if restore is None:
             return ""
         if actor:
-            cap = player_energy_cap(state, actor, rules)
+            cap = max_energy(rules)
             energy = int(player_slot(state, actor)["energy"])
             gained = min(int(restore), max(0, cap - energy))
         else:

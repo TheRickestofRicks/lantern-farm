@@ -1616,6 +1616,46 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(self.state["inventory"]["kabocha"], 1)
 
+    def test_food_cannot_raise_energy_above_base_max_even_after_a_bonus_wake(self):
+        from describe import turn_header_lines
+        from engine import legal_actions, format_legal_action, max_energy
+
+        give_item(self.state, "strawberry", 2, player=P1)
+        self.state["players"][P1]["energy"] = 17
+        self.state["players"][P1]["energy_max"] = 135
+        cap = max_energy(self.rules)
+        self.assertEqual(cap, 100)
+        line = format_legal_action("eat strawberry", self.state, self.crops, P1, self.rules)
+        self.assertIn("+30 energy", line)
+        ok, msg = do_action(self.state, self.crops, "eat strawberry", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 47)
+        self.assertIn("47/100", msg)
+        self.assertNotIn("/135", msg)
+        self.state["players"][P1]["energy"] = 90
+        self.state["players"][P1]["snacks_eaten"] = 0
+        ok, msg = do_action(self.state, self.crops, "eat strawberry", player=P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertIn("100/100", msg)
+        self.assertNotIn("/135", msg)
+        give_item(self.state, "strawberry", 1, player=P1)
+        self.state["players"][P1]["snacks_eaten"] = 0
+        self.assertNotIn("eat strawberry", legal_actions(self.state, self.crops, player=P1, rules=self.rules))
+        ok, msg = do_action(self.state, self.crops, "eat strawberry", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("full energy", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.state["players"][P1]["energy"] = 120
+        self.state["players"][P1]["energy_max"] = 135
+        ok, msg = do_action(self.state, self.crops, "eat strawberry", player=P1)
+        self.assertFalse(ok)
+        self.assertIn("full energy", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 120)
+        header = "\n".join(turn_header_lines(self.state, self.crops, viewer=P1))
+        self.assertIn("120/100 energy", header)
+        self.assertNotIn("/135 energy", header)
+
 
 class SpringCropsAndShop(unittest.TestCase):
     def setUp(self):
@@ -4709,14 +4749,14 @@ class HillsPhaseOne(unittest.TestCase):
         from inventory import add_to_pack, sync_inventory_view
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["hp"] = 80
-        self.state["players"][P1]["energy"] = 100
+        self.state["players"][P1]["energy"] = 90
         add_to_pack(self.state, P1, "bread", 1, self.rules)
         sync_inventory_view(self.state, self.rules)
         ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         hp, cap = player_hp(self.state, P1, self.rules)
         self.assertEqual(hp, 85)
-        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
         self.assertIn("HP", msg)
         self.state["players"][P1]["hp"] = 40
         self.state["players"][P1]["snacks_eaten"] = 0
@@ -6821,11 +6861,11 @@ class CabinComfort(unittest.TestCase):
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["energy"] = 110
         add_to_pack(self.state, P1, "bread_half", 1, self.rules)
-        self.assertIn("eat bread_half", legal_actions(self.state, self.crops, P1, self.rules))
+        self.assertNotIn("eat bread_half", legal_actions(self.state, self.crops, P1, self.rules))
         ok, msg = do_action(self.state, self.crops, "eat half loaf", player=P1, rules=self.rules)
-        self.assertTrue(ok, msg)
-        self.assertEqual(self.state["players"][P1]["energy"], 115)
-        self.assertIn("115/120", msg)
+        self.assertFalse(ok, msg)
+        self.assertIn("full energy", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 110)
 
     def test_passing_out_skips_comfort_even_if_fed_and_the_fire_is_fueled(self):
         from inventory import add_to_chest, add_to_pack, stack_count, chest_of, sync_inventory_view
