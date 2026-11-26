@@ -5453,6 +5453,37 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertTrue(data.get("chestHiddenAfterClick"))
         self.assertFalse(data.get("chestOpenAfterClick"))
         self.assertEqual(data.get("chestStorageAfterClick"), "0")
+        self.assertRegex(data.get("invChestHeading") or "", r"(?i)^cabin chest$")
+        self.assertIn("recipe-book-head", data.get("invChestHeadingClass") or "")
+
+
+    def test_web_hud_shows_bonus_energy_over_the_base_max(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        state["players"][P1]["energy"] = 110
+        state["players"][P1]["energy_max"] = 110
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertEqual(payload["base_energy"], 100)
+        self.assertEqual(payload["max_energy"], 110)
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertRegex(data.get("energyHud") or "", r"110/100")
+        self.assertIn("over-max", data.get("energyHudClass") or "")
+        self.assertRegex(data.get("energyHudLabel") or "", r"110 of 100")
+
+        state["players"][P1]["energy"] = 100
+        state["players"][P1]["energy_max"] = 100
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertEqual(payload["base_energy"], 100)
+        data = self._run_jsdom(payload, html)
+        self.assertRegex(data.get("energyHud") or "", r"100/100")
+        self.assertNotIn("over-max", data.get("energyHudClass") or "")
 
 
 class CabinChestOrder(unittest.TestCase):

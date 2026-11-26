@@ -283,6 +283,7 @@ PAGE = r"""<!DOCTYPE html>
       font-size: 0.98rem;
     }
     .status b { color: var(--ink); font-weight: 600; }
+    .status .stat.energy.over-max b { color: var(--gold2); }
     .gold { color: var(--gold); }
     .turn { color: var(--gold2); }
     .ended { opacity: 0.7; font-size: 0.95em; }
@@ -868,7 +869,8 @@ PAGE = r"""<!DOCTYPE html>
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
-    button.shop-section-title.chest-toggle {
+    button.shop-section-title.chest-toggle,
+    button.recipe-book-head.chest-toggle {
       cursor: pointer;
       background: none;
       border: 0;
@@ -1759,13 +1761,14 @@ PAGE = r"""<!DOCTYPE html>
       function energyBit(name) {
         const slot = players[name] || {};
         const en = (slot.energy != null) ? slot.energy : capE;
-        const capMine = (slot.energy_max != null && slot.energy_max > 0) ? slot.energy_max : capE;
+        const capBase = (data.base_energy != null && data.base_energy > 0) ? data.base_energy : 100;
+        const over = en > capBase;
         const capHp = data.max_hp || 100;
         const hpPair = (data.hp && data.hp[name]) || [slot.hp != null ? slot.hp : capHp, slot.hp_max || capHp];
         const ended = slot.ended_turn && name !== current ? " <span class='ended'>(ended)</span>" : "";
         return displayName(name)
-          + " <span class='stat energy' title='Energy' aria-label='Energy " + en + " of " + capMine + "'>"
-          + energyIcon() + "<b>" + en + "/" + capMine + "</b></span>"
+          + " <span class='stat energy" + (over ? " over-max" : "") + "' title='Energy' aria-label='Energy " + en + " of " + capBase + "'>"
+          + energyIcon() + "<b>" + en + "/" + capBase + "</b></span>"
           + " <span class='stat hp' title='HP' aria-label='HP " + hpPair[0] + " of " + hpPair[1] + "'>"
           + hpIcon() + "<b>" + hpPair[0] + "/" + hpPair[1] + "</b></span>"
           + ended;
@@ -2647,7 +2650,7 @@ PAGE = r"""<!DOCTYPE html>
       if (!open) wrap.classList.add("is-collapsed");
       const title = document.createElement("button");
       title.type = "button";
-      title.className = "shop-section-title chest-toggle";
+      title.className = "recipe-book-head chest-toggle";
       title.textContent = "Cabin chest";
       title.setAttribute("aria-expanded", open ? "true" : "false");
       const body = document.createElement("div");
@@ -4026,6 +4029,7 @@ def api_payload(
         "current_player": current,
         "players": state.get("players") or {},
         "max_energy": player_energy_cap(state, viewer, rules) if viewer else max_energy(rules),
+        "base_energy": max_energy(rules),
         "your_turn": viewer == current,
         "forecast": weather_forecast(state, crops, rules),
         "sleep_outlook": sleep_outlook(state, viewer, rules) if viewer else "",

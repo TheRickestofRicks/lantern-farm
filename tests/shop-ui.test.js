@@ -51,8 +51,9 @@ function waitFor(check, tries) {
 
 function sectionInfo(root, title) {
   if (!root) return { present: false, text: "", buttons: [], commands: [] };
-  const titles = Array.from(root.querySelectorAll(".shop-section-title"));
-  const start = titles.find((el) => (el.textContent || "").trim() === title);
+  const want = (title || "").trim().toLowerCase();
+  const titles = Array.from(root.querySelectorAll(".shop-section-title, .recipe-book-head"));
+  const start = titles.find((el) => (el.textContent || "").trim().toLowerCase() === want);
   if (!start) return { present: false, text: "", buttons: [], commands: [] };
   const bits = [];
   const buttons = [];
@@ -88,6 +89,9 @@ waitFor(() => {
   const doc = dom.window.document;
   const shop = doc.getElementById("shop");
   const inv = doc.getElementById("inv");
+  const chestHeading = inv && (inv.querySelector(".chest-section .recipe-book-head, .chest-section .chest-toggle"));
+  const status = doc.getElementById("status");
+  const energyEl = status && status.querySelector(".stat.energy");
   const shopBackpack = sectionInfo(shop, "From the backpack");
   const shopChest = sectionInfo(shop, "Cabin chest");
   const invChest = sectionInfo(inv, "Cabin chest");
@@ -117,6 +121,11 @@ waitFor(() => {
     invChestPresent: invChest.present,
     invChestText: invChest.text,
     invChestButtons: invChest.buttons,
+    invChestHeading: chestHeading ? (chestHeading.textContent || "").trim() : "",
+    invChestHeadingClass: chestHeading ? chestHeading.className : "",
+    energyHud: energyEl ? (energyEl.textContent || "").replace(/\s+/g, " ").trim() : "",
+    energyHudClass: energyEl ? energyEl.className : "",
+    energyHudLabel: energyEl ? (energyEl.getAttribute("aria-label") || "") : "",
     invPackText: invPack.text,
     invText: inv ? inv.textContent : "",
     shopText: shop ? shop.textContent : "",
