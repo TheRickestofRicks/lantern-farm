@@ -35,3 +35,4 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Coffee (+40 energy now, with a sleep penalty). Herbal tea is already in the shop.
 - Open questions from granular growth: mixed jam berries, fertilizer prices after a season of play, and the pack stack cap.
 - Winter market stall or special order board that occasionally buys a cooked meal.
+- Rune system: rare runestone rocks in the mine can be carved and imbued (ore + a runestone) to (1) enchant tools (Bounty = +1 yield, Shatter = splash), (2) waystones — attune a cleared tile (rocks and items removed) with transcribed runes and teleport back to it for a small energy cost, intended to replace the elevator, and (3) a homeward rune at high levels (teleport home). The current elevator stays until that lands.

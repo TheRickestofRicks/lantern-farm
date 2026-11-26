@@ -267,8 +267,12 @@
     "rest_energy": 25,
     "pickaxe_price": 40,
     "upgrade_ore": 5,
-    "copper_energy": 5,
-    "iron_bonus": 1
+    "tool_energy": {
+      "basic": 10,
+      "copper": 8,
+      "iron": 6,
+      "gold": 4
+    }
   },
   "cabin_comfort": {
     "fire_bonus": 10,

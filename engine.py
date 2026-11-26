@@ -5839,8 +5839,12 @@ def action_descriptor(
             return f"to r{dest[0]} c{dest[1]}, {_energy_word(step)}"
         return ""
     if verb == "chop":
+        from mine import tool_action_cost
         wood_n = chop_wood_count(rules)
-        return f"{_energy_word(energy_cost('chop', rules))}, +{wood_n} wood"
+        return f"{_energy_word(tool_action_cost(state, actor, 'chop', rules))}, +{wood_n} wood"
+    if verb in {"mine", "break"}:
+        from mine import tool_action_cost
+        return _energy_word(tool_action_cost(state, actor, "mine", rules))
     if verb == "forage":
         kind = None
         if actor_area == AREA_HILLS:
@@ -5849,7 +5853,11 @@ def action_descriptor(
         label = forage_label(kind) if kind else "forage"
         return f"{_energy_word(energy_cost('forage', rules))}, +1 {label}"
     if verb in {"till", "water", "harvest", "pluck", "plant", "unearth", "fertilize"}:
-        cost = energy_cost(verb, rules)
+        if verb in {"till", "water"}:
+            from mine import tool_action_cost
+            cost = tool_action_cost(state, actor, verb, rules)
+        else:
+            cost = energy_cost(verb, rules)
         if verb == "unearth":
             r, c = here
             if len(args) >= 2 and args[0].isdigit():
@@ -6003,6 +6011,22 @@ def action_descriptor(
             need = comfort_fire_wood(rules)
         wood = "1 wood" if need == 1 else f"{need} wood"
         return f"{_energy_word(cost)}, uses {wood}"
+    if verb == "forge":
+        from mine import next_tool_tier, tool_tier, tool_tier_energy
+        from inventory import normalize_item, TOOL_HOE, TOOL_CAN, TOOL_AXE, TOOL_PICKAXE
+        words = [w for w in args if w.lower() not in {"copper", "iron", "gold"}]
+        raw = normalize_item(" ".join(words)) or " ".join(words).strip().lower().replace(" ", "_")
+        aliases = {"can": TOOL_CAN, "wateringcan": TOOL_CAN, "watering_can": TOOL_CAN}
+        tool = aliases.get(raw, raw)
+        if tool not in {TOOL_HOE, TOOL_CAN, TOOL_AXE, TOOL_PICKAXE}:
+            return _energy_word(energy_cost("forge", rules))
+        nxt = next_tool_tier(tool_tier(state, tool))
+        if not nxt:
+            return "already gold-tier"
+        return (
+            f"{_energy_word(energy_cost('forge', rules))}, becomes {nxt}, "
+            f"{tool_tier_energy(nxt, rules)} energy to use"
+        )
     if verb == "end" and args and args[0].lower() == "turn":
         faint = pass_out_energy(rules)
         if actor and is_player_in_cabin(state, actor):

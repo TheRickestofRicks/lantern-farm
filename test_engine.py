@@ -5803,9 +5803,10 @@ class MinePhaseTwo(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "forge hoe", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(tool_tier(self.state, TOOL_HOE), "copper")
-        self.assertEqual(tool_action_cost(self.state, P1, "till", self.rules), 5)
-        self.assertEqual(self.state["players"][P1]["energy"], 95)
-        # Iron axe yields an extra wood.
+        self.assertEqual(tool_action_cost(self.state, P1, "till", self.rules), 8)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)  # forge itself still costs 5
+        self.assertIn("8 energy", msg)
+        # Iron no longer adds a wood; chop at iron costs 6.
         from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
         from inventory import TOOL_AXE, pack_has
         give_item(self.state, TOOL_AXE, 1, player=P1, where="pack")
@@ -5817,9 +5818,10 @@ class MinePhaseTwo(unittest.TestCase):
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertIn("3 wood", msg)
-        self.assertTrue(pack_has(self.state, P1, "wood", 3, self.rules))
-        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        self.assertIn("2 wood", msg)
+        self.assertNotIn("3 wood", msg)
+        self.assertTrue(pack_has(self.state, P1, "wood", 2, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 94)
 
     def test_legal_actions_and_short_names_work_and_go_cabin_is_refused(self):
         from hills import set_player_place, AREA_MINE, player_area
@@ -5967,13 +5969,14 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["gold"]), gold + 1)
 
-    def test_iron_pickaxe_yields_extra_stone_and_gold_splashes_a_neighbour(self):
+    def test_iron_and_gold_pickaxe_no_longer_bonus_yield_or_splash(self):
         from hills import set_player_place, AREA_MINE
-        from mine import get_mine_tile, iter_mine_tiles, set_tool_tier
-        from inventory import pack_has, TOOL_PICKAXE
+        from mine import get_mine_tile, iter_mine_tiles, set_tool_tier, tool_action_cost
+        from inventory import pack_has, stack_count, pack_of, TOOL_PICKAXE
 
         self._enter()
         set_tool_tier(self.state, TOOL_PICKAXE, "iron")
+        self.assertEqual(tool_action_cost(self.state, P1, "mine", self.rules), 6)
         target = neigh = None
         for r, c, tile in iter_mine_tiles(self.state, 1, self.rules):
             if tile.get("exit") or tile.get("elevator") or tile.get("lantern"):
@@ -5992,38 +5995,50 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertIsNotNone(target)
         tr, tc = target
         nr, nc = neigh
-        # Clear other adjacent rocks so a later gold splash has only this neighbour.
-        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            rr, cc = tr + dr, tc + dc
-            if not (1 <= rr <= 3 and 1 <= cc <= 3):
-                continue
-            other = get_mine_tile(self.state, 1, rr, cc, self.rules)
-            if (rr, cc) == (nr, nc):
-                continue
-            if other.get("rock"):
-                other["rock"] = None
         get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "stone", "ladder": None})
         get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
         set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertTrue(pack_has(self.state, P1, "stone", 2, self.rules), msg)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 1, msg)
         self.assertTrue(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
-        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        self.assertEqual(self.state["players"][P1]["energy"], 94)
 
         set_tool_tier(self.state, TOOL_PICKAXE, "gold")
+        self.assertEqual(tool_action_cost(self.state, P1, "mine", self.rules), 4)
         get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "gold_ore", "ladder": None})
         get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
         set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertTrue(pack_has(self.state, P1, "gold_ore", 2, self.rules), msg)
-        self.assertTrue(pack_has(self.state, P1, "stone", 4, self.rules), msg)
-        self.assertFalse(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
-        self.assertIn("stone", msg.lower())
-        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        self.assertTrue(pack_has(self.state, P1, "gold_ore", 1, self.rules), msg)
+        self.assertFalse(pack_has(self.state, P1, "gold_ore", 2, self.rules), msg)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 1, msg)
+        self.assertTrue(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
+        self.assertNotIn("neighbour", msg.lower())
+        self.assertNotIn("neighbor", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 96)
+
+    def test_all_four_tools_cost_10_8_6_4_by_tier(self):
+        from mine import tool_action_cost, set_tool_tier, TOOL_TIERS
+        from inventory import TOOL_HOE, TOOL_CAN, TOOL_AXE, TOOL_PICKAXE
+        expected = {"basic": 10, "copper": 8, "iron": 6, "gold": 4}
+        verbs = {"till": TOOL_HOE, "water": TOOL_CAN, "chop": TOOL_AXE, "mine": TOOL_PICKAXE}
+        for verb, tool in verbs.items():
+            for tier, cost in expected.items():
+                set_tool_tier(self.state, tool, tier)
+                self.assertEqual(
+                    tool_action_cost(self.state, P1, verb, self.rules),
+                    cost,
+                    f"{tool} {tier} {verb}",
+                )
+        # Existing tiers are kept; only the effect table changed.
+        set_tool_tier(self.state, TOOL_PICKAXE, "copper")
+        self.assertEqual(self.state["tool_tiers"]["pickaxe"], "copper")
+        self.assertEqual(tool_action_cost(self.state, P1, "mine", self.rules), 8)
+
 
     def test_web_mine_payload_uses_shaft_on_floor_one_and_ladder_up_deeper(self):
         import web

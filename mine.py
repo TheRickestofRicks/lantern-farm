@@ -24,8 +24,6 @@ SAFE_FLOORS = (5, 10, 15, 20, 25)
 DEFAULT_PICKAXE_PRICE = 40
 DEFAULT_REST_ENERGY = 25
 DEFAULT_UPGRADE_ORE = 5
-DEFAULT_COPPER_ENERGY = 5
-DEFAULT_IRON_BONUS = 1
 
 # Ordinary-floor rock composition by depth. Remaining weight is plain stone.
 # Safe floors have no rocks.
@@ -109,18 +107,28 @@ def upgrade_ore_cost(rules: dict | None = None) -> int:
         return DEFAULT_UPGRADE_ORE
 
 
-def copper_tool_energy(rules: dict | None = None) -> int:
-    try:
-        return max(1, int(mine_rules(rules).get("copper_energy") or DEFAULT_COPPER_ENERGY))
-    except (TypeError, ValueError):
-        return DEFAULT_COPPER_ENERGY
+DEFAULT_TIER_ENERGY = {
+    "basic": 10,
+    "copper": 8,
+    "iron": 6,
+    "gold": 4,
+}
 
 
-def iron_yield_bonus(rules: dict | None = None) -> int:
+def tool_tier_energy(tier: str | None, rules: dict | None = None) -> int:
+    """Energy to use a tool at this forge tier: 10 / 8 / 6 / 4."""
+    key = tier if tier in TOOL_TIERS else "basic"
+    cfg = {}
     try:
-        return max(0, int(mine_rules(rules).get("iron_bonus") or DEFAULT_IRON_BONUS))
+        raw = (mine_rules(rules).get("tool_energy") or {})
+        if isinstance(raw, dict):
+            cfg = raw
+    except (TypeError, AttributeError):
+        cfg = {}
+    try:
+        return max(1, int(cfg.get(key) or DEFAULT_TIER_ENERGY[key]))
     except (TypeError, ValueError):
-        return DEFAULT_IRON_BONUS
+        return DEFAULT_TIER_ENERGY[key]
 
 
 def mine_hash(*parts) -> int:
@@ -394,7 +402,7 @@ def next_tool_tier(current: str) -> str | None:
 
 
 def tool_action_cost(state: dict, player: str | None, verb: str, rules: dict | None = None) -> int:
-    """Energy for a tool action, reduced by a copper (or better) upgrade."""
+    """Energy for a tool action at the farm's current forge tier (10 / 8 / 6 / 4)."""
     from engine import energy_cost
     from inventory import TOOL_HOE, TOOL_CAN, TOOL_AXE, TOOL_PICKAXE
 
@@ -409,16 +417,17 @@ def tool_action_cost(state: dict, player: str | None, verb: str, rules: dict | N
     if not tool:
         return base
     tier = tool_tier(state, tool)
-    if tier in {"copper", "iron", "gold"}:
-        return min(base, copper_tool_energy(rules))
-    return base
+    if tier == "basic":
+        return base
+    return tool_tier_energy(tier, rules)
 
 
 def yield_with_upgrade(state: dict, tool: str, base: int, rules: dict | None = None) -> int:
-    tier = tool_tier(state, tool)
-    if tier in {"iron", "gold"}:
-        return base + iron_yield_bonus(rules)
-    return base
+    """Tool tiers no longer add yield. Later Bounty enchantments will hook in here."""
+    try:
+        return int(base)
+    except (TypeError, ValueError):
+        return 0
 
 
 def mark_checkpoint(state: dict, floor: int) -> None:
@@ -588,21 +597,16 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
     bits = [f"and packs {item_name(rock, got)}."]
     if revealed:
         bits[-1] = bits[-1][:-1] + ", uncovering a ladder down."
-    # Gold pickaxe: also break one adjacent rock (NESW).
-    splash = ""
-    if tool_tier(state, TOOL_PICKAXE) == "gold":
-        splash = _splash_mine(state, player, floor, row, col, rules)
     msg = (
         f"{who(player, 'break', 'breaks')} the rock at "
         f"{describe_place(AREA_MINE, row, col, floor=floor)} {bits[0]}"
     )
-    if splash:
-        msg = msg.rstrip(".") + splash
     log_append(state, msg, player)
     return True, msg
 
 
 def _splash_mine(state: dict, player: str, floor: int, row: int, col: int, rules: dict | None) -> str:
+    """Break one adjacent rock. Reserved for the later Shatter enchantment."""
     from inventory import pack_space_for, add_to_pack, sync_inventory_view, item_name, TOOL_PICKAXE
 
     for dr, dc in ((-1, 0), (0, 1), (1, 0), (0, -1)):
@@ -765,7 +769,11 @@ def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules
         )
     take_available(state, ore, need, player, pack_only=False, rules=rules)
     set_tool_tier(state, raw, nxt)
-    msg = f"{display_name(player)} forges the {item_label(raw)} to {nxt} at the cabin."
+    cost = tool_tier_energy(nxt, rules)
+    msg = (
+        f"{display_name(player)} forges the {item_label(raw)} to {nxt} at the cabin. "
+        f"It now costs {cost} energy to use."
+    )
     log_append(state, msg, player)
     return True, msg
 

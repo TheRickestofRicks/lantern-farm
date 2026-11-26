@@ -36,6 +36,10 @@ Rick and Lumen’s first official-project day on Lantern Farm. A full day of eng
 - The mine opened, with a forge at the cabin, mine actions in the web UI, Storybook mine art, and stone from plain rock. The pickaxe appears in a shop Tools section once the mine is found. (`f22f892`, `4b6c38d`, `74d869f`, `e709e37`)
 - Chopping a grown tree always reports a success or a clear refusal (still growing, no axe, pack full). A dawn “grown tall” note matches a tree you can chop. `python3 cli.py chop` works without wrapping the verb in `do`. (`this change`)
 
+### Tools
+
+- Forged tool tiers now only change energy: basic 10, copper 8, iron 6, gold 4, for the hoe, watering can, axe, and pickaxe. Iron no longer adds +1 yield, and a gold pickaxe no longer breaks a neighbouring rock. Existing upgraded tools keep their tier. (`this change`)
+
 ### Frost and snowy hills
 
 - On a snow day, and on the first morning of winter even if it is sunny, non-hardy annuals are caught by frost. Unripe plants are killed; ripe fruit becomes frost-bitten and can be harvested once, then the spent plant must be cleared. Hardy crops (turnip, radish, carrot, beet, and kabocha) stand the frost and do not wither from winter air alone. Perennials still go dormant for the season. (`this change`)

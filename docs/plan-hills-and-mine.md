@@ -155,9 +155,8 @@ entrance.
 
 The forge is at the cabin (cost 5). Upgrade a hoe, watering can, axe,
 or pickaxe one tier at a time (copper, then iron, then gold) with 5 of
-that tier’s ore. Copper reduces till / water / chop / mine energy to
-5. Iron and gold add +1 wood or ore. Gold also splashes one adjacent
-eligible NESW tile.
+that tier’s ore. Tiers now only change energy: basic 10, copper 8, iron 6, gold 4.
+Iron yield and gold pickaxe splash are parked for a later rune system (Bounty and Shatter).
 
 0 HP still wakes at the hills mine entrance with 25 energy (and full
 HP). Ending a turn in the mine (not 0 HP) wakes at the last elevator
@@ -291,9 +290,9 @@ Each phase should be its own playable stretch, not one giant commit.
 
 1. Deepest floor is 25 for this pass (decided).
 2. The forge is at the cabin (decided).
-3. Copper drops till / water / chop / mine to 5 energy; iron adds +1
-   yield; gold also splashes one adjacent NESW tile (decided for this
-   pass).
+3. Tool tiers cost 10 / 8 / 6 / 4 energy (basic / copper / iron / gold).
+   Iron +1 yield and gold pickaxe splash are reserved for a later rune
+   system (Bounty and Shatter).
 4. May we later plant saplings on the hills, or do they stay wild?
 5. Should `go cabin` from inside the mine ever mean “elevator, then
    walk home” in one command, at the combined energy cost?
