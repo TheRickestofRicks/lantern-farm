@@ -328,6 +328,40 @@ def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple
     return True, msg
 
 
+def reorder_chest(state: dict, order, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Set the cabin chest's display order. Unknown or missing items stay at the end."""
+    from inventory import chest_of, compact_chest, sync_inventory_view, normalize_item
+
+    rules = rules or load_rules()
+    player, err = parse_player(player)
+    if err:
+        return False, err
+    if not is_player_in_cabin(state, player):
+        return False, "Rearrange the chest at the cabin."
+    wanted = []
+    for raw in order or []:
+        item = normalize_item(str(raw)) or str(raw).strip().lower().replace(" ", "_")
+        if item:
+            wanted.append(item)
+    if not wanted:
+        return False, "Usage: reorder chest <item> <item> ..."
+    chest = list(chest_of(state, rules))
+    used = [False] * len(chest)
+    new = []
+    for item in wanted:
+        for i, slot in enumerate(chest):
+            if not used[i] and slot and slot.get("item") == item:
+                new.append(slot)
+                used[i] = True
+                break
+    for i, slot in enumerate(chest):
+        if not used[i] and slot:
+            new.append(slot)
+    state["chest"] = compact_chest(new)
+    sync_inventory_view(state, rules)
+    return True, "The cabin chest is rearranged."
+
+
 def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool) -> str:
     who = display_name(name)
     line = f"{who} slept in the cabin and wakes with {energy} energy."
@@ -5046,6 +5080,10 @@ def do_action(
         if target not in {"", "fireplace", "the fireplace", "fire"}:
             return False, "Usage: fuel fireplace"
         ok, msg = fuel_fireplace(state, actor, rules)
+    elif verb == "reorder":
+        if not args or args[0].lower() != "chest":
+            return False, "Usage: reorder chest <item> <item> ..."
+        ok, msg = reorder_chest(state, args[1:], actor, rules)
     else:
         return (
             False,

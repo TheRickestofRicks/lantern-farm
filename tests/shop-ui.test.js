@@ -57,12 +57,25 @@ function sectionInfo(root, title) {
   const bits = [];
   const buttons = [];
   const commands = [];
-  let el = start.nextElementSibling;
-  while (el && !el.classList.contains("shop-section-title")) {
-    bits.push(el.textContent || "");
-    Array.from(el.querySelectorAll("button")).forEach((b) => {
-      buttons.push((b.textContent || "").trim());
+  function collect(node) {
+    if (!node) return;
+    bits.push(node.textContent || "");
+    const src = node.querySelectorAll ? node.querySelectorAll("button") : [];
+    Array.from(src).forEach((b) => {
+      if (!b.classList.contains("chest-toggle")) buttons.push((b.textContent || "").trim());
     });
+    if (node.matches && node.matches("button") && !node.classList.contains("chest-toggle")) {
+      buttons.push((node.textContent || "").trim());
+    }
+  }
+  if (start.classList.contains("chest-toggle")) {
+    const body = start.parentElement && start.parentElement.querySelector(".chest-section-body");
+    collect(body || start.nextElementSibling);
+    return { present: true, text: bits.join(" | "), buttons: buttons, commands: commands };
+  }
+  let el = start.nextElementSibling;
+  while (el && !el.classList.contains("shop-section-title") && !el.classList.contains("chest-section")) {
+    collect(el);
     el = el.nextElementSibling;
   }
   return { present: true, text: bits.join(" | "), buttons: buttons, commands: commands };
@@ -70,7 +83,7 @@ function sectionInfo(root, title) {
 
 waitFor(() => {
   const inv = dom.window.document.getElementById("inv");
-  return inv && /Cabin chest/i.test(inv.textContent || "");
+  return inv && /Backpack/i.test(inv.textContent || "");
 }).then(() => {
   const doc = dom.window.document;
   const shop = doc.getElementById("shop");
@@ -80,6 +93,20 @@ waitFor(() => {
   const invChest = sectionInfo(inv, "Cabin chest");
   const invPack = sectionInfo(inv, "Backpack");
   const allBtns = Array.from(doc.querySelectorAll("button")).map((b) => (b.textContent || "").trim());
+  const toggle = inv && inv.querySelector(".chest-toggle");
+  const chestOpenBefore = !!(toggle && toggle.getAttribute("aria-expanded") === "true");
+  let chestStorageBefore = null;
+  try { chestStorageBefore = dom.window.localStorage.getItem("lanternFarm.cabinChestOpen"); } catch (err) {}
+  let chestOpenAfterClick = null;
+  let chestStorageAfterClick = null;
+  let chestHiddenAfterClick = null;
+  if (toggle) {
+    toggle.click();
+    const body = inv.querySelector(".chest-section-body");
+    chestOpenAfterClick = toggle.getAttribute("aria-expanded") === "true";
+    chestHiddenAfterClick = !!(body && body.hidden);
+    try { chestStorageAfterClick = dom.window.localStorage.getItem("lanternFarm.cabinChestOpen"); } catch (err) {}
+  }
   const result = {
     shopBackpackPresent: shopBackpack.present,
     shopBackpackText: shopBackpack.text,
@@ -94,6 +121,13 @@ waitFor(() => {
     invText: inv ? inv.textContent : "",
     shopText: shop ? shop.textContent : "",
     eatButtons: allBtns.filter((t) => /^Eat/i.test(t)),
+    chestTogglePresent: !!(inv && inv.querySelector(".chest-toggle")),
+    chestOpen: chestOpenBefore,
+    chestStorage: (function () { try { return dom.window.localStorage.getItem("lanternFarm.cabinChestOpen"); } catch (err) { return null; } })(),
+    chestOrder: Array.from((inv && inv.querySelectorAll(".chest-card[data-item]")) || []).map((c) => c.getAttribute("data-item")),
+    chestOpenAfterClick: chestOpenAfterClick,
+    chestStorageAfterClick: chestStorageAfterClick,
+    chestHiddenAfterClick: chestHiddenAfterClick,
   };
   process.stdout.write(JSON.stringify(result));
   process.exit(0);

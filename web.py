@@ -844,6 +844,27 @@ PAGE = r"""<!DOCTYPE html>
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
+    button.shop-section-title.chest-toggle {
+      cursor: pointer;
+      background: none;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      width: 100%;
+      text-align: left;
+    }
+    button.chest-toggle::before { content: "▾"; font-size: 0.85em; }
+    .chest-section.is-collapsed button.chest-toggle::before { content: "▸"; }
+    .chest-card { touch-action: none; user-select: none; -webkit-user-select: none; }
+    .chest-card.is-dragging { opacity: 0.55; }
+    .chest-card[data-item] { cursor: grab; }
+    .chest-card.is-dragging { cursor: grabbing; }
     .save-card {
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -2455,7 +2476,68 @@ PAGE = r"""<!DOCTYPE html>
       });
       return n;
     }
+    const CHEST_OPEN_KEY = "lanternFarm.cabinChestOpen";
+    function chestSectionIsOpen() {
+      try {
+        const raw = localStorage.getItem(CHEST_OPEN_KEY);
+        if (raw === null) return true;
+        return raw !== "0" && raw !== "false";
+      } catch (err) {
+        return true;
+      }
+    }
+    function setChestSectionOpen(open) {
+      try { localStorage.setItem(CHEST_OPEN_KEY, open ? "1" : "0"); } catch (err) {}
+    }
+    function enableChestSort(listEl) {
+      const cards = function () { return Array.from(listEl.querySelectorAll(".chest-card")); };
+      let dragging = null;
+      function itemOrder() {
+        return cards().map(function (c) { return c.getAttribute("data-item"); }).filter(Boolean);
+      }
+      listEl.addEventListener("pointerdown", function (ev) {
+        const card = ev.target.closest && ev.target.closest(".chest-card");
+        if (!card || !listEl.contains(card)) return;
+        if (ev.button && ev.button !== 0) return;
+        if (ev.target.closest("button, input, a, select, textarea")) return;
+        dragging = card;
+        dragging._startOrder = itemOrder().join(" ");
+        card.classList.add("is-dragging");
+        try { card.setPointerCapture(ev.pointerId); } catch (err) {}
+        ev.preventDefault();
+      });
+      listEl.addEventListener("pointermove", function (ev) {
+        if (!dragging) return;
+        const y = ev.clientY;
+        const siblings = cards();
+        for (let i = 0; i < siblings.length; i++) {
+          const s = siblings[i];
+          if (s === dragging) continue;
+          const r = s.getBoundingClientRect();
+          const mid = r.top + r.height / 2;
+          if (y < mid) {
+            listEl.insertBefore(dragging, s);
+            break;
+          }
+          if (i === siblings.length - 1 && y > mid) {
+            listEl.appendChild(dragging);
+          }
+        }
+      });
+      function endDrag() {
+        if (!dragging) return;
+        const card = dragging;
+        card.classList.remove("is-dragging");
+        const next = itemOrder().join(" ");
+        const prev = card._startOrder || "";
+        dragging = null;
+        if (next && next !== prev) actCmd("reorder chest " + next);
+      }
+      listEl.addEventListener("pointerup", endDrag);
+      listEl.addEventListener("pointercancel", endDrag);
+    }
     function renderChestCards(parent, data, opts) {
+      opts = opts || {};
       const chest = slotsOfChest(data);
       if (!chest.length) {
         const empty = document.createElement("p");
@@ -2472,7 +2554,41 @@ PAGE = r"""<!DOCTYPE html>
           yourTurn: !!(data && data.your_turn),
           data: data
         });
+        const card = parent.lastElementChild;
+        if (card && slot && slot.item) {
+          card.classList.add("chest-card");
+          card.setAttribute("data-item", slot.item);
+        }
       });
+      if (opts.sortable && data && data.in_cabin && data.your_turn) {
+        enableChestSort(parent);
+      }
+    }
+    function appendCabinChestSection(parent, data) {
+      if (!data || !data.in_cabin) return;
+      const wrap = document.createElement("div");
+      wrap.className = "chest-section";
+      const open = chestSectionIsOpen();
+      if (!open) wrap.classList.add("is-collapsed");
+      const title = document.createElement("button");
+      title.type = "button";
+      title.className = "shop-section-title chest-toggle";
+      title.textContent = "Cabin chest";
+      title.setAttribute("aria-expanded", open ? "true" : "false");
+      const body = document.createElement("div");
+      body.className = "chest-section-body";
+      if (!open) body.hidden = true;
+      renderChestCards(body, data, {sortable: true});
+      title.addEventListener("click", function () {
+        const next = body.hidden;
+        body.hidden = !next;
+        title.setAttribute("aria-expanded", next ? "true" : "false");
+        wrap.classList.toggle("is-collapsed", !next);
+        setChestSectionOpen(next);
+      });
+      wrap.appendChild(title);
+      wrap.appendChild(body);
+      parent.appendChild(wrap);
     }
 
     function appendItemCard(parent, slot, opts) {
@@ -2621,17 +2737,7 @@ PAGE = r"""<!DOCTYPE html>
       held.forEach(function (slot) {
         appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
-      const chestTitle = document.createElement("div");
-      chestTitle.className = "shop-section-title";
-      chestTitle.textContent = "Cabin chest";
-      el.appendChild(chestTitle);
-      if (!data.in_cabin) {
-        const note = document.createElement("p");
-        note.className = "inv-slots";
-        note.textContent = "Walk to the cabin to take items from the chest.";
-        el.appendChild(note);
-      }
-      renderChestCards(el, data);
+      appendCabinChestSection(el, data);
     }
 
     function renderShop(data) {

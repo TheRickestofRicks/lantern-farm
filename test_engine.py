@@ -5364,6 +5364,92 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertTrue(any(t.lower().startswith("eat") for t in data.get("eatButtons") or []))
 
 
+    def test_side_panel_hides_the_chest_when_not_in_the_cabin(self):
+        import web
+        from hills import set_player_place, AREA_HILLS
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_HILLS, 3, 3)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertFalse(payload["in_cabin"])
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertFalse(data["invChestPresent"])
+        self.assertFalse(data.get("chestTogglePresent"))
+        self.assertNotRegex(data.get("invText") or "", r"Cabin chest")
+
+    def test_side_panel_chest_is_collapsible_and_remembers_its_state(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+        from inventory import add_to_chest, sync_inventory_view
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        add_to_chest(state, "spinach", 1, rules)
+        sync_inventory_view(state, rules)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertTrue(payload["in_cabin"])
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertTrue(data["invChestPresent"])
+        self.assertTrue(data.get("chestTogglePresent"))
+        self.assertTrue(data.get("chestOpen"))
+        self.assertTrue(data.get("chestHiddenAfterClick"))
+        self.assertFalse(data.get("chestOpenAfterClick"))
+        self.assertEqual(data.get("chestStorageAfterClick"), "0")
+
+
+class CabinChestOrder(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_reorder_chest_persists_in_the_save_and_new_items_append(self):
+        from inventory import add_to_chest, chest_of, sync_inventory_view
+        add_to_chest(self.state, "wood", 1, self.rules)
+        add_to_chest(self.state, "spinach", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        before = [s["item"] for s in chest_of(self.state, self.rules) if s]
+        self.assertIn("wood", before)
+        self.assertIn("spinach", before)
+        # Put spinach first; leftover stacks stay after.
+        ok, msg = do_action(
+            self.state, self.crops,
+            "reorder chest spinach wood",
+            player=P1, rules=self.rules,
+        )
+        self.assertTrue(ok, msg)
+        items = [s["item"] for s in chest_of(self.state, self.rules) if s]
+        self.assertTrue(items.index("spinach") < items.index("wood"), items)
+        # A newly added item lands at the end.
+        add_to_chest(self.state, "turnip", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        items = [s["item"] for s in chest_of(self.state, self.rules) if s]
+        self.assertEqual(items[-1], "turnip")
+
+    def test_reorder_chest_is_refused_away_from_the_cabin(self):
+        from hills import set_player_place, AREA_HILLS
+        from inventory import add_to_chest, sync_inventory_view
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        ok, msg = do_action(
+            self.state, self.crops,
+            "reorder chest wood",
+            player=P1, rules=self.rules,
+        )
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+
 
 
 class FarmPlotActionsArea(unittest.TestCase):
