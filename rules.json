@@ -15,7 +15,9 @@
     "drop": 0,
     "craft": 5,
     "fertilize": 5,
-    "unearth": 5
+    "unearth": 5,
+    "chop": 10,
+    "forage": 5
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -175,5 +177,18 @@
       "sell_price": 4,
       "eat_energy": 8
     }
+  },
+  "max_hp": 100,
+  "hp_faint_energy": 25,
+  "hills": {
+    "tree_days": {
+      "sapling": 3,
+      "young": 4,
+      "stump": 4
+    },
+    "chop_wood": 2,
+    "forage_cap": 2,
+    "forage_min": 0,
+    "forage_max": 2
   }
 }

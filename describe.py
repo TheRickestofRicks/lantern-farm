@@ -206,10 +206,10 @@ def _ascii_cell(tile: dict) -> tuple[str, str]:
     return "soil", wet + mark
 
 
-def _avatar_mark(state: dict, row: int, col: int) -> str:
+def _avatar_mark(state: dict, row: int, col: int, area: str | None = None) -> str:
     marks = []
     seen = set()
-    for name in players_at(state, row, col):
+    for name in players_at(state, row, col, area=area):
         initial = (display_name(name) or name or "?").strip()[:1].upper() or "?"
         if initial in seen:
             initial = (name or "?").strip()[:1].upper() or "?"
@@ -218,15 +218,26 @@ def _avatar_mark(state: dict, row: int, col: int) -> str:
     return "".join(marks)
 
 
-def ascii_map(state: dict) -> str:
+def ascii_map(state: dict, area: str | None = None, viewer: str | None = None) -> str:
+    from hills import (
+        AREA_HILLS, AREA_FARM, normalize_area, player_area, hills_tiles,
+        get_hills_tile, map_cell_lines, area_title,
+    )
+    if area is None and viewer:
+        area = player_area(state, viewer)
+    area = normalize_area(area)
     widths = [10, 10, 10]
     # compute from content
     cells = []
     for r in range(1, ROWS + 1):
         row_cells = []
         for c in range(1, COLS + 1):
-            a, b = _ascii_cell(get_tile(state, r, c))
-            mark = _avatar_mark(state, r, c)
+            if area == AREA_HILLS:
+                tile = get_hills_tile(state, r, c) if hills_tiles(state) else {"type": "grass"}
+                a, b = map_cell_lines(tile)
+            else:
+                a, b = _ascii_cell(get_tile(state, r, c))
+            mark = _avatar_mark(state, r, c, area=area)
             if mark:
                 b = f"{b} {mark}".strip()
             row_cells.append((a, b))
@@ -423,12 +434,14 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
     cap = max_energy(rules)
     from config import flavor, starting_player
     current = normalize_player(state.get("current_player")) or starting_player()
+    from hills import player_hp, player_area, describe_where as describe_area_where
     bits = []
     for name in known_players():
         slot = player_slot(state, name)
         energy = int(slot.get("energy", 0))
+        hp, cap_hp = player_hp(state, name, rules)
         ended = " (ended turn)" if slot.get("ended_turn") and name != current else ""
-        bits.append(f"{display_name(name)} {energy}/{cap} energy{ended}")
+        bits.append(f"{display_name(name)} {energy}/{cap} energy, {hp}/{cap_hp} HP{ended}")
     lines = [
         flavor("title_line") or "Lantern Farm  🏮",
         f"Day {day}  ·  {season.capitalize()} (day {within} of {total})  ·  "
@@ -437,7 +450,8 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
     ]
     places = []
     for name in known_players():
-        places.append(f"{display_name(name)} is {describe_where(*player_where(state, name))}")
+        prow, pcol = player_where(state, name)
+        places.append(f"{display_name(name)} is {describe_area_where(player_area(state, name), prow, pcol)}")
     if places:
         lines.append(", ".join(places) + ".")
     if current:
@@ -480,6 +494,11 @@ def describe_state(
     forecast = forecast_lines(state, crops)
     if forecast:
         lines += [""] + forecast
+    from hills import (
+        player_area, AREA_HILLS, AREA_FARM, area_title, elsewhere_lines,
+        describe_hills_tile, hills_tiles, normalize_area,
+    )
+    view_area = player_area(state, viewer) if viewer else AREA_FARM
     lines += [
         "",
         "Backpack:",
@@ -487,14 +506,21 @@ def describe_state(
         "Cabin chest:",
         _chest_line(state, crops),
         "",
-        "Mini map:",
-        ascii_map(state),
+        f"Mini map — {area_title(view_area)}:",
+        ascii_map(state, area=view_area, viewer=viewer),
+        "",
+    ]
+    lines += elsewhere_lines(state, viewer, crops)
+    lines += [
         "",
         "Tiles:",
     ]
     for r in range(1, ROWS + 1):
         for c in range(1, COLS + 1):
-            lines.append(describe_tile(state, crops, r, c))
+            if view_area == AREA_HILLS:
+                lines.append(describe_hills_tile(state, r, c, state.get("weather")))
+            else:
+                lines.append(describe_tile(state, crops, r, c))
 
     current = normalize_player(state.get("current_player"))
     actions = legal_actions(state, crops, player=viewer or current, rules=rules)
@@ -547,8 +573,12 @@ def describe_state(
         "`fertilize` (key F) while the bag is in your backpack; one bag per plot per season. "
         "The sprite key on each tile is the same one the image view uses. "
         "You can only till, plant, water, harvest, pluck, or unearth the tile you are standing on. `unearth` (key U) needs a shovel and returns a planted plot to plain soil. "
-        "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "
+        "Move with `move up/down/left/right` (or `go north/south/east/west`), "
+        "`move to <row> <col>`, or `go cabin`; "
         "each step costs 5 energy, diagonals included. "
+        "Walk north from the cabin to reach the hills at the bottom-right tile; "
+        "walk south from that tile to come home. In the hills, `chop` a grown tree "
+        "(axe, 10 energy) or `forage` a wild plant (5 energy). "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
         "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "

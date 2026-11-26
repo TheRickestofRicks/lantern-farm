@@ -81,3 +81,34 @@ The first yield fertilizer sack was both open at the top, with granules and berr
 A shovel icon was painted in the same style as the hoe and watering can: a wooden-handled digging spade with a single solid metal blade (not a hoe). The raw painting is `sources/originals/item_shovel.jpg`.
 
 The first hoe icon was a spade-like blade in line with the handle, too close to the shovel. It was repainted as a classic draw hoe: a long wooden handle with a flat rectangular blade set perpendicular at the end, so the silhouette is an L. The earlier painting is kept as `sources/originals/item_hoe_spade.jpg` (and the earlier processed icon as `item_hoe_spade.png`).
+
+## Hills tiles (Phase 1)
+
+Hills grounds, tree and forage overlays, and the axe, wood, and wild-forage item icons were painted in the same parchment ink-and-watercolour Storybook style as the farm soil and plant tiles, then chroma-keyed and resized to 512×512. Grounds are opaque full-bleed textures. Overlays and item icons sit on a keyed magenta field so they composite over the grass. Raw 1024 paintings are kept as `sources/originals/` (`hills_grass.jpg`, `overlay_tree_grown.jpg`, `item_axe.jpg`, and so on).
+
+Ground prompts (top-down square farm tile, no text, no frame, no people, no signature; match the Storybook soil tile):
+
+- **hills_grass** — Uneven wild grass in warm olive and gold-green, a few pebbles and tufts in the corners, no path, no trees.
+- **hills_grass_snow** — The same hillside grass under a first creamy snow, tufts and pebbles poking through, no footprints.
+- **hillside** — A rising grassy bank with a worn dirt path swelling toward the top of the square, stones and grass at the sides.
+- **hillside_snow** — A full-bleed snowy hillside with rocks and pale grass tufts, no white sky, no cut-out silhouette.
+- **mine_entrance_closed** — A boarded-up mine door set in a rocky cave mouth on a grassy bank, weathered planks nailed shut, a dirt approach, clearly closed.
+- **mine_entrance_closed_snow** — The same sealed entrance, snow-dusted boards, full-bleed snowy ground around it. An earlier take that showed an open tunnel was replaced with the boarded door.
+
+Overlay prompts (subject only on a flat vivid magenta-rose field, no soil, no pot, no text):
+
+- **tree_sapling** — A slender sapling with a thin brown trunk and a few fresh green leaves, seen slightly from above.
+- **tree_young** — A young tree, slim trunk, a modest rounded crown of leaves.
+- **tree_grown** — A mature deciduous tree with a sturdy trunk and a full green crown, no flowers, no fruit. An earlier take with white blossoms (too close to the strawberry reference) was replaced.
+- **tree_stump** — A low round wooden stump seen from above, pale cut face with growth rings, a little bark and a few chips.
+- **forage_wild_onion** — A small cluster of upright wild-onion leaves with one white flower, fairly small on the tile.
+- **forage_wild_berry** — A low leafy bush with a few ripe red berries.
+- **forage_wild_mushroom** — Three woodland mushrooms with tawny caps and pale stems.
+
+Item-icon prompts (single centered object on magenta, same style as the hoe and shovel):
+
+- **axe** — A woodcutter's felling axe with a curved wooden haft and a wedge-shaped steel head. Early takes that followed the hoe reference too closely were discarded.
+- **wood** — Three short cut logs stacked and tied with twine, no tools.
+- **wild_onion** — One small onion bulb with a short tuft of green leaves.
+- **wild_berry** — A cluster of ripe red berries with a couple of green leaves.
+- **wild_mushroom** — Two or three woodland mushrooms with tawny-brown caps.

@@ -2484,6 +2484,14 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertIn("strawberry_mature", snowy[1]["file"])
         self.assertTrue(layers_for_key("soil_snow", man)[0]["file"].endswith("soil_snow.png"))
         self.assertTrue(layers_for_key("soil_tilled_snow", man)[0]["file"].endswith("soil_tilled_snow.png"))
+        hills = layers_for_key("hills_grass_tree_grown", man)
+        self.assertEqual([layer["role"] for layer in hills], ["ground", "crop"])
+        self.assertIn("hills_grass", hills[0]["file"])
+        self.assertIn("tree_grown", hills[1]["file"])
+        entrance = layers_for_key("mine_entrance_closed_snow", man)
+        self.assertTrue(entrance[0]["file"].endswith("mine_entrance_closed_snow.png"))
+        forage = layers_for_key("hills_grass_forage_wild_onion", man)
+        self.assertIn("forage_wild_onion", forage[1]["file"])
         # Spring-shop crops now have Storybook overlays, same layering as strawberry.
         kabocha = layers_for_key("kabocha_sprouting_wet", man)
         self.assertEqual([layer["role"] for layer in kabocha], ["ground", "crop"])
@@ -2608,6 +2616,7 @@ class ArtPackAndPage(unittest.TestCase):
             "onion_seed", "rhubarb_crown", "asparagus_crown",
             "rhubarb_strawberry_jam", "garden_salad", "roasted_potatoes",
             "pumpkin_soup",
+            "axe", "wood", "wild_onion", "wild_berry", "wild_mushroom",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -4096,6 +4105,386 @@ class SpringPlantedCrops(unittest.TestCase):
         self.assertTrue(pack_has(self.state, P1, "bush_bean_seed", 2))
 
 
+
+
+class HillsPhaseOne(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+
+    def _axe(self, player=None):
+        player = player or P1
+        from inventory import TOOL_AXE, pack_has, remove_from_chest, add_to_pack, sync_inventory_view
+        stand(self.state, player, CABIN_ROW, CABIN_COL)
+        if not pack_has(self.state, player, TOOL_AXE, 1, self.rules):
+            remove_from_chest(self.state, TOOL_AXE, 1, self.rules)
+            add_to_pack(self.state, player, TOOL_AXE, 1, self.rules)
+            sync_inventory_view(self.state, self.rules)
+
+    def test_fresh_farm_has_hills_and_full_hp(self):
+        from hills import hills_tiles, AREA_FARM, player_area, player_hp, MINE_ENTRANCE, get_hills_tile
+        from inventory import item_count, TOOL_AXE
+        self.assertTrue(hills_tiles(self.state))
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual((hp, cap), (100, 100))
+        self.assertGreaterEqual(item_count(self.state, TOOL_AXE, self.rules), 1)
+        entrance = get_hills_tile(self.state, *MINE_ENTRANCE)
+        self.assertEqual(entrance.get("type"), "mine_entrance")
+        self.assertTrue(entrance.get("closed"))
+        self.assertFalse(self.state.get("mine_entrance_found"))
+
+    def test_migrate_keeps_farm_and_turn(self):
+        from hills import player_area, AREA_FARM
+        from inventory import item_count, TOOL_AXE
+        state = fresh_state(self.crops, weather_seed=7, rules=self.rules)
+        state["day"] = 5
+        state["season"] = "spring"
+        state["gold"] = 2
+        state["current_player"] = P1
+        state["players"][P1]["energy"] = 0
+        state["players"][P1]["ended_turn"] = False
+        state["players"][P1]["row"] = 3
+        state["players"][P1]["col"] = 1
+        farm = copy.deepcopy(state["tiles"])
+        pack = copy.deepcopy(state["players"][P1]["pack"])
+        state.pop("hills", None)
+        state.pop("mine_entrance_found", None)
+        for slot in state["players"].values():
+            slot.pop("area", None)
+            slot.pop("hp", None)
+            slot.pop("hp_max", None)
+        changed = migrate_state(state, self.rules)
+        self.assertTrue(changed)
+        self.assertEqual(state["tiles"], farm)
+        self.assertEqual(state["gold"], 2)
+        self.assertEqual(state["current_player"], P1)
+        self.assertEqual(state["players"][P1]["energy"], 0)
+        self.assertEqual(state["players"][P1]["ended_turn"], False)
+        self.assertEqual((state["players"][P1]["row"], state["players"][P1]["col"]), (3, 1))
+        self.assertEqual(state["players"][P1]["pack"], pack)
+        self.assertEqual(player_area(state, P1), AREA_FARM)
+        self.assertEqual(state["players"][P1]["hp"], 100)
+        self.assertTrue(state.get("hills", {}).get("tiles"))
+        self.assertGreaterEqual(item_count(state, TOOL_AXE, self.rules), 1)
+
+    def test_hills_13_is_not_the_cabin(self):
+        from hills import set_player_place, AREA_HILLS, is_cabin_place
+        from engine import is_player_in_cabin
+        set_player_place(self.state, P1, AREA_HILLS, 1, 3)
+        self.assertFalse(is_cabin_place(AREA_HILLS, 1, 3))
+        self.assertFalse(is_player_in_cabin(self.state, P1))
+        self.assertIn("pass out", sleep_outlook(self.state, P1, self.rules).lower())
+
+    def test_cabin_north_enters_hills_bottom_right(self):
+        from hills import player_area, AREA_HILLS, HILLS_GATE, AREA_FARM
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "go north", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), HILLS_GATE)
+        self.assertIn("hills", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "go south", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+
+    def test_north_from_other_top_row_is_refused(self):
+        from hills import player_area, AREA_FARM
+        stand(self.state, P1, 1, 1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "move up", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("cabin", msg.lower())
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (1, 1))
+
+    def test_go_cabin_from_hills_charges_the_path(self):
+        from hills import set_player_place, AREA_HILLS, AREA_FARM, player_area
+        set_player_place(self.state, P1, AREA_HILLS, 1, 1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "go cabin", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(self.state["players"][P1]["energy"], 85)
+        self.assertIn("3 steps", msg)
+
+    def test_trees_grow_chop_and_stump_resprouts(self):
+        from hills import (
+            set_player_place, AREA_HILLS, make_tree, get_hills_tile,
+            tick_hills, tree_days_for,
+        )
+        from inventory import pack_has
+        tile = get_hills_tile(self.state, 3, 2)
+        tile["tree"] = make_tree("sapling", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        days = tree_days_for("sapling", self.rules) + tree_days_for("young", self.rules)
+        for _ in range(days):
+            tick_hills(self.state, self.rules)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "grown")
+        self._axe(P1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
+        self.assertTrue(pack_has(self.state, P1, "wood", 2, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        from inventory import remove_from_pack, add_to_chest, sync_inventory_view
+        tile2 = get_hills_tile(self.state, 2, 2)
+        tile2["tree"] = make_tree("grown", planted_day=1)
+        tile2["forage"] = None
+        set_player_place(self.state, P1, AREA_HILLS, 2, 2)
+        remove_from_pack(self.state, P1, "axe", 1, self.rules)
+        add_to_chest(self.state, "axe", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("axe", msg.lower())
+        stump = get_hills_tile(self.state, 3, 2)
+        stump["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        for _ in range(tree_days_for("stump", self.rules)):
+            tick_hills(self.state, self.rules)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "sapling")
+
+    def test_take_axe_1_from_the_chest(self):
+        from inventory import pack_has, TOOL_AXE
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take axe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, TOOL_AXE, 1, self.rules))
+
+    def test_forage_is_deterministic_and_seasonal(self):
+        from hills import _spawn_forage, forage_kind_for_season, iter_hills_tiles, set_player_place, AREA_HILLS
+        from inventory import pack_has
+        self.assertEqual(forage_kind_for_season("spring"), "wild_onion")
+        self.assertEqual(forage_kind_for_season("summer"), "wild_berry")
+        self.assertEqual(forage_kind_for_season("winter"), None)
+        for _r, _c, tile in iter_hills_tiles(self.state):
+            tile["forage"] = None
+        a = copy.deepcopy(self.state)
+        b = copy.deepcopy(self.state)
+        _spawn_forage(a, self.rules, log=False)
+        _spawn_forage(b, self.rules, log=False)
+        spots_a = [(r, c, t["forage"]) for r, c, t in iter_hills_tiles(a) if t.get("forage")]
+        spots_b = [(r, c, t["forage"]) for r, c, t in iter_hills_tiles(b) if t.get("forage")]
+        self.assertEqual(spots_a, spots_b)
+        if not spots_a:
+            from hills import make_forage, get_hills_tile
+            get_hills_tile(self.state, 3, 1)["tree"] = None
+            get_hills_tile(self.state, 3, 1)["forage"] = make_forage("wild_onion", 1)
+            r, c, kind = 3, 1, "wild_onion"
+        else:
+            r, c, fod = spots_a[0]
+            kind = fod["kind"]
+            self.state = a
+        set_player_place(self.state, P1, AREA_HILLS, r, c)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "forage", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, kind, 1, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+
+    def test_look_names_the_area_and_the_other_player(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        from describe import describe_state
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        text = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("Mini map — the hills", text)
+        self.assertIn("Elsewhere:", text)
+        self.assertIn("The farm:", text)
+        self.assertIn("Walk south from the bottom-right hill", text)
+        self.assertIn(N2, text)
+        self.assertIn("in the cabin", text)
+        farm_text = describe_state(self.state, self.crops, viewer=P2)
+        self.assertIn("Mini map — the farm", farm_text)
+        self.assertIn("The hills:", farm_text)
+        self.assertIn("Walk north from the cabin", farm_text)
+        self.assertIn("in the hills", farm_text)
+
+    def test_mini_map_hills_labels_fit(self):
+        from hills import map_cell_lines, iter_hills_tiles
+        from describe import MAP_LABEL_WIDTH
+        for _r, _c, tile in iter_hills_tiles(self.state):
+            a, b = map_cell_lines(tile)
+            self.assertLessEqual(len(a), MAP_LABEL_WIDTH, a)
+            self.assertLessEqual(len(b), MAP_LABEL_WIDTH, b)
+
+    def test_snacks_heal_hp_and_sleep_fills_hp(self):
+        from hills import player_hp, set_player_place, AREA_HILLS, player_area
+        from inventory import add_to_pack, sync_inventory_view
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["hp"] = 80
+        self.state["players"][P1]["energy"] = 100
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 90)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertIn("HP", msg)
+        self.state["players"][P1]["hp"] = 40
+        self.state["players"][P1]["snacks_eaten"] = 0
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 100)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        self.state["players"][P1]["hp"] = 40
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        self.state["players"][P2]["ended_turn"] = False
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 40)
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+
+    def test_zero_hp_wakes_at_the_mine_entrance(self):
+        from hills import faint_from_hp, player_area, AREA_HILLS, MINE_ENTRANCE, player_hp
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["hp"] = 0
+        self.state["players"][P1]["energy"] = 80
+        msg = faint_from_hp(self.state, P1, self.rules)
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
+        self.assertEqual(self.state["players"][P1]["energy"], 25)
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
+        self.assertIn("mine entrance", msg.lower())
+        self.assertTrue(self.state.get("mine_entrance_found"))
+
+    def test_listed_hills_actions_execute(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, make_forage, get_hills_tile
+        from engine import described_legal_actions, legal_actions, strip_action_descriptor
+        self._axe(P1)
+        tile = get_hills_tile(self.state, 3, 3)
+        tile["tree"] = make_tree("grown")
+        tile["forage"] = make_forage("wild_onion", 1)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        self.state["players"][P1]["energy"] = 100
+        listed = described_legal_actions(self.state, self.crops, P1, self.rules)
+        raw = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("go south", raw)
+        self.assertIn("chop", raw)
+        self.assertIn("forage", raw)
+        self.assertIn("go cabin", raw)
+        for shown, cmd in zip(listed, raw):
+            scratch = copy.deepcopy(self.state)
+            ok, msg = do_action(scratch, self.crops, strip_action_descriptor(shown), player=P1, rules=self.rules)
+            self.assertTrue(ok, f"{shown!r} -> failed: {msg}")
+            scratch2 = copy.deepcopy(self.state)
+            ok2, msg2 = do_action(scratch2, self.crops, cmd, player=P1, rules=self.rules)
+            self.assertTrue(ok2, f"{cmd!r} failed: {msg2}")
+
+    def test_hills_sprite_keys_round_trip(self):
+        from sprites import sprite_key, parse_sprite_key, svg_for_key, is_safe_key
+        tiles = [
+            {"type": "grass", "tree": {"stage": "sapling"}, "forage": None},
+            {"type": "grass", "tree": {"stage": "grown"}, "forage": {"kind": "wild_onion"}},
+            {"type": "hillside", "tree": {"stage": "stump"}, "forage": None},
+            {"type": "mine_entrance", "closed": True, "tree": None, "forage": None},
+        ]
+        for tile in tiles:
+            for weather in ("sun", "snow"):
+                key = sprite_key(tile, weather)
+                self.assertTrue(is_safe_key(key), key)
+                info = parse_sprite_key(key)
+                self.assertTrue(info.get("hills"), key)
+                self.assertEqual(info.get("type"), tile["type"])
+                if tile.get("tree"):
+                    self.assertEqual(info.get("tree"), tile["tree"]["stage"])
+                if tile.get("forage"):
+                    self.assertEqual(info.get("forage"), tile["forage"]["kind"])
+                if weather == "snow":
+                    self.assertTrue(info.get("snow"))
+                svg = svg_for_key(key)
+                self.assertIn("<svg", svg)
+
+    def test_web_payload_has_elsewhere_and_view_area(self):
+        import web
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload["view_area"], "hills")
+        self.assertEqual(len(payload["view_tiles"]), 3)
+        self.assertIn("hills", payload["area_title"])
+        joined = "\n".join(payload["elsewhere"])
+        self.assertIn("Elsewhere:", joined)
+        self.assertIn("The farm:", joined)
+        self.assertIn(N2, joined)
+        self.assertIn("100", str(payload["hp"][P1]))
+        html = web.PAGE
+        self.assertIn('id="area-head"', html)
+        self.assertIn('id="elsewhere"', html)
+        self.assertIn("<kbd>C</kbd>", html)
+        self.assertIn("<kbd>G</kbd>", html)
+
+
+class HillsJsdomUi(unittest.TestCase):
+    def test_jsdom_renders_hills_grid_and_elsewhere(self):
+        import shutil
+        import subprocess
+        import tempfile
+        import web
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE, make_tree, get_hills_tile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        get_hills_tile(state, 3, 3)["tree"] = make_tree("grown")
+        set_player_place(state, P1, AREA_HILLS, *HILLS_GATE)
+        payload = web.api_payload(state, crops, player=P1)
+        html = web.render_page(viewer=P1)
+        runner = Path(__file__).resolve().parent / "tests" / "hills-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-hills-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+            self.assertIn("hills", data["head"].lower())
+            self.assertIn("Elsewhere", data["elsewhere"])
+            self.assertIn("The farm", data["elsewhere"])
+            self.assertEqual(data["tileCount"], 9)
+            self.assertTrue(any((lab or "").lower() == "tree" or "tree" in (lab or "").lower() for lab in data["labels"]))
+            self.assertIn("hills", (data["aria"] or "").lower())
+            srcs = " ".join(data.get("imgSrcs") or [])
+            self.assertIn("hills_grass.png", srcs)
+            self.assertIn("tree_grown.png", srcs)
+            self.assertIn("mine_entrance_closed.png", srcs)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,21 @@ def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | 
 
 def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
+    typ = (tile or {}).get("type")
+    if typ in {"grass", "hillside", "mine_entrance"}:
+        if typ == "mine_entrance":
+            key = "mine_entrance_closed" if tile.get("closed", True) else "mine_entrance"
+        else:
+            key = typ if typ != "grass" else "hills_grass"
+        if (weather or "").strip().lower() == "snow":
+            key += "_snow"
+        tree = tile.get("tree") if isinstance(tile.get("tree"), dict) else None
+        if tree and tree.get("stage"):
+            key += f"_tree_{tree['stage']}"
+        forage = tile.get("forage") if isinstance(tile.get("forage"), dict) else None
+        if forage and forage.get("kind"):
+            key += f"_forage_{forage['kind']}"
+        return key
     if not tile or tile.get("type") == "cabin":
         w = (weather or "").strip().lower()
         if w in {"rain", "snow", "storm", "cloud"}:
@@ -87,9 +102,56 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
     return key
 
 
+
+def _parse_hills_sprite_key(key: str) -> dict | None:
+    """Parse hills / mine-entrance sprite keys. Returns None if it is not one."""
+    raw = key
+    forage = None
+    tree = None
+    snow = False
+    # forage and tree suffixes, longest first
+    for kind in ("wild_mushroom", "wild_onion", "wild_berry"):
+        suffix = "_forage_" + kind
+        if raw.endswith(suffix):
+            forage = kind
+            raw = raw[: -len(suffix)]
+            break
+    for stage in ("sapling", "young", "grown", "stump"):
+        suffix = "_tree_" + stage
+        if raw.endswith(suffix):
+            tree = stage
+            raw = raw[: -len(suffix)]
+            break
+    if raw.endswith("_snow"):
+        snow = True
+        raw = raw[: -len("_snow")]
+    grounds = {
+        "hills_grass": "grass",
+        "grass": "grass",
+        "hillside": "hillside",
+        "mine_entrance": "mine_entrance",
+        "mine_entrance_closed": "mine_entrance",
+    }
+    typ = grounds.get(raw)
+    if not typ:
+        return None
+    return {
+        "kind": typ,
+        "type": typ,
+        "closed": raw.endswith("closed") or typ == "mine_entrance",
+        "tree": tree,
+        "forage": forage,
+        "snow": snow,
+        "hills": True,
+    }
+
+
 def parse_sprite_key(key: str) -> dict:
     """Inverse of sprite_key, for the SVG generator."""
     key = (key or "").strip().lower()
+    hills = _parse_hills_sprite_key(key)
+    if hills:
+        return hills
     if key == "cabin" or key.startswith("cabin_"):
         weather = "sun"
         if key.startswith("cabin_") and len(key) > 6:
@@ -958,9 +1020,121 @@ def _vine_overlay(direction: str) -> str:
     return f'<g id="vine-{direction}">\n  {stem}\n  {"".join(leaves)}\n</g>'
 
 
+
+def _hills_ground(kind: str, snow: bool = False) -> str:
+    # Warm grassy hillside, slightly greener than farm soil.
+    if kind == "hillside":
+        fill, dark, tuft = ("#6b7a3a", "#4d5c28", "#8a9a4a")
+    elif kind == "mine_entrance":
+        fill, dark, tuft = ("#5a5340", "#3a3428", "#6e6754")
+    else:
+        fill, dark, tuft = ("#6a8a42", "#4a6a2a", "#8aaa58")
+    if snow:
+        fill, dark, tuft = ("#d8dce6", "#9aa6b8", "#c8c8b8")
+    bits = [
+        f'<rect width="160" height="160" fill="{fill}"/>',
+        f'<path d="M0 118 C 40 108, 80 128, 160 116 L 160 160 L 0 160 Z" fill="{dark}" opacity="0.35"/>',
+        f'<circle cx="22" cy="28" r="6" fill="{tuft}" opacity="0.8"/>',
+        f'<circle cx="138" cy="24" r="7" fill="{tuft}" opacity="0.75"/>',
+        f'<circle cx="28" cy="138" r="5" fill="{tuft}" opacity="0.7"/>',
+        f'<circle cx="132" cy="142" r="6" fill="{tuft}" opacity="0.7"/>',
+    ]
+    if kind == "hillside":
+        bits.append(f'<path d="M0 70 Q 80 40 160 78" fill="none" stroke="{dark}" stroke-width="10" opacity="0.25"/>')
+    if snow:
+        bits.append('<circle cx="50" cy="40" r="2" fill="#f7f9fc" opacity="0.9"/>')
+        bits.append('<circle cx="110" cy="60" r="2.2" fill="#f7f9fc" opacity="0.85"/>')
+        bits.append('<circle cx="70" cy="100" r="1.8" fill="#f7f9fc" opacity="0.8"/>')
+    return "\n".join(bits)
+
+
+def _tree_overlay(stage: str) -> str:
+    if stage == "stump":
+        return (
+            '<ellipse cx="80" cy="108" rx="18" ry="8" fill="#5a3a22"/>'
+            '<rect x="66" y="86" width="28" height="22" rx="4" fill="#6b4a2b"/>'
+            '<ellipse cx="80" cy="86" rx="14" ry="5" fill="#8a6a44"/>'
+        )
+    if stage == "sapling":
+        return (
+            '<rect x="77" y="90" width="6" height="28" rx="2" fill="#6b4a2b"/>'
+            '<circle cx="80" cy="84" r="14" fill="#3d6b38"/>'
+            '<circle cx="70" cy="90" r="8" fill="#4a7a40"/>'
+            '<circle cx="90" cy="90" r="8" fill="#4a7a40"/>'
+        )
+    if stage == "young":
+        return (
+            '<rect x="74" y="80" width="12" height="40" rx="3" fill="#5a3a22"/>'
+            '<circle cx="80" cy="70" r="28" fill="#2f5c2c"/>'
+            '<circle cx="60" cy="82" r="16" fill="#3d6b38"/>'
+            '<circle cx="100" cy="82" r="16" fill="#3d6b38"/>'
+        )
+    # grown
+    return (
+        '<rect x="72" y="78" width="16" height="48" rx="4" fill="#4a2e18"/>'
+        '<circle cx="80" cy="62" r="40" fill="#2a4e26"/>'
+        '<circle cx="50" cy="78" r="22" fill="#3d6b38"/>'
+        '<circle cx="110" cy="78" r="22" fill="#3d6b38"/>'
+        '<circle cx="80" cy="44" r="18" fill="#355e30"/>'
+    )
+
+
+def _forage_overlay(kind: str) -> str:
+    if kind == "wild_berry":
+        return (
+            '<circle cx="58" cy="118" r="6" fill="#8b1e2d"/>'
+            '<circle cx="70" cy="122" r="5.5" fill="#a02838"/>'
+            '<circle cx="64" cy="110" r="5" fill="#7a1828"/>'
+            '<path d="M64 104 C 60 98, 70 98, 66 104" fill="#3d6b38"/>'
+        )
+    if kind == "wild_mushroom":
+        return (
+            '<rect x="74" y="112" width="10" height="16" rx="3" fill="#e8d8b8"/>'
+            '<ellipse cx="79" cy="110" rx="16" ry="10" fill="#8a5a28"/>'
+            '<ellipse cx="74" cy="108" rx="3" ry="2" fill="#f0e0c0" opacity="0.7"/>'
+        )
+    # wild onion
+    return (
+        '<ellipse cx="96" cy="124" rx="8" ry="10" fill="#c8b070"/>'
+        '<path d="M96 116 C 90 90, 86 80, 88 72" fill="none" stroke="#3d6b38" stroke-width="3" stroke-linecap="round"/>'
+        '<path d="M96 116 C 98 92, 108 82, 112 74" fill="none" stroke="#4a7a40" stroke-width="3" stroke-linecap="round"/>'
+        '<path d="M96 116 C 94 94, 100 84, 102 76" fill="none" stroke="#2f5c2c" stroke-width="2.5" stroke-linecap="round"/>'
+    )
+
+
+def _mine_entrance_overlay(closed: bool = True) -> str:
+    bits = [
+        '<path d="M40 130 L 48 70 Q 80 40 112 70 L 120 130 Z" fill="#2a241c"/>',
+        '<path d="M48 126 L 54 76 Q 80 52 106 76 L 112 126 Z" fill="#1a1612"/>',
+    ]
+    if closed:
+        # Boarded planks
+        bits.append('<rect x="58" y="72" width="44" height="54" fill="#6b4a2b"/>')
+        bits.append('<rect x="58" y="80" width="44" height="4" fill="#4a2e18"/>')
+        bits.append('<rect x="58" y="96" width="44" height="4" fill="#4a2e18"/>')
+        bits.append('<rect x="58" y="112" width="44" height="4" fill="#4a2e18"/>')
+        bits.append('<circle cx="68" cy="88" r="2" fill="#2a1c12"/>')
+        bits.append('<circle cx="92" cy="104" r="2" fill="#2a1c12"/>')
+    return "\n".join(bits)
+
+
+def svg_hills_tile(info: dict) -> str:
+    typ = info.get("type") or info.get("kind") or "grass"
+    layers = [_hills_ground(typ, bool(info.get("snow")))]
+    if typ == "mine_entrance":
+        layers.append(_mine_entrance_overlay(closed=bool(info.get("closed", True))))
+    if info.get("tree"):
+        layers.append(_tree_overlay(info["tree"]))
+    if info.get("forage"):
+        layers.append(_forage_overlay(info["forage"]))
+    return _svg("\n".join(layers))
+
+
 def svg_for_key(key: str) -> str:
     info = parse_sprite_key(key)
     kind = info.get("kind")
+    if info.get("hills"):
+        return svg_hills_tile(info)
     if kind == "cabin":
         return svg_cabin(info.get("weather") or "sun")
     if kind == "unknown":
@@ -992,6 +1166,11 @@ _ITEM_LABELS = {
     "hoe": "HOE",
     "watering_can": "CAN",
     "shovel": "SHVL",
+    "axe": "AXE",
+    "wood": "WOOD",
+    "wild_onion": "ONION",
+    "wild_berry": "BERRY",
+    "wild_mushroom": "SHROOM",
     "strawberry_jam": "JAM",
     "kabocha_soup": "SOUP",
     "root_stew": "STEW",
@@ -1016,6 +1195,11 @@ _ITEM_COLORS = {
     "hoe": ("#6b4a2b", "#c4a574"),
     "watering_can": ("#3d5c6e", "#9ec3d4"),
     "shovel": ("#4a5560", "#c4a574"),
+    "axe": ("#4a3a28", "#d4c09a"),
+    "wood": ("#6b4a2b", "#e2c48a"),
+    "wild_onion": ("#3d6b38", "#d7e8b0"),
+    "wild_berry": ("#8b1e2d", "#f2d4a3"),
+    "wild_mushroom": ("#5a3a22", "#e2c48a"),
     "strawberry_jam": ("#8b1e2d", "#f2d4a3"),
     "kabocha_soup": ("#8a5a12", "#f0d48a"),
     "root_stew": ("#5a3a22", "#e2c48a"),

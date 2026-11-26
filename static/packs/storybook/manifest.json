@@ -11,7 +11,13 @@
     "soil_snow": "grounds/soil_snow.png",
     "soil_wet_snow": "grounds/soil_wet_snow.png",
     "soil_tilled_snow": "grounds/soil_tilled_snow.png",
-    "soil_watered_snow": "grounds/soil_watered_snow.png"
+    "soil_watered_snow": "grounds/soil_watered_snow.png",
+    "hills_grass": "grounds/hills_grass.png",
+    "hills_grass_snow": "grounds/hills_grass_snow.png",
+    "hillside": "grounds/hillside.png",
+    "hillside_snow": "grounds/hillside_snow.png",
+    "mine_entrance_closed": "grounds/mine_entrance_closed.png",
+    "mine_entrance_closed_snow": "grounds/mine_entrance_closed_snow.png"
   },
   "overlays": {
     "everbearing_dormant": "overlays/everbearing_dormant.png",
@@ -138,7 +144,14 @@
     "zucchini_regrowing": "overlays/zucchini_regrowing.png",
     "zucchini_seed": "overlays/zucchini_seed.png",
     "zucchini_sprouting": "overlays/zucchini_sprouting.png",
-    "zucchini_withered": "overlays/zucchini_withered.png"
+    "zucchini_withered": "overlays/zucchini_withered.png",
+    "tree_sapling": "overlays/tree_sapling.png",
+    "tree_young": "overlays/tree_young.png",
+    "tree_grown": "overlays/tree_grown.png",
+    "tree_stump": "overlays/tree_stump.png",
+    "forage_wild_onion": "overlays/forage_wild_onion.png",
+    "forage_wild_berry": "overlays/forage_wild_berry.png",
+    "forage_wild_mushroom": "overlays/forage_wild_mushroom.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",
@@ -212,6 +225,11 @@
     "rhubarb_strawberry_jam": "items/rhubarb_strawberry_jam.png",
     "garden_salad": "items/garden_salad.png",
     "roasted_potatoes": "items/roasted_potatoes.png",
-    "pumpkin_soup": "items/pumpkin_soup.png"
+    "pumpkin_soup": "items/pumpkin_soup.png",
+    "axe": "items/axe.png",
+    "wood": "items/wood.png",
+    "wild_onion": "items/wild_onion.png",
+    "wild_berry": "items/wild_berry.png",
+    "wild_mushroom": "items/wild_mushroom.png"
   }
 }

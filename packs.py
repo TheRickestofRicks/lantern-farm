@@ -91,6 +91,17 @@ def ground_key_for(parsed: dict) -> str | None:
     kind = (parsed or {}).get("kind")
     if kind in {None, "cabin", "unknown"}:
         return None
+    if parsed.get("hills"):
+        typ = parsed.get("type") or kind
+        if typ == "mine_entrance":
+            base = "mine_entrance_closed"
+        elif typ == "hillside":
+            base = "hillside"
+        else:
+            base = "hills_grass"
+        if parsed.get("snow"):
+            return f"{base}_snow"
+        return base
     if kind == "soil":
         if parsed.get("tilled") and parsed.get("watered"):
             base = "soil_watered"
@@ -182,6 +193,18 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
         ffile = _pack_file(manifest, overlays.get(f"fertilizer_{fert}") or "")
         if ffile:
             layers.append({"role": "fertilizer", "file": ffile})
+    if parsed.get("hills"):
+        if typ_tree := parsed.get("tree"):
+            tfile = _pack_file(manifest, overlays.get(f"tree_{typ_tree}") or "")
+            if not tfile:
+                return None
+            layers.append({"role": "crop", "file": tfile})
+        if typ_forage := parsed.get("forage"):
+            ffile = _pack_file(manifest, overlays.get(f"forage_{typ_forage}") or "")
+            if not ffile:
+                return None
+            layers.append({"role": "crop", "file": ffile})
+        return layers
     ckey = crop_overlay_key(parsed)
     if ckey:
         cfile = _pack_file(manifest, overlays.get(ckey) or "")

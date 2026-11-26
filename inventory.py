@@ -12,6 +12,7 @@ TILL_HOLD_DAYS = 5
 TOOL_HOE = "hoe"
 TOOL_CAN = "watering_can"
 TOOL_SHOVEL = "shovel"
+TOOL_AXE = "axe"
 
 TOOLS = {
     TOOL_HOE: {
@@ -27,6 +28,11 @@ TOOLS = {
     TOOL_SHOVEL: {
         "name": "shovel",
         "name_plural": "shovels",
+        "starting": 1,
+    },
+    TOOL_AXE: {
+        "name": "axe",
+        "name_plural": "axes",
         "starting": 1,
     },
 }
@@ -56,6 +62,43 @@ STAPLES = {
         "sell_price": 4,
         "eat_energy": 8,
         "description": "A bottle of fresh milk. Good on its own, or with berries and soup.",
+    },
+}
+
+# Forage and gathered materials (hills). Not shop stock.
+MATERIALS = {
+    "wood": {
+        "name": "wood",
+        "name_plural": "wood",
+        "sell_price": 4,
+        "description": "A small bundle of firewood, chopped in the hills.",
+    },
+}
+
+FORAGE_ITEMS = {
+    "wild_onion": {
+        "name": "wild onion",
+        "name_plural": "wild onions",
+        "sell_price": 8,
+        "eat_energy": 8,
+        "seasons": ("spring",),
+        "description": "A wild spring onion, pulled from the hills.",
+    },
+    "wild_berry": {
+        "name": "wild berry",
+        "name_plural": "wild berries",
+        "sell_price": 10,
+        "eat_energy": 10,
+        "seasons": ("summer",),
+        "description": "A handful of wild summer berries.",
+    },
+    "wild_mushroom": {
+        "name": "wild mushroom",
+        "name_plural": "wild mushrooms",
+        "sell_price": 12,
+        "eat_energy": 12,
+        "seasons": ("autumn",),
+        "description": "A wild autumn mushroom from the hills.",
     },
 }
 
@@ -186,6 +229,19 @@ ITEM_ALIASES = {
     "watering_can": TOOL_CAN,
     "shovel": TOOL_SHOVEL,
     "shovels": TOOL_SHOVEL,
+    "axe": TOOL_AXE,
+    "axes": TOOL_AXE,
+    "wood": "wood",
+    "firewood": "wood",
+    "wild_onion": "wild_onion",
+    "wild onion": "wild_onion",
+    "wild onions": "wild_onion",
+    "wild_berry": "wild_berry",
+    "wild berry": "wild_berry",
+    "wild berries": "wild_berry",
+    "wild_mushroom": "wild_mushroom",
+    "wild mushroom": "wild_mushroom",
+    "wild mushrooms": "wild_mushroom",
     "watering-can": TOOL_CAN,
     "wateringcan": TOOL_CAN,
     "watering can": TOOL_CAN,
@@ -570,6 +626,14 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
         info = staple_info(item, rules) or STAPLES[item]
         noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
         return f"{count} {noun}"
+    if item in MATERIALS:
+        info = MATERIALS[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
+        return f"{count} {noun}"
+    if item in FORAGE_ITEMS:
+        info = FORAGE_ITEMS[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
+        return f"{count} {noun}"
     if item in FERTILIZERS:
         info = fertilizer_info(item, rules) or FERTILIZERS[item]
         noun = info["name"] if count == 1 else info["name_plural"]
@@ -606,6 +670,16 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
 
 
 def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
+    if item in MATERIALS:
+        try:
+            return int(MATERIALS[item]["sell_price"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    if item in FORAGE_ITEMS:
+        try:
+            return int(FORAGE_ITEMS[item]["sell_price"])
+        except (KeyError, TypeError, ValueError):
+            return None
     if item in STAPLES:
         stap = staple_info(item, rules) or STAPLES[item]
         try:
@@ -633,6 +707,14 @@ def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = N
 
 
 def item_eat_energy(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
+    if item in FORAGE_ITEMS:
+        raw = FORAGE_ITEMS[item].get("eat_energy")
+        if raw is None:
+            return None
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            return None
     if item in STAPLES:
         stap = staple_info(item, rules) or STAPLES[item]
         if stap.get("eat_energy") is None:

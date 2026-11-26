@@ -210,15 +210,18 @@ def set_player_where(state: dict, player: str, row: int, col: int) -> None:
 
 
 def is_player_in_cabin(state: dict, player: str) -> bool:
+    from hills import player_area, is_cabin_place
     row, col = player_where(state, player)
-    return is_cabin_at(row, col)
+    return is_cabin_place(player_area(state, player), row, col)
 
 
-def players_at(state: dict, row: int, col: int) -> list[str]:
+def players_at(state: dict, row: int, col: int, area: str | None = None) -> list[str]:
+    from hills import player_area, AREA_FARM, normalize_area
+    want = normalize_area(area) if area else AREA_FARM
     found = []
     for name in known_players():
         here = player_where(state, name)
-        if here == (int(row), int(col)):
+        if here == (int(row), int(col)) and player_area(state, name) == want:
             found.append(name)
     return found
 
@@ -1250,7 +1253,10 @@ def parse_row_col(row, col) -> tuple[int | None, int | None, str | None]:
     return r, c, None
 
 
-def get_tile(state: dict, row: int, col: int) -> dict:
+def get_tile(state: dict, row: int, col: int, area: str | None = None) -> dict:
+    from hills import AREA_HILLS, normalize_area, get_hills_tile
+    if area and normalize_area(area) == AREA_HILLS:
+        return get_hills_tile(state, row, col)
     return state["tiles"][row - 1][col - 1]
 
 
@@ -1334,6 +1340,8 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
     apply_new_day_turns(state, rules)
     from inventory import migrate_inventory
     migrate_inventory(state, crops, rules)
+    from hills import migrate_hills
+    migrate_hills(state, rules)
     if is_wet_weather(weather):
         dawn_water(state, rules)
         log_append(state, weather_arrive_message(weather))
@@ -1531,16 +1539,33 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             col = int(prev.get("col") or 0)
         except (TypeError, ValueError):
             row, col = 0, 0
+        from hills import (
+            normalize_area, AREA_FARM, is_cabin_place, max_hp as hills_max_hp,
+        )
+        area = normalize_area(prev.get("area"))
         if not in_bounds(row, col):
             row, col = CABIN_ROW, CABIN_COL
-        slept = is_cabin_at(row, col)
+            area = AREA_FARM
+        slept = is_cabin_place(area, row, col)
         from inventory import empty_pack, normalize_pack
+        cap_hp = hills_max_hp(rules)
+        try:
+            hp = int(prev.get("hp"))
+            hp_max = int(prev.get("hp_max") or cap_hp)
+        except (TypeError, ValueError):
+            hp, hp_max = cap_hp, cap_hp
+        hp = max(0, min(hp_max, hp))
+        if slept:
+            hp = hp_max
 
         slots[key] = {
             "energy": cap if slept else faint,
             "ended_turn": False,
             "row": CABIN_ROW if slept else row,
             "col": CABIN_COL if slept else col,
+            "area": AREA_FARM if slept else area,
+            "hp": hp,
+            "hp_max": hp_max,
             "snacks_eaten": 0,
             "pack": normalize_pack(prev.get("pack")) if prev.get("pack") is not None else empty_pack(),
         }
@@ -1548,11 +1573,15 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
         if key not in slots:
             from inventory import empty_pack
 
+            from hills import AREA_FARM, max_hp as hills_max_hp
             slots[key] = {
                 "energy": cap,
                 "ended_turn": False,
                 "row": CABIN_ROW,
                 "col": CABIN_COL,
+                "area": AREA_FARM,
+                "hp": hills_max_hp(rules),
+                "hp_max": hills_max_hp(rules),
                 "snacks_eaten": 0,
                 "pack": empty_pack(),
             }
@@ -1746,8 +1775,13 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
                 if "snacks_eaten" not in slot:
                     slot["snacks_eaten"] = 0
                     changed = True
+        from hills import migrate_hills
+        if migrate_hills(state, rules):
+            changed = True
         return changed
     apply_new_day_turns(state, rules)
+    from hills import migrate_hills
+    migrate_hills(state, rules)
     return True
 
 
@@ -1805,8 +1839,10 @@ def end_turn(
         if name
     )
     night_notes = []
+    from hills import player_area, describe_where as describe_place_where
     for name in known_players():
-        where = describe_where(*player_where(state, name))
+        prow, pcol = player_where(state, name)
+        where = describe_place_where(player_area(state, name), prow, pcol)
         if is_player_in_cabin(state, name):
             night_notes.append(
                 f"{display_name(name)} slept in the cabin and wakes with {max_energy(rules)} energy."
@@ -1816,7 +1852,8 @@ def end_turn(
                 f"{display_name(name)} passed out {where} and wakes with {pass_out_energy(rules)} energy."
             )
     outlook = sleep_outlook(state, player, rules)
-    here = describe_where(*player_where(state, player))
+    from hills import player_area, describe_where as describe_place_where
+    here = describe_place_where(player_area(state, player), *player_where(state, player))
     if everyone_done:
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
@@ -2994,6 +3031,9 @@ def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bo
 
     notes.extend(sprout_and_age_weeds(state, rules))
     notes.extend(_apply_runners(state, crops))
+    from hills import tick_hills, ensure_hills
+    ensure_hills(state, rules)
+    notes.extend(tick_hills(state, rules))
 
     season = state["season"]
     d = state["day"]
@@ -3043,13 +3083,25 @@ def _must_stand_here(state: dict, player: str, row: int, col: int) -> str | None
 
 def move_one(state: dict, player: str, direction: str, rules: dict | None = None) -> tuple[bool, str]:
     rules = rules or load_rules()
-    delta = MOVE_DELTA.get(direction)
+    from hills import (
+        normalize_direction,
+        player_area,
+        area_crossing,
+        set_player_place,
+        describe_place as describe_area_place,
+        AREA_FARM,
+        AREA_HILLS,
+    )
+    canonical = normalize_direction(direction)
+    delta = MOVE_DELTA.get(canonical or "")
     if not delta:
-        return False, "Usage: move up, move down, move left, or move right"
+        return False, "Usage: move up, move down, move left, or move right (or north, south, east, west)"
     row, col = player_where(state, player)
-    dest = (row + delta[0], col + delta[1])
-    if not in_bounds(*dest):
-        return False, "There's no farm that way."
+    area = player_area(state, player)
+    raw_dir = (direction or "").strip().lower()
+    word = raw_dir if raw_dir in MOVE_DELTA else {
+        "up": "north", "down": "south", "left": "west", "right": "east"
+    }.get(canonical, canonical)
     cost = step_energy(rules)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
@@ -3059,11 +3111,27 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
             f"Not enough energy. A step costs {cost}; "
             f"{display_name(player)} has {energy} left.",
         )
-    set_player_where(state, player, dest[0], dest[1])
+    crossing = area_crossing(area, row, col, canonical)
+    if crossing:
+        dest_area, dest_r, dest_c = crossing
+        set_player_place(state, player, dest_area, dest_r, dest_c)
+        slot["energy"] = energy - cost
+        return (
+            True,
+            f"{display_name(player)} walks {word} to {describe_area_place(dest_area, dest_r, dest_c)} ({cost} energy).",
+        )
+    dest = (row + delta[0], col + delta[1])
+    if not in_bounds(*dest):
+        if area == AREA_FARM and canonical == "up":
+            return False, "There's no farm that way. Walk north from the cabin to reach the hills."
+        if area == AREA_HILLS:
+            return False, "There's no path that way."
+        return False, "There's no farm that way."
+    set_player_place(state, player, area, dest[0], dest[1])
     slot["energy"] = energy - cost
     return (
         True,
-        f"{display_name(player)} walks {direction} to {describe_place(*dest)} ({cost} energy).",
+        f"{display_name(player)} walks {word} to {describe_area_place(area, dest[0], dest[1])} ({cost} energy).",
     )
 
 
@@ -3072,10 +3140,12 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
     dest_r, dest_c, err = parse_row_col(row, col)
     if err:
         return False, err
+    from hills import player_area, set_player_place, describe_place as describe_area_place, describe_where as describe_area_where
     src = player_where(state, player)
+    area = player_area(state, player)
     dest = (dest_r, dest_c)
     if src == dest:
-        return True, f"{display_name(player)} is already {describe_where(*dest)}."
+        return True, f"{display_name(player)} is already {describe_area_where(area, *dest)}."
     steps = path_steps(src, dest)
     cost = step_energy(rules) * len(steps)
     slot = player_slot(state, player)
@@ -3083,21 +3153,49 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
     if cost > energy:
         return (
             False,
-            f"Not enough energy. Walking to {describe_place(*dest)} is "
+            f"Not enough energy. Walking to {describe_area_place(area, *dest)} is "
             f"{steps_phrase(len(steps))} ({cost} energy); "
             f"{display_name(player)} has {energy} left.",
         )
-    set_player_where(state, player, dest_r, dest_c)
+    set_player_place(state, player, area, dest_r, dest_c)
     slot["energy"] = energy - cost
     return (
         True,
-        f"{display_name(player)} walks to {describe_place(*dest)} "
+        f"{display_name(player)} walks to {describe_area_place(area, *dest)} "
         f"({steps_phrase(len(steps))}, {cost} energy).",
     )
 
 
 def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
-    return move_to(state, player, CABIN_ROW, CABIN_COL, rules)
+    rules = rules or load_rules()
+    from hills import (
+        player_area, path_places, set_player_place, is_cabin_place,
+        describe_where as describe_area_where, AREA_FARM,
+    )
+    src = player_where(state, player)
+    area = player_area(state, player)
+    if is_cabin_place(area, *src):
+        return True, f"{display_name(player)} is already {describe_area_where(area, *src)}."
+    places = path_places(area, src, AREA_FARM, (CABIN_ROW, CABIN_COL))
+    if not places:
+        return False, "There's no path to the cabin from here."
+    cost = step_energy(rules) * len(places)
+    slot = player_slot(state, player)
+    energy = int(slot["energy"])
+    if cost > energy:
+        return (
+            False,
+            f"Not enough energy. Walking to the cabin is "
+            f"{steps_phrase(len(places))} ({cost} energy); "
+            f"{display_name(player)} has {energy} left.",
+        )
+    set_player_place(state, player, AREA_FARM, CABIN_ROW, CABIN_COL)
+    slot["energy"] = energy - cost
+    return (
+        True,
+        f"{display_name(player)} walks to the cabin "
+        f"({steps_phrase(len(places))}, {cost} energy).",
+    )
 
 
 def do_move_command(
@@ -3117,10 +3215,20 @@ def do_move_command(
         words = words[1:]
     if not words:
         return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
-    if len(words) == 1 and words[0] in MOVE_DELTA:
+    from hills import normalize_direction
+    if len(words) == 1 and (words[0] in MOVE_DELTA or normalize_direction(words[0]) in MOVE_DELTA):
         return move_one(state, player, words[0], rules)
     if words and words[0] in {"cabin", "home", "house"}:
         return go_cabin(state, player, rules)
+    if words and words[0] in {"hills", "hill"}:
+        from hills import player_area, is_cabin_place, AREA_HILLS
+        area = player_area(state, player)
+        here = player_where(state, player)
+        if area == AREA_HILLS:
+            return True, f"{display_name(player)} is already in the hills."
+        if not is_cabin_place(area, *here):
+            return False, "Walk to the cabin first, then go north into the hills."
+        return move_one(state, player, "north", rules)
     if len(words) == 2:
         return move_to(state, player, words[0], words[1], rules)
     return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
@@ -3171,11 +3279,13 @@ def eat(
     cap_snacks = snacks_per_turn(rules)
     if eaten >= cap_snacks:
         return False, f"{display_name(player)} already had {cap_snacks} snacks this turn."
+    from hills import player_hp, heal_hp, max_hp as hills_max_hp
     cap_e = max_energy(rules)
     energy = int(slot["energy"])
-    if energy >= cap_e:
-        return False, f"{display_name(player)} is already at full energy. Sell it or save it."
-    gained = min(restore, cap_e - energy)
+    hp, cap_hp = player_hp(state, player, rules)
+    if energy >= cap_e and hp >= cap_hp:
+        return False, f"{display_name(player)} is already at full energy and full HP. Sell it or save it."
+    gained = min(restore, cap_e - energy) if energy < cap_e else 0
     taken = take_available(
         state,
         kind,
@@ -3189,13 +3299,27 @@ def eat(
         where = "chest" if from_chest else "backpack"
         return False, f"No {label} in the {where}."
     slot["energy"] = energy + gained
+    hp_gained = heal_hp(state, player, restore, rules)
     slot["snacks_eaten"] = eaten + 1
     left = cap_snacks - (eaten + 1)
     snack_bit = "No snacks left this turn." if left <= 0 else f"{left} snack(s) left this turn."
+    bits = []
+    if gained:
+        bits.append(f"recovers {gained} energy ({slot['energy']}/{cap_e})")
+    if hp_gained:
+        new_hp, cap_hp = player_hp(state, player, rules)
+        bits.append(f"heals {hp_gained} HP ({new_hp}/{cap_hp})")
+    if not bits:
+        bits.append(f"eats {label} (already full)")
+        # Should not happen because we refused when both were full.
+    body = " and ".join(bits)
+    if body.startswith("recovers") or body.startswith("heals"):
+        msg = f"{display_name(player)} eats {label} and {body}. {snack_bit}"
+    else:
+        msg = f"{display_name(player)} eats {label}. {snack_bit}"
     return (
         True,
-        f"{display_name(player)} eats {label} and recovers {gained} energy "
-        f"({slot['energy']}/{cap_e}). {snack_bit}",
+        msg,
     )
 
 
@@ -3568,25 +3692,62 @@ def legal_actions(
         return []
     energy = int(player_slot(state, actor)["energy"]) if actor else max_energy(rules)
     actions: list[str] = []
+    from hills import (
+        player_area, area_crossing, path_places, is_cabin_place,
+        AREA_FARM, AREA_HILLS, iter_hills_tiles, get_hills_tile,
+        has_grown_tree, has_forage, hills_tiles,
+    )
     here = player_where(state, actor) if actor else (CABIN_ROW, CABIN_COL)
+    area = player_area(state, actor) if actor else AREA_FARM
     step = step_energy(rules)
     for direction, delta in MOVE_DELTA.items():
+        crossing = area_crossing(area, here[0], here[1], direction)
+        if crossing:
+            if energy >= step:
+                if direction == "up":
+                    actions.append("go north")
+                elif direction == "down":
+                    actions.append("go south")
+            continue
         dest = (here[0] + delta[0], here[1] + delta[1])
         if in_bounds(*dest) and energy >= step:
             actions.append(f"move {direction}")
-    if not is_cabin_at(*here):
-        walk = path_cost(here, (CABIN_ROW, CABIN_COL), rules)
-        if energy >= walk:
+    if not is_cabin_place(area, *here):
+        places = path_places(area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
+        walk = step * len(places) if places else path_cost(here, (CABIN_ROW, CABIN_COL), rules)
+        if places and energy >= walk:
             actions.append("go cabin")
-    for r, c, tile in iter_tiles(state):
+    if area == AREA_HILLS:
+        tile_iter = iter_hills_tiles(state) if hills_tiles(state) else []
+    else:
+        tile_iter = iter_tiles(state)
+    for r, c, tile in tile_iter:
         if (r, c) == here:
             continue
         walk = path_cost(here, (r, c), rules)
         if energy >= walk:
             actions.append(f"move to {r} {c}")
     r, c = here
-    tile = get_tile(state, r, c)
-    if tile["type"] != "cabin":
+    if area == AREA_HILLS:
+        tile = get_hills_tile(state, r, c) if hills_tiles(state) else {"type": "grass"}
+        if has_grown_tree(tile) and energy >= energy_cost("chop", rules):
+            from inventory import pack_has, TOOL_AXE
+            if not actor or pack_has(state, actor, TOOL_AXE, 1, rules):
+                from inventory import pack_space_for
+                from hills import chop_wood_count
+                if not actor or pack_space_for(state, actor, "wood", chop_wood_count(rules), rules):
+                    actions.append("chop")
+        if has_forage(tile) and energy >= energy_cost("forage", rules):
+            from inventory import pack_space_for
+            kind = (tile.get("forage") or {}).get("kind") or "wild_onion"
+            if not actor or pack_space_for(state, actor, kind, 1, rules):
+                actions.append("forage")
+        tile_type = tile.get("type")
+        # Fall through: no farm work in the hills.
+    else:
+        tile = get_tile(state, r, c)
+        tile_type = tile.get("type")
+    if area == AREA_FARM and tile_type != "cabin":
         crop = tile.get("crop")
         withered = bool(crop and crop.get("stage") == "withered")
         if (not crop or withered) and (not tile.get("tilled") or withered):
@@ -3647,7 +3808,7 @@ def legal_actions(
         item_sell_price,
         stack_count,
     )
-    at_cabin = is_cabin_at(*here)
+    at_cabin = is_cabin_place(area, *here)
     if at_cabin:
         for kind, info in crops.get("crops", {}).items():
             if crop_for_sale(info, state.get("season")):
@@ -3869,6 +4030,12 @@ def action_descriptor(
             have += stack_count(pack_of(state, actor, rules), item)
         return max(0, have - 1)
 
+    from hills import (
+        normalize_direction, player_area as hills_player_area, area_crossing,
+        path_places, AREA_FARM, AREA_HILLS, HILLS_GATE, chop_wood_count,
+        forage_label, get_hills_tile,
+    )
+    actor_area = hills_player_area(state, actor) if actor else AREA_FARM
     if verb == "move" and args:
         if args[0] == "to" and len(args) >= 3:
             r, c, err = parse_row_col(args[1], args[2])
@@ -3878,18 +4045,47 @@ def action_descriptor(
             cost = steps * step
             step_word = "step" if steps == 1 else "steps"
             return f"{steps} {step_word}, {_energy_word(cost)}"
-        direction = args[0]
+        direction = normalize_direction(args[0]) or args[0]
+        crossing = area_crossing(actor_area, here[0], here[1], direction)
+        if crossing:
+            dest_area, dr, dc = crossing
+            return f"to {dest_area} r{dr} c{dc}, {_energy_word(step)}"
         delta = MOVE_DELTA.get(direction)
         if delta:
             dest = (here[0] + delta[0], here[1] + delta[1])
             return f"to r{dest[0]} c{dest[1]}, {_energy_word(step)}"
         return ""
-    if verb == "go" and args and args[0] == "cabin":
-        dest = (CABIN_ROW, CABIN_COL)
-        steps = len(path_steps(here, dest))
+    if verb == "go" and args and args[0] in {"cabin", "home", "house"}:
+        places = path_places(actor_area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
+        steps = len(places) if places else len(path_steps(here, (CABIN_ROW, CABIN_COL)))
         cost = steps * step
         step_word = "step" if steps == 1 else "steps"
-        return f"to r{dest[0]} c{dest[1]}, {steps} {step_word}, {_energy_word(cost)}"
+        return f"to the cabin, {steps} {step_word}, {_energy_word(cost)}"
+    if verb == "go" and args and args[0] in {"north", "south", "east", "west", "hills", "hill"}:
+        if args[0] in {"hills", "hill"}:
+            direction = "up"
+        else:
+            direction = normalize_direction(args[0]) or args[0]
+        crossing = area_crossing(actor_area, here[0], here[1], direction)
+        if crossing:
+            dest_area, dr, dc = crossing
+            label = "the hills" if dest_area == AREA_HILLS else "the cabin"
+            return f"to {label} r{dr} c{dc}, {_energy_word(step)}"
+        delta = MOVE_DELTA.get(direction)
+        if delta:
+            dest = (here[0] + delta[0], here[1] + delta[1])
+            return f"to r{dest[0]} c{dest[1]}, {_energy_word(step)}"
+        return ""
+    if verb == "chop":
+        wood_n = chop_wood_count(rules)
+        return f"{_energy_word(energy_cost('chop', rules))}, +{wood_n} wood"
+    if verb == "forage":
+        kind = None
+        if actor_area == AREA_HILLS:
+            tile = get_hills_tile(state, here[0], here[1])
+            kind = (tile.get("forage") or {}).get("kind")
+        label = forage_label(kind) if kind else "forage"
+        return f"{_energy_word(energy_cost('forage', rules))}, +1 {label}"
     if verb in {"till", "water", "harvest", "pluck", "plant", "unearth", "fertilize"}:
         cost = energy_cost(verb, rules)
         if verb == "unearth":
@@ -4234,11 +4430,31 @@ def do_action(
         ok, msg = unearth(state, crops, r, c, actor, rules)
     elif verb == "fertilize":
         ok, msg = fertilize(state, crops, r, c, fert_kind, actor, rules)
+    elif verb == "chop":
+        from hills import chop as chop_tree, player_area, AREA_HILLS
+        if len(args) == 2:
+            r, c, err = parse_row_col(args[0], args[1])
+            if err:
+                return False, err
+            stood = _must_stand_here(state, actor, r, c)
+            if stood:
+                return False, stood
+        ok, msg = chop_tree(state, actor, rules)
+    elif verb == "forage":
+        from hills import forage as forage_tile
+        if len(args) == 2:
+            r, c, err = parse_row_col(args[0], args[1])
+            if err:
+                return False, err
+            stood = _must_stand_here(state, actor, r, c)
+            if stood:
+                return False, stood
+        ok, msg = forage_tile(state, actor, rules)
     else:
         return (
             False,
-            "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
-            "pluck, unearth, fertilize, eat, buy, sell, take, drop, craft, recipes, or end turn.",
+            "Unknown action. Try look, move, go cabin, go north, till, plant, water, harvest, "
+            "pluck, unearth, fertilize, chop, forage, eat, buy, sell, take, drop, craft, recipes, or end turn.",
         )
 
     if ok and cost:

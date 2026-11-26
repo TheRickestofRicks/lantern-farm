@@ -306,6 +306,21 @@ PAGE = r"""<!DOCTYPE html>
       min-height: 0;
       overflow: hidden;
     }
+    .area-head {
+      flex: 0 0 auto;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--gold2);
+      padding: 0 0.2rem 0.25rem;
+    }
+    .elsewhere {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.4;
+      padding: 0 0.2rem 0.45rem;
+      white-space: pre-wrap;
+    }
     .farm-map {
       flex: 1 1 auto;
       min-height: 0;
@@ -893,6 +908,8 @@ PAGE = r"""<!DOCTYPE html>
   </header>
   <main>
     <section class="farm">
+      <div class="area-head" id="area-head">The farm</div>
+      <div class="elsewhere" id="elsewhere"></div>
       <div class="farm-map">
         <div class="grid" id="grid" role="grid" aria-label="Farm plot"></div>
       </div>
@@ -905,6 +922,8 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>P</kbd> plant
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
+        &middot; <kbd>C</kbd> chop
+        &middot; <kbd>G</kbd> forage
         &middot; <kbd>U</kbd> unearth
         &middot; <kbd>F</kbd> fertilize
         &middot; <kbd>S</kbd> shop
@@ -1049,8 +1068,52 @@ PAGE = r"""<!DOCTYPE html>
       }
       return fallback || ("/item/" + item + ".svg");
     }
+    function parseHillsSpriteKey(key) {
+      key = String(key || "").trim().toLowerCase();
+      let forage = null, tree = null, snow = false;
+      const forageKinds = ["wild_onion", "wild_berry", "wild_mushroom"];
+      for (let i = 0; i < forageKinds.length; i++) {
+        const suffix = "_forage_" + forageKinds[i];
+        if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+          forage = forageKinds[i];
+          key = key.slice(0, -suffix.length);
+          break;
+        }
+      }
+      const treeStages = ["sapling", "young", "grown", "stump"];
+      for (let i = 0; i < treeStages.length; i++) {
+        const suffix = "_tree_" + treeStages[i];
+        if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+          tree = treeStages[i];
+          key = key.slice(0, -suffix.length);
+          break;
+        }
+      }
+      if (key.length >= 5 && key.slice(-5) === "_snow") {
+        snow = true;
+        key = key.slice(0, -5);
+      }
+      const grounds = {
+        hills_grass: "grass",
+        hillside: "hillside",
+        mine_entrance_closed: "mine_entrance",
+        mine_entrance: "mine_entrance"
+      };
+      if (!grounds[key]) return null;
+      return {
+        kind: grounds[key],
+        type: grounds[key],
+        closed: grounds[key] === "mine_entrance",
+        tree: tree,
+        forage: forage,
+        snow: snow,
+        hills: true
+      };
+    }
     function parseSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
+      const hillsParsed = parseHillsSpriteKey(key);
+      if (hillsParsed) return hillsParsed;
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
         let weather = "sun";
         if (key.indexOf("cabin_") === 0 && key.length > 6) {
@@ -1123,6 +1186,14 @@ PAGE = r"""<!DOCTYPE html>
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      if (parsed.hills) {
+        let base;
+        if (parsed.type === "mine_entrance" || parsed.kind === "mine_entrance") base = "mine_entrance_closed";
+        else if (parsed.type === "hillside" || parsed.kind === "hillside") base = "hillside";
+        else base = "hills_grass";
+        if (parsed.snow) return base + "_snow";
+        return base;
+      }
       let base;
       if (parsed.kind === "soil") {
         if (parsed.tilled && parsed.watered) base = "soil_watered";
@@ -1158,6 +1229,19 @@ PAGE = r"""<!DOCTYPE html>
         const fkey = "fertilizer_" + parsed.fertilizer;
         const fert = pack.overlays && pack.overlays[fkey];
         if (fert) layers.push("/static/packs/" + pack.id + "/" + fert);
+      }
+      if (parsed.hills) {
+        if (parsed.tree) {
+          const tfile = pack.overlays && pack.overlays["tree_" + parsed.tree];
+          if (!tfile) return null;
+          layers.push("/static/packs/" + pack.id + "/" + tfile);
+        }
+        if (parsed.forage) {
+          const ffile = pack.overlays && pack.overlays["forage_" + parsed.forage];
+          if (!ffile) return null;
+          layers.push("/static/packs/" + pack.id + "/" + ffile);
+        }
+        return layers;
       }
       if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {
         const crop = pack.overlays && pack.overlays[parsed.kind + "_" + parsed.stage];
@@ -1265,11 +1349,23 @@ PAGE = r"""<!DOCTYPE html>
       const c = (data && data.cabin) || CABIN || [1, 3];
       return {r: c[0], c: c[1]};
     }
-    function describeWhere(r, c, data) {
+    function viewArea(data) {
+      return (data && data.view_area) || "farm";
+    }
+    function playerArea(slot) {
+      return (slot && slot.area) || "farm";
+    }
+    function describeWhere(r, c, data, area) {
+      area = area || (data && data.view_area) || "farm";
       const cabin = cabinPos(data);
-      if (r === cabin.r && c === cabin.c) return "in the cabin";
+      if (area === "farm" && r === cabin.r && c === cabin.c) return "in the cabin";
       const cols = COLS || 3;
-      return "at plot " + ((r - 1) * cols + c);
+      const plot = "at plot " + ((r - 1) * cols + c);
+      if (area === "hills") {
+        if (r === 1 && c === 2) return "at the mine entrance (row 1 col 2 in the hills)";
+        return plot + " in the hills";
+      }
+      return plot;
     }
     function standingFrom(data) {
       data = data || lastData;
@@ -1277,18 +1373,24 @@ PAGE = r"""<!DOCTYPE html>
       const slot = players[PLAYER] || {};
       const r = parseInt(slot.row, 10);
       const c = parseInt(slot.col, 10);
-      if (r && c) return {r: r, c: c};
-      return cabinPos(data);
+      if (r && c) return {r: r, c: c, area: playerArea(slot)};
+      const cabin = cabinPos(data);
+      return {r: cabin.r, c: cabin.c, area: "farm"};
     }
     function whoAt(data, r, c) {
+      const area = viewArea(data);
       const players = (data && (data.players || (data.state && data.state.players))) || {};
       const here = [];
       for (let i = 0; i < PLAYERS.length; i++) {
         const id = PLAYERS[i].id;
         const slot = players[id] || {};
-        if (Number(slot.row) === r && Number(slot.col) === c) here.push(id);
+        if (Number(slot.row) === r && Number(slot.col) === c && playerArea(slot) === area) here.push(id);
       }
       return here;
+    }
+    function viewTiles(data) {
+      if (data && data.view_tiles && data.view_tiles.length) return data.view_tiles;
+      return (data && data.state && data.state.tiles) || [];
     }
 
     function slotsPhrase(slots) {
@@ -1428,8 +1530,39 @@ PAGE = r"""<!DOCTYPE html>
       return " The soil is fertilized.";
     }
 
-    function describeTile(tile, r, c) {
+    function tileLabel(tile, r, c, data) {
+      if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
+      if (tile && tile.type === "mine_entrance") return "mine";
+      if (tile && tile.tree && tile.tree.stage === "grown") return "tree";
+      if (tile && tile.tree && tile.tree.stage) return tile.tree.stage;
+      if (tile && tile.forage && tile.forage.kind) {
+        const k = tile.forage.kind;
+        if (k === "wild_onion") return "onion";
+        if (k === "wild_berry") return "berry";
+        if (k === "wild_mushroom") return "mushroom";
+        return "forage";
+      }
+      if (tile && tile.type === "hillside") return "hill";
+      if (viewArea(data) === "hills") return "r" + r + " c" + c;
+      return "r" + r + " c" + c;
+    }
+    function describeTile(tile, r, c, data) {
       if (!tile) return "Click a plot.";
+      if (tile.type === "mine_entrance") {
+        return tileName(r, c) + " — a boarded mine entrance is set into the hill. The way in isn't open yet.";
+      }
+      if (tile.type === "grass" || tile.type === "hillside") {
+        const bits = [];
+        if (tile.tree && tile.tree.stage) {
+          const st = tile.tree.stage;
+          bits.push(st === "grown" ? "a grown tree, ready to chop" : (st === "stump" ? "a stump" : ("a " + st + (st === "young" ? " tree" : ""))));
+        }
+        if (tile.forage && tile.forage.kind) {
+          bits.push("a " + String(tile.forage.kind).replace(/_/g, " ") + " to forage");
+        }
+        const typ = tile.type === "hillside" ? "hillside" : "grassy hillside";
+        return tileName(r, c) + " in the hills — " + typ + ". " + (bits.length ? bits.join(", ") + "." : "Empty.");
+      }
       if (tile.type === "cabin") {
         const w = (lastData && lastData.state && lastData.state.weather) || "sun";
         const byWeather = (typeof CABIN_BY_WEATHER !== "undefined") ? CABIN_BY_WEATHER[w] : "";
@@ -1514,17 +1647,30 @@ PAGE = r"""<!DOCTYPE html>
       function energyBit(name) {
         const slot = players[name] || {};
         const en = (slot.energy != null) ? slot.energy : capE;
+        const capHp = data.max_hp || 100;
+        const hpPair = (data.hp && data.hp[name]) || [slot.hp != null ? slot.hp : capHp, slot.hp_max || capHp];
         const ended = slot.ended_turn && name !== current ? " <span class='ended'>(ended)</span>" : "";
-        return displayName(name) + " <b>" + en + "/" + capE + "</b>" + ended;
+        return displayName(name) + " <b>" + en + "/" + capE + "</b> energy, <b>" + hpPair[0] + "/" + hpPair[1] + "</b> HP" + ended;
       }
       const energyBits = PLAYERS.map(function (p) { return "<span>" + energyBit(p.id) + "</span>"; }).join("");
       const placeBits = PLAYERS.map(function (p) {
+        if (data.places && data.places[p.id]) return displayName(p.id) + " is " + data.places[p.id];
         const slot = players[p.id] || {};
         const r = parseInt(slot.row, 10);
         const c = parseInt(slot.col, 10);
-        const where = (r && c) ? describeWhere(r, c, data) : describeWhere(cabinPos(data).r, cabinPos(data).c, data);
+        const area = playerArea(slot);
+        const where = (r && c) ? describeWhere(r, c, data, area) : describeWhere(cabinPos(data).r, cabinPos(data).c, data, "farm");
         return displayName(p.id) + " is " + where;
       }).join(", ");
+      const areaHead = $("area-head");
+      if (areaHead) areaHead.textContent = (data.area_title ? data.area_title.charAt(0).toUpperCase() + data.area_title.slice(1) : "The farm");
+      const elseEl = $("elsewhere");
+      if (elseEl) {
+        const notes = data.elsewhere || [];
+        elseEl.textContent = notes.join("\n");
+      }
+      const gridEl = $("grid");
+      if (gridEl) gridEl.setAttribute("aria-label", data.area_title || "Farm plot");
       $("status").innerHTML =
         "<span>Day <b>" + s.day + "</b></span>" +
         "<span><b>" + cap(s.season) + "</b></span>" +
@@ -1573,13 +1719,15 @@ PAGE = r"""<!DOCTYPE html>
       const rows = ROWS || 3;
       const cols = COLS || 3;
       const stand = standingFrom(data);
+      const tiles = viewTiles(data);
       for (let r = 1; r <= rows; r++) {
         for (let c = 1; c <= cols; c++) {
-          const tile = s.tiles[r-1][c-1];
-          const key = data.sprites[r-1][c-1];
+          const tile = (tiles[r-1] && tiles[r-1][c-1]) || {};
+          const key = (data.sprites && data.sprites[r-1] && data.sprites[r-1][c-1]) || "";
           const btn = document.createElement("button");
           btn.type = "button";
-          btn.className = "tile" + (tile.type === "cabin" ? " cabin" : "");
+          const isCabin = (viewArea(data) === "farm" && tile.type === "cabin");
+          btn.className = "tile" + (isCabin ? " cabin" : "");
           if (selected && selected.r === r && selected.c === c) btn.classList.add("selected");
           if (stand && stand.r === r && stand.c === c) btn.classList.add("here");
           btn.setAttribute("aria-label", tileName(r, c));
@@ -1589,7 +1737,7 @@ PAGE = r"""<!DOCTYPE html>
           num.textContent = String((r - 1) * cols + c);
           const lab = document.createElement("div");
           lab.className = "label";
-          lab.textContent = tile.type === "cabin" ? "cabin" : ("r" + r + " c" + c);
+          lab.textContent = tileLabel(tile, r, c, data);
           btn.appendChild(num);
           btn.appendChild(lab);
           const here = whoAt(data, r, c);
@@ -1631,8 +1779,8 @@ PAGE = r"""<!DOCTYPE html>
         return;
       }
       const r = focus.r, c = focus.c;
-      const tile = data.state.tiles[r-1][c-1];
-      let desc = describeTile(tile, r, c);
+      const tile = (viewTiles(data)[r-1] && viewTiles(data)[r-1][c-1]) || {};
+      let desc = describeTile(tile, r, c, data);
       const occupants = whoAt(data, r, c).map(displayName);
       if (occupants.length) desc += " " + occupants.join(" and ") + " standing here.";
       if (stand && stand.r === r && stand.c === c) desc += " You are here.";
@@ -1657,7 +1805,12 @@ PAGE = r"""<!DOCTYPE html>
         "water " + workR + " " + workC,
         "harvest " + workR + " " + workC,
         "pluck " + workR + " " + workC,
-        "unearth " + workR + " " + workC
+        "unearth " + workR + " " + workC,
+        "chop",
+        "forage",
+        "go north",
+        "go south",
+        "go cabin"
       ];
       const plantPrefix = "plant " + workR + " " + workC + " ";
       const fertPrefix = "fertilize " + workR + " " + workC;
@@ -2910,6 +3063,24 @@ PAGE = r"""<!DOCTYPE html>
         keyPluck();
         return;
       }
+      if (letter === "c") {
+        ev.preventDefault();
+        endConfirm = false;
+        unearthConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        actCmd("chop");
+        return;
+      }
+      if (letter === "g") {
+        ev.preventDefault();
+        endConfirm = false;
+        unearthConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        actCmd("forage");
+        return;
+      }
       if (letter === "u") {
         ev.preventDefault();
         endConfirm = false;
@@ -3046,8 +3217,8 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
     from inventory import FERTILIZERS, TOOLS, recipes, item_name
     from engine import stock_key
-    from inventory import STAPLES
-    keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(recipes(rules))
+    from inventory import STAPLES, MATERIALS, FORAGE_ITEMS
+    keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
         keys.append(stock_key(kind, info))
@@ -3215,13 +3386,44 @@ def api_payload(
     from engine import recent_notes, year_for_day, discovered_recipe_ids
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
-    sprites = [[sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)] for r, row in enumerate(state["tiles"])]
+    from hills import (
+        player_area, AREA_HILLS, AREA_FARM, hills_tiles, elsewhere_lines,
+        area_title, hills_summary, farm_summary, exit_summary, max_hp as hills_max_hp,
+        describe_where as describe_area_where, player_hp,
+    )
+    view_area = player_area(state, viewer) if viewer else AREA_FARM
+    if view_area == AREA_HILLS and hills_tiles(state):
+        view_tiles = hills_tiles(state)
+    else:
+        view_tiles = state["tiles"]
+        view_area = view_area if view_area in (AREA_FARM, AREA_HILLS) else AREA_FARM
+    sprites = [
+        [sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)]
+        for r, row in enumerate(view_tiles)
+    ]
     actions = legal_actions(state, crops, player=viewer, rules=rules)
+    places = {}
+    hp_map = {}
+    for name, slot in (state.get("players") or {}).items():
+        prow = int(slot.get("row") or 0)
+        pcol = int(slot.get("col") or 0)
+        places[name] = describe_area_where(player_area(state, name), prow, pcol)
+        hp_map[name] = list(player_hp(state, name, rules))
     return {
         "ok": ok,
         "message": message,
         "state": state,
         "sprites": sprites,
+        "view_area": view_area,
+        "view_tiles": view_tiles,
+        "area_title": area_title(view_area),
+        "elsewhere": elsewhere_lines(state, viewer, crops),
+        "hills_summary": hills_summary(state),
+        "farm_summary": farm_summary(state, crops),
+        "exit_summary": exit_summary(view_area),
+        "places": places,
+        "hp": hp_map,
+        "max_hp": hills_max_hp(rules),
         "actions": actions,
         "action_lines": {
             cmd: format_legal_action(cmd, state, crops, viewer, rules)

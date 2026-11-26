@@ -31,6 +31,19 @@ row 2 farmland  farmland  farmland
 row 3 farmland  farmland  farmland
 ```
 
+## The hills
+
+Walk **north from the cabin** (row 1 col 3) to reach a second 3×3: the hills.
+You arrive at the **bottom-right** hill (row 3 col 3). Walk south from that
+tile to come home. Trees grow there on their own (sapling, young, grown);
+`chop` a grown tree with an axe in your backpack (10 energy) for wood. Wild
+plants can be `forage`d (5 energy) in season. The boarded mine entrance on
+the north-centre hill is not open yet.
+
+`look` and the web page always name the area you are in, summarise the other
+area (trees ready to chop, crops that need water, and so on), and say where
+the other player is standing.
+
 ## Turns and energy
 
 Two players, configured in `config.local.json`. After a night in the cabin you
