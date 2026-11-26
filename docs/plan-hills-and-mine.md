@@ -324,3 +324,8 @@ well. Design notes only; not built yet.
 - **Coffee** (+40 energy now, with a sleep penalty). Herbal tea is in
   the shop already: one cup a day, +10 at the next cabin wake.
 
+- **Well rested.** An upgraded bed (not built yet) will give +5 “well
+  rested” when you sleep in it above 10 energy. Parked until the bed
+  upgrade exists. Together rest (both sleeping in the cabin) is already
+  in the engine and is a separate bonus.
+

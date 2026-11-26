@@ -193,6 +193,21 @@ def comfort_tea_bonus(rules: dict | None = None) -> int:
         return 10
 
 
+def comfort_together_bonus(rules: dict | None = None) -> int:
+    try:
+        return max(0, int(_comfort_cfg(rules).get("together_bonus", 5)))
+    except (TypeError, ValueError):
+        return 5
+
+
+def together_rest_energy_needed(rules: dict | None = None) -> int:
+    """Players must have more than this many energy left to qualify, unless carried home."""
+    try:
+        return max(0, int(_comfort_cfg(rules).get("together_energy", 10)))
+    except (TypeError, ValueError):
+        return 10
+
+
 def comfort_fed_energy(rules: dict | None = None) -> int:
     """Total eat_energy a player must eat in a day to earn the fed bonus."""
     try:
@@ -274,6 +289,33 @@ def player_drank_herbal_tea(state: dict, player: str) -> bool:
     return bool(player_slot(state, player).get("herbal_tea"))
 
 
+def together_rest_applies(state: dict, rules: dict | None = None) -> bool:
+    """True if both players would get +5 together rest were the day to turn now.
+
+    A player carried home always qualifies (even at 0 energy) if the carrier
+    ends in the cabin with more than 10 energy — then both get +5. Otherwise
+    both must be in the cabin with more than 10 energy, and neither passed out.
+    """
+    rules = rules or load_rules()
+    names = [n for n in known_players() if n]
+    if len(names) < 2:
+        return False
+    if not all(is_player_in_cabin(state, n) for n in names):
+        return False
+    needed = together_rest_energy_needed(rules)
+    carried = {n: player_was_carried_home(state, n) for n in names}
+    def energy_left(n: str) -> int:
+        try:
+            return int(player_slot(state, n).get("energy") or 0)
+        except (TypeError, ValueError):
+            return 0
+    if any(carried.values()):
+        # Carriers are the cabin sleepers who were not carried; they must have >10.
+        carriers = [n for n in names if not carried[n]]
+        return bool(carriers) and all(energy_left(n) > needed for n in carriers)
+    return all(energy_left(n) > needed for n in names)
+
+
 def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
     """Energy a player would wake with if the day turned right now."""
     rules = rules or load_rules()
@@ -286,11 +328,13 @@ def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> 
         cap += comfort_fed_bonus(rules)
     if player_drank_herbal_tea(state, player):
         cap += comfort_tea_bonus(rules)
+    if together_rest_applies(state, rules):
+        cap += comfort_together_bonus(rules)
     return cap
 
 
 def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> int:
-    """Today's energy cap for this player (may be 110, 120, or 130 after a comfortable night)."""
+    """Today's energy cap for this player (may be 110–135 after a comfortable night)."""
     rules = rules or load_rules()
     slot = player_slot(state, player)
     try:
@@ -306,11 +350,12 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
     """Apply last night's fire, fed, and herbal-tea bonuses, then clear the fireplace.
 
     Wood is spent when someone fuels the fireplace, not at dawn.
-    Returns {fire: bool, fed: {player: bool}, tea: {player: bool}, wake: {player: int}}.
+    Returns {fire, fed, tea, together, wake}.
     """
     rules = rules or load_rules()
     sleepers = [name for name in known_players() if is_player_in_cabin(state, name)]
     fire = fireplace_is_fueled(state)
+    together = together_rest_applies(state, rules)
     base = max_energy(rules)
     faint = pass_out_energy(rules)
     fed = {}
@@ -328,12 +373,13 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
                 + (comfort_fire_bonus(rules) if fire else 0)
                 + (comfort_fed_bonus(rules) if ate else 0)
                 + (comfort_tea_bonus(rules) if drank else 0)
+                + (comfort_together_bonus(rules) if together else 0)
             )
         else:
             wake[name] = faint
     # The fuel was for this night, whether or not anyone slept in the cabin.
     set_cabin_fire(state, False)
-    return {"fire": fire, "fed": fed, "tea": tea, "wake": wake}
+    return {"fire": fire, "fed": fed, "tea": tea, "together": together, "wake": wake}
 
 
 def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -402,7 +448,7 @@ def reorder_chest(state: dict, order, player: str, rules: dict | None = None) ->
     return True, "The cabin chest is rearranged."
 
 
-def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool) -> str:
+def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool, together: bool = False) -> str:
     who = display_name(name)
     line = f"{who} slept in the cabin and wakes with {energy} energy."
     if fire and fed:
@@ -411,6 +457,8 @@ def cabin_sleep_note(name: str, energy: int, fire: bool, fed: bool) -> str:
         line += " The fire crackled all night."
     elif fed:
         line = f"{who} slept in the cabin and wakes with {energy} energy, a full belly."
+    if together:
+        line += " Sleeping close tonight."
     return line
 
 
@@ -531,7 +579,10 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
     faint = pass_out_energy(rules)
     if is_player_in_cabin(state, player):
         cap = preview_wake_energy(state, player, rules)
-        return f"You'll sleep in the cabin — {cap} energy tomorrow"
+        line = f"You'll sleep in the cabin — {cap} energy tomorrow"
+        if together_rest_applies(state, rules):
+            line += ", sleeping close tonight"
+        return line
     from hills import AREA_HILLS
     area = str(player_slot(state, player).get("area") or "").strip().lower()
     if area == AREA_HILLS or area == "hills":
@@ -2458,6 +2509,7 @@ def end_turn(
                     preview_wake_energy(state, name, rules),
                     cabin_fire_will_burn(state, rules),
                     player_ate_today(state, name, rules),
+                    together_rest_applies(state, rules),
                 )
             )
         elif area == AREA_MINE:
@@ -5234,7 +5286,10 @@ def action_descriptor(
         faint = pass_out_energy(rules)
         if actor and is_player_in_cabin(state, actor):
             cap = preview_wake_energy(state, actor, rules)
-            return f"sleep in cabin, {cap} energy tomorrow"
+            desc = f"sleep in cabin, {cap} energy tomorrow"
+            if together_rest_applies(state, rules):
+                desc += ", sleeping close tonight"
+            return desc
         return f"pass out, {faint} energy"
     if verb == "pass":
         if request := (len(args) >= 1 and " ".join(args).lower() in {
@@ -5244,7 +5299,10 @@ def action_descriptor(
             return "end your turn and wait to be carried home"
         if actor and is_player_in_cabin(state, actor):
             cap = preview_wake_energy(state, actor, rules)
-            return f"end your turn, sleep in cabin, {cap} energy tomorrow"
+            desc = f"end your turn, sleep in cabin, {cap} energy tomorrow"
+            if together_rest_applies(state, rules):
+                desc += ", sleeping close tonight"
+            return desc
         faint = pass_out_energy(rules)
         return f"end your turn, pass out, {faint} energy"
     is_wh, who_raw = parse_walk_home_command(command)

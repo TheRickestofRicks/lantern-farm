@@ -616,8 +616,9 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["day"], 2)
         self.assertEqual(self.state["current_player"], config_starting_player())
-        self.assertEqual(self.state["players"][P1]["energy"], 100)
-        self.assertEqual(self.state["players"][P2]["energy"], 100)
+        # Both slept in the cabin, so together rest raises the wake to 105.
+        self.assertEqual(self.state["players"][P1]["energy"], 105)
+        self.assertEqual(self.state["players"][P2]["energy"], 105)
         self.assertFalse(self.state["players"][P1]["ended_turn"])
         self.assertFalse(self.state["players"][P2]["ended_turn"])
         crop = self.state["tiles"][0][0]["crop"]
@@ -1521,7 +1522,8 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
 
     def test_sleep_in_cabin_and_pass_out_in_the_field(self):
         self.assertIn("sleep", sleep_outlook(self.state, P1).lower())
-        self.assertIn("100", sleep_outlook(self.state, P1))
+        self.assertIn("105", sleep_outlook(self.state, P1))
+        self.assertIn("sleeping close tonight", sleep_outlook(self.state, P1))
         stand(self.state, P1, 3, 1)
         self.assertIn("pass out", sleep_outlook(self.state, P1).lower())
         self.assertIn("50", sleep_outlook(self.state, P1))
@@ -3813,7 +3815,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         )
         self.assertEqual(
             format_legal_action("end turn", self.state, self.crops, P1, self.rules),
-            "end turn (sleep in cabin, 100 energy tomorrow)",
+            "end turn (sleep in cabin, 105 energy tomorrow, sleeping close tonight)",
         )
         add_to_pack(self.state, P1, "bread", 1, self.rules)
         self.assertEqual(
@@ -3843,7 +3845,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertIn("move down (to r2 c3, 5 energy)", look)
         self.assertIn("buy June-bearing strawberry seed 1", look)
         self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
-        self.assertIn("end turn (sleep in cabin, 100 energy tomorrow)", look)
+        self.assertIn("end turn (sleep in cabin, 105 energy tomorrow, sleeping close tonight)", look)
         self.assertNotIn("take strawberry_seed", look)
         self.assertNotIn(" 2 seeds", look)
         # Pasting a look line still works.
@@ -6519,6 +6521,9 @@ class CabinComfort(unittest.TestCase):
         self.state["current_player"] = P1
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        # Keep P2 at the threshold so existing fire/fed/tea cases stay isolated
+        # from together rest (which needs more than 10 energy, or a carry).
+        self.state["players"][P2]["energy"] = 10
 
     def _end_both(self):
         first = self.state["current_player"]
@@ -6634,10 +6639,14 @@ class CabinComfort(unittest.TestCase):
         self.assertIn("wakes with 110 energy", msg2)
         self.assertNotIn("+10", msg2)
         self.assertFalse(self.state.get("fireplace_fueled"))
-        # Next day the fire has to be laid again.
+        # Next day the fire has to be laid again. Both woke with 110, so
+        # together rest still applies for tonight.
         self.state["current_player"] = P1
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
-        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 100 energy tomorrow")
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 105 energy tomorrow, sleeping close tonight",
+        )
 
     def test_one_small_snack_is_not_enough_for_a_full_belly(self):
         from inventory import add_to_pack, add_to_chest, sync_inventory_view
@@ -7039,15 +7048,20 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertFalse(self.state["players"][P1].get("carry_home"))
         self.assertTrue(self.state["players"][P1].get("carried_home"))
         self.assertEqual(player_area(self.state, P1), AREA_FARM)
-        # Day has not turned; P2 can end. P1 sleeps in the cabin and gets the fire bonus.
-        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        # Day has not turned; P2 can end. P1 was carried home (0 energy) and
+        # P2 is in the cabin above 10, so together rest also applies.
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 115 energy tomorrow, sleeping close tonight",
+        )
         ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("slept in the cabin", msg)
-        self.assertIn("wakes with 110 energy", msg)
+        self.assertIn("wakes with 115 energy", msg)
+        self.assertIn("Sleeping close tonight", msg)
         self.assertEqual(int(self.state["day"]), 2)
-        self.assertEqual(self.state["players"][P1]["energy"], 110)
-        self.assertEqual(self.state["players"][P1]["energy_max"], 110)
+        self.assertEqual(self.state["players"][P1]["energy"], 115)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 115)
         self.assertTrue(is_player_in_cabin(self.state, P1))
 
     def test_walk_home_refuses_without_enough_energy_and_nobody_moves(self):
@@ -7159,6 +7173,151 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.state["players"][P2]["energy"] = 40
         payload = web.api_payload(self.state, self.crops, player=P2)
         self.assertIn(f"walk {N1} home", payload["actions"])
+
+
+
+
+
+
+class TogetherRest(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 40
+        self.state["players"][P2]["energy"] = 40
+
+    def _end_both(self):
+        first = self.state["current_player"]
+        second = P2 if first == P1 else P1
+        ok, msg1 = do_action(self.state, self.crops, "end turn", player=first, rules=self.rules)
+        self.assertTrue(ok, msg1)
+        ok, msg2 = do_action(self.state, self.crops, "end turn", player=second, rules=self.rules)
+        self.assertTrue(ok, msg2)
+        return msg1, msg2
+
+    def test_both_in_the_cabin_above_10_get_five_and_the_preview_says_sleeping_close(self):
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 105 energy tomorrow, sleeping close tonight",
+        )
+        self.assertEqual(
+            format_legal_action("end turn", self.state, self.crops, P1, self.rules),
+            "end turn (sleep in cabin, 105 energy tomorrow, sleeping close tonight)",
+        )
+        _m1, msg2 = self._end_both()
+        self.assertIn("Sleeping close tonight", msg2)
+        self.assertEqual(self.state["players"][P1]["energy"], 105)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 105)
+        self.assertEqual(self.state["players"][P2]["energy"], 105)
+        self.assertEqual(self.state["players"][P2]["energy_max"], 105)
+
+    def test_together_rest_does_not_apply_if_one_player_is_at_the_threshold(self):
+        self.state["players"][P2]["energy"] = 10
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 100 energy tomorrow",
+        )
+        self.assertNotIn("sleeping close", sleep_outlook(self.state, P1, self.rules))
+        _m1, msg2 = self._end_both()
+        self.assertNotIn("Sleeping close tonight", msg2)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P2]["energy"], 100)
+
+    def test_together_rest_does_not_apply_if_the_other_player_passed_out(self):
+        from hills import set_player_place, AREA_FARM
+        set_player_place(self.state, P2, AREA_FARM, 3, 1)
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 100 energy tomorrow",
+        )
+        self.assertNotIn("sleeping close", sleep_outlook(self.state, P1, self.rules))
+        _m1, msg2 = self._end_both()
+        self.assertIn("passed out", msg2)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P2]["energy"], 50)
+
+    def test_carried_player_at_zero_qualifies_if_the_carrier_ends_in_the_cabin_above_10(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 40
+        ok, msg = do_action(self.state, self.crops, f"walk {N1} home", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 30)
+        self.assertTrue(self.state["players"][P1].get("carried_home"))
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 105 energy tomorrow, sleeping close tonight",
+        )
+        self.assertEqual(
+            sleep_outlook(self.state, P2, self.rules),
+            "You'll sleep in the cabin — 105 energy tomorrow, sleeping close tonight",
+        )
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("Sleeping close tonight", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 105)
+        self.assertEqual(self.state["players"][P2]["energy"], 105)
+
+    def test_carried_player_does_not_get_together_rest_if_the_carrier_has_only_10(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 20  # walk home costs 10, leaving 10
+        ok, msg = do_action(self.state, self.crops, f"walk {N1} home", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 10)
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 100 energy tomorrow",
+        )
+        self.assertNotIn("sleeping close", sleep_outlook(self.state, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertNotIn("Sleeping close tonight", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P2]["energy"], 100)
+
+    def test_fire_fed_tea_and_together_rest_raise_the_cap_to_135(self):
+        from inventory import add_to_pack, add_to_chest, sync_inventory_view
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        add_to_pack(self.state, P1, "herbal_tea", 1, self.rules)
+        add_to_pack(self.state, P1, "carrot", 1, self.rules)
+        ok, _ = do_action(self.state, self.crops, "drink herbal tea", player=P1, rules=self.rules)
+        ok, _ = do_action(self.state, self.crops, "eat carrot", player=P1, rules=self.rules)
+        self.assertEqual(
+            sleep_outlook(self.state, P1, self.rules),
+            "You'll sleep in the cabin — 135 energy tomorrow, sleeping close tonight",
+        )
+        self.assertEqual(
+            format_legal_action("end turn", self.state, self.crops, P1, self.rules),
+            "end turn (sleep in cabin, 135 energy tomorrow, sleeping close tonight)",
+        )
+        # P2 did not drink or eat, but still gets fire + together rest.
+        self.assertEqual(
+            sleep_outlook(self.state, P2, self.rules),
+            "You'll sleep in the cabin — 115 energy tomorrow, sleeping close tonight",
+        )
+        _m1, msg2 = self._end_both()
+        self.assertEqual(self.state["players"][P1]["energy"], 135)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 135)
+        self.assertEqual(self.state["players"][P2]["energy"], 115)
+        self.assertEqual(self.state["players"][P2]["energy_max"], 115)
+        self.assertIn("wakes with 135 energy", msg2)
+        self.assertIn("Sleeping close tonight", msg2)
 
 
 

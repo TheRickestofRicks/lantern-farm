@@ -263,6 +263,8 @@
     "fed_bonus": 10,
     "fire_wood": 1,
     "fed_energy": 10,
-    "tea_bonus": 10
+    "tea_bonus": 10,
+    "together_bonus": 5,
+    "together_energy": 10
   }
 }
