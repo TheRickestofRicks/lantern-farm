@@ -1254,6 +1254,16 @@ PAGE = r"""<!DOCTYPE html>
       if (mineParsed) return mineParsed;
       const hillsParsed = parseHillsSpriteKey(key);
       if (hillsParsed) return hillsParsed;
+      if (key.indexOf("cabin_interior_") === 0) {
+        let rest = key.slice("cabin_interior_".length);
+        let fire = false;
+        if (rest.length > 4 && rest.slice(-4) === "_lit") {
+          fire = true;
+          rest = rest.slice(0, -4);
+        }
+        const tiles = {floor: 1, bed: 1, chest: 1, fireplace: 1, door: 1, kitchen: 1};
+        if (tiles[rest]) return {kind: "cabin_interior", tile: rest, fire: fire};
+      }
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
         let weather = "sun";
         let fire = false;
@@ -1330,6 +1340,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      if (parsed.kind === "cabin_interior") return "cabin_floor";
       if (parsed.mine || parsed.kind === "mine_floor" || parsed.kind === "mine_safe" || parsed.type === "mine_floor" || parsed.type === "mine_safe") {
         return parsed.type || parsed.kind;
       }
@@ -1379,6 +1390,19 @@ PAGE = r"""<!DOCTYPE html>
       if (!ground && gkey && gkey.slice(-5) === "_snow") ground = pack.grounds[gkey.slice(0, -5)];
       if (!ground) return null;
       layers.push("/static/packs/" + pack.id + "/" + ground);
+      if (parsed.kind === "cabin_interior") {
+        const tile = parsed.tile || "floor";
+        if (tile !== "floor") {
+          const ov = pack.overlays || {};
+          const name = (parsed.fire && (tile === "fireplace" || tile === "kitchen"))
+            ? ("cabin_" + tile + "_lit")
+            : ("cabin_" + tile);
+          const f = ov[name];
+          if (!f) return null;
+          layers.push("/static/packs/" + pack.id + "/" + f);
+        }
+        return layers;
+      }
       if (parsed.mine || parsed.kind === "mine_floor" || parsed.kind === "mine_safe") {
         const ov = pack.overlays || {};
         function addOverlay(name) {
@@ -1723,13 +1747,6 @@ PAGE = r"""<!DOCTYPE html>
 
     function tileLabel(tile, r, c, data) {
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
-      const typ = tile && tile.type;
-      if (typ === "cabin_bed") return "bed";
-      if (typ === "cabin_chest") return "chest";
-      if (typ === "cabin_fireplace") return tile.fire ? "fireplace (lit)" : "fireplace";
-      if (typ === "cabin_door") return "door";
-      if (typ === "cabin_kitchen") return "kitchen";
-      if (typ === "cabin_floor") return "floor";
       return "r" + r + " c" + c;
     }
     function describeTile(tile, r, c, data) {
@@ -2820,7 +2837,7 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
     function appendCabinChestSection(parent, data) {
-      if (!data || !data.in_cabin) return;
+      if (!data || !data.in_cabin_interior) return;
       const wrap = document.createElement("div");
       wrap.className = "chest-section";
       if (!data.at_chest) {

@@ -203,7 +203,10 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     if parsed.get("kind") == "cabin_interior":
         tile = parsed.get("tile") or "floor"
         if tile != "floor":
-            name = "cabin_fireplace_lit" if tile == "fireplace" and parsed.get("fire") else f"cabin_{tile}"
+            if parsed.get("fire") and tile in {"fireplace", "kitchen"}:
+                name = f"cabin_{tile}_lit"
+            else:
+                name = f"cabin_{tile}"
             ffile = _pack_file(manifest, overlays.get(name) or "")
             if not ffile:
                 return None

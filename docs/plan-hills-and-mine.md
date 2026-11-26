@@ -330,7 +330,10 @@ well. Design notes only; not built yet.
   is still cabin sleep; the bed is the place you see yourselves rest,
   and the upgraded-bed “well rested” bonus stays parked until that
   upgrade exists. Decorating the home is a later follow-on, after
-  this interior is in and playing.
+  this interior is in and playing. Storybook art for the floor and
+  furniture (including lit/unlit fireplace and stove) is in. Interior
+  tile labels use the same r1 c1 style as the farm. The web CABIN CHEST
+  panel is shown only while you are inside the interior.
 
 - **Tulips.**
 

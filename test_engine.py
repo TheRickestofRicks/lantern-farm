@@ -2563,6 +2563,16 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertTrue(entrance[0]["file"].endswith("mine_entrance_closed_snow.png"))
         forage = layers_for_key("hills_grass_forage_wild_onion", man)
         self.assertIn("forage_wild_onion", forage[1]["file"])
+        floor = layers_for_key("cabin_interior_floor", man)
+        self.assertEqual([layer["role"] for layer in floor], ["ground"])
+        self.assertTrue(floor[0]["file"].endswith("cabin_floor.png"))
+        bed = layers_for_key("cabin_interior_bed", man)
+        self.assertEqual([layer["role"] for layer in bed], ["ground", "crop"])
+        self.assertTrue(bed[1]["file"].endswith("cabin_bed.png"))
+        lit = layers_for_key("cabin_interior_fireplace_lit", man)
+        self.assertTrue(lit[1]["file"].endswith("cabin_fireplace_lit.png"))
+        stove = layers_for_key("cabin_interior_kitchen_lit", man)
+        self.assertTrue(stove[1]["file"].endswith("cabin_kitchen_lit.png"))
         # Spring-shop crops now have Storybook overlays, same layering as strawberry.
         kabocha = layers_for_key("kabocha_sprouting_wet", man)
         self.assertEqual([layer["role"] for layer in kabocha], ["ground", "crop"])
@@ -5924,6 +5934,24 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertFalse(data.get("chestTogglePresent"))
         self.assertNotRegex(data.get("invText") or "", r"Cabin chest")
 
+    def test_side_panel_hides_the_chest_on_the_farm_cabin_tile(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertTrue(payload["in_cabin"])
+        self.assertFalse(payload.get("in_cabin_interior"))
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertFalse(data["invChestPresent"])
+        self.assertFalse(data.get("chestTogglePresent"))
+        self.assertNotRegex(data.get("invText") or "", r"Cabin chest")
+
     def test_side_panel_chest_is_collapsible_and_remembers_its_state(self):
         import web
         from hills import set_player_place, AREA_FARM
@@ -5934,10 +5962,12 @@ class ShopChestWebUi(unittest.TestCase):
         state = fresh_state(crops, weather_seed=1, rules=rules)
         state["current_player"] = P1
         set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        inside(state, P1, "chest")
         add_to_chest(state, "spinach", 1, rules)
         sync_inventory_view(state, rules)
         payload = web.api_payload(state, crops, player=P1)
         self.assertTrue(payload["in_cabin"])
+        self.assertTrue(payload["in_cabin_interior"])
         html = web.render_page(viewer=P1)
         data = self._run_jsdom(payload, html)
         self.assertTrue(data["invChestPresent"])
@@ -7569,6 +7599,62 @@ class CabinInterior(unittest.TestCase):
         inside(self.state, P1, "fireplace")
         payload = web.api_payload(self.state, self.crops, player=P1)
         self.assertTrue(payload.get("at_fireplace"))
+
+    def test_web_interior_uses_row_col_labels_and_storybook_art(self):
+        import web
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        inside(self.state, P1, "door")
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        runner = Path(__file__).resolve().parent / "tests" / "cabin-interior-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-cabin-art-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(
+            data["labels"],
+            ["r1 c1", "r1 c2", "r1 c3", "r2 c1", "r2 c2", "r2 c3", "r3 c1", "r3 c2", "r3 c3"],
+        )
+        srcs = " ".join(data.get("imgSrcs") or [])
+        self.assertIn("cabin_floor.png", srcs)
+        self.assertIn("cabin_bed.png", srcs)
+        self.assertIn("cabin_chest.png", srcs)
+        self.assertIn("cabin_door.png", srcs)
+        self.assertIn("cabin_kitchen.png", srcs)
+        self.assertIn("cabin_fireplace.png", srcs)
+        self.assertTrue(data.get("invChestPresent"))
+        self.assertNotIn("bed", data["labels"])
+        self.assertNotIn("floor", data["labels"])
 
     def test_web_e_enters_the_cabin_and_does_not_end_the_turn(self):
         import web

@@ -81,8 +81,8 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
         return key
     if typ in {"cabin_floor", "cabin_bed", "cabin_chest", "cabin_fireplace", "cabin_door", "cabin_kitchen"}:
         kind = typ[len("cabin_"):]
-        if typ == "cabin_fireplace" and tile.get("fire"):
-            return "cabin_interior_fireplace_lit"
+        if typ in {"cabin_fireplace", "cabin_kitchen"} and tile.get("fire"):
+            return f"cabin_interior_{kind}_lit"
         return f"cabin_interior_{kind}"
     if typ in {"grass", "hillside", "mine_entrance"}:
         if typ == "mine_entrance":

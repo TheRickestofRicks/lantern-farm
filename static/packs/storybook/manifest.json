@@ -19,7 +19,8 @@
     "mine_entrance_closed": "grounds/mine_entrance_closed.png",
     "mine_entrance_closed_snow": "grounds/mine_entrance_closed_snow.png",
     "mine_floor": "grounds/mine_floor.png",
-    "mine_safe": "grounds/mine_safe.png"
+    "mine_safe": "grounds/mine_safe.png",
+    "cabin_floor": "grounds/cabin_floor.png"
   },
   "overlays": {
     "everbearing_dormant": "overlays/everbearing_dormant.png",
@@ -165,7 +166,14 @@
     "mine_shaft": "overlays/mine_shaft.png",
     "mine_ladder_up": "overlays/mine_ladder_up.png",
     "mine_lantern": "overlays/mine_lantern.png",
-    "mine_elevator": "overlays/mine_elevator.png"
+    "mine_elevator": "overlays/mine_elevator.png",
+    "cabin_bed": "overlays/cabin_bed.png",
+    "cabin_chest": "overlays/cabin_chest.png",
+    "cabin_door": "overlays/cabin_door.png",
+    "cabin_fireplace": "overlays/cabin_fireplace.png",
+    "cabin_fireplace_lit": "overlays/cabin_fireplace_lit.png",
+    "cabin_kitchen": "overlays/cabin_kitchen.png",
+    "cabin_kitchen_lit": "overlays/cabin_kitchen_lit.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

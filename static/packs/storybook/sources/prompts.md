@@ -147,3 +147,37 @@ Item-icon prompts (single centered object on magenta, same style as the hoe and 
 - **axe_copper**, **axe_iron**, **axe_gold** — The felling axe with a copper, iron, or gold head and the same curved wooden haft, subject only on magenta.
 - **pickaxe_copper**, **pickaxe_iron**, **pickaxe_gold** — The miner's pickaxe with a copper, iron, or gold head, subject only on magenta.
 - **herbal_tea** — A handmade cream ceramic mug of golden-amber herbal tea on a saucer, a wisp of steam, a mint sprig and a couple of dried herb buds, subject only on magenta.
+
+## Cabin interior
+
+Interior tiles use an opaque wooden floor ground (`cabin_floor`) with furniture
+overlays composited on top, the same way hills trees sit on grass. Overlays
+were painted on a flat rose-magenta field, chroma-keyed, and resized to
+512×512. Raw 1024 paintings live in `sources/originals/` (`cabin_floor.jpg`,
+`cabin_bed.jpg`, and so on). The processed floor is a slight crop and edge
+lift of the original painting so neighbouring tiles don’t show a heavy vignette
+seam.
+
+Style brief (shared with the rest of the pack): top-down square game tile,
+parchment ink-and-watercolour, warm brown inks, gentle pigment blooms, fine
+hatching, no thick comic outline, no UI, no text, no signature, no frame.
+Furniture overlays have no floor of their own — they sit on `cabin_floor`.
+
+- **cabin_floor** — Opaque full-bleed interior pine floorboards in honey,
+  ochre, and umber, edge to edge, no furniture, no grass, no soil, no rug.
+- **cabin_bed** — A modest wooden double bed from above, two cream pillows
+  at the head, a cozy dusty-blue and cream quilt with a small stitched lantern
+  and a quiet aurora of green-violet-rose needlework. Subject on magenta.
+- **cabin_chest** — A closed rustic farmhouse wooden chest with dull iron
+  bands and a hasp, subject on magenta.
+- **cabin_door** — The inside face of a simple wooden cabin door in a short
+  frame, iron latch, sitting at the bottom of the tile (the door is
+  bottom-left in the room). Subject on magenta.
+- **cabin_fireplace** — A stone farmhouse fireplace on the right side of the
+  tile, unlit firebox with cold logs, subject on magenta.
+- **cabin_fireplace_lit** — The same fireplace with a warm fire in the box.
+- **cabin_kitchen** — A wooden kitchen island (bowl and cutting board) plus
+  a compact cast-iron wood-fire cookstove, unlit, sitting on the floor as
+  furniture. Subject on magenta; no floor painted in the overlay.
+- **cabin_kitchen_lit** — The same island and stove with the firebox lit
+  for the day.
