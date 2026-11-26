@@ -54,6 +54,7 @@
   },
   "items": {
     "hoe": "items/hoe.png",
+    "shovel": "items/shovel.png",
     "watering_can": "items/watering_can.png",
     "fertilizer_general": "items/fertilizer_general.png",
     "fertilizer_yield": "items/fertilizer_yield.png",

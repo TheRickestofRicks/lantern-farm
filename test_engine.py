@@ -1132,7 +1132,7 @@ class ConfigAndMCP(unittest.TestCase):
         names = [t["name"] for t in listed["result"]["tools"]]
         self.assertEqual(
             names,
-            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_rules"],
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_saves", "farm_rules"],
         )
         p1 = starting_player()
         called = mcp_server.handle_rpc({
@@ -1246,7 +1246,7 @@ class ConfigAndMCP(unittest.TestCase):
         names = [tool["name"] for tool in by_id[2]["result"]["tools"]]
         self.assertEqual(
             names,
-            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_rules"],
+            ["farm_look", "farm_do", "farm_end_turn", "farm_forecast", "farm_journal", "farm_recipes", "farm_saves", "farm_rules"],
         )
         self.assertEqual(proc.returncode, 0)
 
@@ -1599,6 +1599,40 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertNotIn("buy kabocha 1", actions)
         self.assertNotIn("buy turnip 1", actions)
         self.assertNotIn("buy carrot 1", actions)
+
+    def test_seed_names_are_always_crop_specific(self):
+        from inventory import item_name, add_to_pack, add_to_chest
+        from describe import describe_state
+        from engine import stock_label
+        for kind in ("strawberry", "kabocha", "turnip", "carrot"):
+            one = item_name(f"{kind}_seed", 1, self.crops, self.rules)
+            many = item_name(f"{kind}_seed", 2, self.crops, self.rules)
+            self.assertEqual(one, f"1 {kind} seed")
+            self.assertEqual(many, f"2 {kind} seeds")
+            self.assertEqual(stock_label(kind, crop_info(self.crops, kind), 2), f"{kind} seeds")
+        self.assertEqual(
+            item_name("everbearing_seedling", 1, self.crops, self.rules),
+            "1 everbearing strawberry seedling",
+        )
+        self.assertEqual(
+            item_name("everbearing_seedling", 2, self.crops, self.rules),
+            "2 everbearing strawberry seedlings",
+        )
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["gold"] = 500
+        ok, msg = buy(self.state, self.crops, "strawberry", 2, player=P1)
+        self.assertTrue(ok, msg)
+        self.assertIn("strawberry seeds", msg)
+        self.assertNotIn("2 seeds", msg)
+        add_to_pack(self.state, P1, "turnip_seed", 2, self.rules)
+        add_to_chest(self.state, "carrot_seed", 3, self.rules)
+        text_view = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("2 turnip seeds", text_view)
+        self.assertIn("3 carrot seeds", text_view)
+        # A bare "N seeds" (no crop name) should not appear in look text.
+        import re
+        bare = re.findall(r"(?<![A-Za-z])(\d+ seeds)(?![A-Za-z])", text_view)
+        self.assertEqual(bare, [])
 
     def test_later_crops_remain_plantable_sellable_and_edible_from_the_pack(self):
         kit_out(self.state, P1)
@@ -2343,7 +2377,7 @@ class ArtPackAndPage(unittest.TestCase):
         man = load_manifest("storybook")
         items = man.get("items") or {}
         expected = {
-            "hoe", "watering_can",
+            "hoe", "shovel", "watering_can",
             "fertilizer_general", "fertilizer_yield", "fertilizer_growth",
             "bread", "butter", "milk",
             "strawberry_jam", "kabocha_soup", "root_stew",
@@ -2465,11 +2499,13 @@ class PackChestAndCraft(unittest.TestCase):
         self.state = fresh_state(self.crops, rules=self.rules)
 
     def test_tools_start_in_the_chest_and_packs_start_empty(self):
-        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_HOE, TOOL_CAN
+        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_HOE, TOOL_CAN, TOOL_SHOVEL
         self.assertEqual(item_count(self.state, TOOL_HOE), 1)
         self.assertEqual(item_count(self.state, TOOL_CAN), 2)
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
         self.assertEqual(stack_count(chest_of(self.state), TOOL_HOE), 1)
         self.assertEqual(stack_count(chest_of(self.state), TOOL_CAN), 2)
+        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
         self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
         for player in (P1, P2):
             self.assertTrue(all(slot is None for slot in pack_of(self.state, player)))
@@ -2964,6 +3000,36 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         self.assertIn("eat kabocha_soup chest", actions)
         self.assertIn("sell kabocha_soup 1", actions)
 
+    def test_eat_from_the_shop_is_rejected(self):
+        from inventory import add_to_pack, pack_has, staple_info
+        # Shop stock is not something you can eat; you must buy it first.
+        self.state["players"][P1]["energy"] = 20
+        self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "eat bread shop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("shop", msg.lower())
+        self.assertIn("backpack", msg.lower())
+        self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 20)
+        ok, msg = do_action(self.state, self.crops, "eat bread from shop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("shop", msg.lower())
+        # Even with bread in the pack, "eat … shop" is refused and the loaf stays.
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "eat bread shop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("shop", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "bread", 1, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 20)
+        # Eating from the pack still works.
+        ok, msg = do_action(self.state, self.crops, "eat bread", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(pack_has(self.state, P1, "bread", 1, self.rules))
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertFalse(any(a.startswith("eat ") and a.endswith(" shop") for a in actions))
+        # staple_info is only here to make sure bread is a real shop snack.
+        self.assertIsNotNone(staple_info("bread", self.rules))
+
 
 
 
@@ -3228,6 +3294,400 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertIn("farm_recipes", names)
 
 
+
+
+
+class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_fresh_farm_has_exactly_one_shovel_in_the_chest(self):
+        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_SHOVEL, pack_has
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
+        self.assertFalse(pack_has(self.state, P1, TOOL_SHOVEL, 1))
+        self.assertTrue(all(slot is None or slot.get("item") != TOOL_SHOVEL for slot in pack_of(self.state, P1)))
+
+    def test_older_save_gains_a_shovel_in_the_chest_on_migrate(self):
+        from inventory import (
+            chest_of, stack_count, item_count, TOOL_SHOVEL, remove_from_chest, migrate_inventory,
+        )
+        from engine import migrate_state
+        # Simulate a pre-shovel farm: no shovel in the world.
+        have = item_count(self.state, TOOL_SHOVEL)
+        if have:
+            remove_from_chest(self.state, TOOL_SHOVEL, have)
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 0)
+        self.assertTrue(migrate_inventory(self.state, self.crops, self.rules))
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
+        # Idempotent: do not mint a second shovel.
+        self.assertFalse(migrate_inventory(self.state, self.crops, self.rules))
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        migrate_state(self.state, self.rules)
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+
+    def test_unearth_requires_a_shovel_not_a_hoe_and_clears_the_plot(self):
+        from inventory import add_to_pack, pack_has, TOOL_HOE, TOOL_SHOVEL, item_count
+        from engine import get_tile, legal_actions, format_legal_action, energy_cost
+        # Plant a strawberry at 1,1 with a weed, fertilizer, and a runner child.
+        stand(self.state, P1, 1, 1)
+        tile = get_tile(self.state, 1, 1)
+        tile["type"] = "soil"
+        tile["tilled"] = True
+        tile["watered"] = True
+        tile["weed"] = True
+        tile["weedy"] = True
+        tile["weedy_ticks"] = 2
+        tile["fertilizer"] = {"kind": "yield", "season": "spring", "year": 1}
+        tile["crop"] = {"kind": "strawberry", "stage": "growing", "days_grown": 4}
+        child = get_tile(self.state, 1, 2)
+        child["type"] = "soil"
+        child["tilled"] = True
+        child["crop"] = {"kind": "strawberry", "stage": "sprouting", "runner_from": [1, 1]}
+        energy = int(self.state["players"][P1]["energy"])
+        # Hoe in the pack is not enough; take it from the chest, leave the shovel there.
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take hoe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        ok, msg = do_action(self.state, self.crops, "unearth", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("shovel", msg.lower())
+        self.assertNotIn("hoe", msg.lower())
+        self.assertEqual(get_tile(self.state, 1, 1)["crop"]["kind"], "strawberry")
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn("unearth 1 1", actions)
+        # Shovel in the pack makes it legal and performs the work.
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "take shovel 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        stand(self.state, P1, 1, 1)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("unearth 1 1", actions)
+        line = format_legal_action("unearth 1 1", self.state, self.crops, P1, self.rules)
+        self.assertEqual(line, "unearth (removes strawberry, untills, 5 energy)")
+        ok, msg = do_action(
+            self.state, self.crops,
+            "unearth (removes strawberry, untills, 5 energy)",
+            player=P1, rules=self.rules,
+        )
+        self.assertTrue(ok, msg)
+        self.assertIn("strawberry", msg)
+        self.assertIn("plain soil", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], energy - energy_cost("unearth", self.rules))
+        cleared = get_tile(self.state, 1, 1)
+        self.assertIsNone(cleared.get("crop"))
+        self.assertFalse(cleared.get("tilled"))
+        self.assertFalse(cleared.get("weed"))
+        self.assertFalse(cleared.get("weedy"))
+        self.assertFalse(cleared.get("fertilizer"))
+        # Child plant remains, but the runner link is gone.
+        leftover = get_tile(self.state, 1, 2)["crop"]
+        self.assertEqual(leftover["kind"], "strawberry")
+        self.assertNotIn("runner_from", leftover)
+        # Still exactly one shovel in the world.
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        self.assertTrue(pack_has(self.state, P1, TOOL_SHOVEL, 1, self.rules))
+
+    def test_look_actions_include_deterministic_descriptors_and_crop_seed_names(self):
+        from inventory import add_to_pack, add_to_chest, TOOL_SHOVEL
+        from describe import describe_state
+        from engine import format_legal_action, legal_actions, strip_action_descriptor
+        # Starting cabin: move down goes to r2 c3; move to 3 2 is two steps.
+        self.assertEqual(
+            format_legal_action("move down", self.state, self.crops, P1, self.rules),
+            "move down (to r2 c3, 5 energy)",
+        )
+        self.assertEqual(
+            format_legal_action("move to 3 2", self.state, self.crops, P1, self.rules),
+            "move to 3 2 (2 steps, 10 energy)",
+        )
+        gold = int(self.state["gold"])
+        self.assertEqual(
+            format_legal_action("buy strawberry 1", self.state, self.crops, P1, self.rules),
+            f"buy strawberry seeds 1 (\u2212{15}G, leaves {gold - 15}G)",
+        )
+        # Chest starts with 2 strawberry seeds and 1 hoe.
+        self.assertEqual(
+            format_legal_action("take strawberry_seed 1", self.state, self.crops, P1, self.rules),
+            "take strawberry seeds 1 (leaves 1 in chest)",
+        )
+        self.assertEqual(
+            format_legal_action("take strawberry_seed all", self.state, self.crops, P1, self.rules),
+            "take strawberry seeds all (takes 2)",
+        )
+        self.assertEqual(
+            format_legal_action("take hoe 1", self.state, self.crops, P1, self.rules),
+            "take hoe 1 (leaves 0)",
+        )
+        self.assertEqual(
+            format_legal_action("end turn", self.state, self.crops, P1, self.rules),
+            "end turn (sleep in cabin, 100 energy tomorrow)",
+        )
+        add_to_pack(self.state, P1, "bread", 1, self.rules)
+        self.assertEqual(
+            format_legal_action("sell bread 1", self.state, self.crops, P1, self.rules),
+            "sell bread 1 (+4G)",
+        )
+        self.assertEqual(
+            format_legal_action("drop bread 1", self.state, self.crops, P1, self.rules),
+            "drop bread 1 (chest will have 1)",
+        )
+        self.state["players"][P1]["energy"] = 80
+        self.assertEqual(
+            format_legal_action("eat bread", self.state, self.crops, P1, self.rules),
+            "eat bread (+10 energy)",
+        )
+        add_to_pack(self.state, P1, "strawberry", 3, self.rules)
+        line = format_legal_action("craft strawberry_jam", self.state, self.crops, P1, self.rules)
+        self.assertEqual(line, "craft strawberry jam (5 energy, uses 3 strawberries)")
+        # legal_actions stay bare commands; look shows the human names + descriptors.
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("buy strawberry 1", actions)
+        self.assertIn("take strawberry_seed 1", actions)
+        self.assertIn("take hoe 1", actions)
+        self.assertIn("end turn", actions)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("move down (to r2 c3, 5 energy)", look)
+        self.assertIn("buy strawberry seeds 1", look)
+        self.assertIn("take strawberry seeds 1 (leaves 1 in chest)", look)
+        self.assertIn("end turn (sleep in cabin, 100 energy tomorrow)", look)
+        self.assertNotIn("take strawberry_seed", look)
+        self.assertNotIn(" 2 seeds", look)
+        # Pasting a look line still works.
+        self.assertEqual(strip_action_descriptor("eat bread (+10 energy)"), "eat bread")
+        stand(self.state, P1, 2, 3)
+        self.assertEqual(
+            format_legal_action("end turn", self.state, self.crops, P1, self.rules),
+            "end turn (pass out, 50 energy)",
+        )
+
+    def test_eat_from_shop_descriptor_is_not_a_legal_action(self):
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertFalse(any("shop" in a for a in actions if a.startswith("eat ")))
+        ok, msg = do_action(self.state, self.crops, "eat bread shop", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("shop", msg.lower())
+
+
+class SaveSlots(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        self._old_state = engine.STATE_PATH
+        self._old_lock = engine.LOCK_PATH
+        self._old_journal = engine.JOURNAL_ARCHIVE_PATH
+        self.tmp = Path(tempfile.mkdtemp(prefix="lantern-farm-saves-"))
+        engine.STATE_PATH = self.tmp / "state.json"
+        engine.LOCK_PATH = self.tmp / ".state.lock"
+        engine.JOURNAL_ARCHIVE_PATH = self.tmp / "journal-archive.json"
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        import shutil
+        engine.STATE_PATH = self._old_state
+        engine.LOCK_PATH = self._old_lock
+        engine.JOURNAL_ARCHIVE_PATH = self._old_journal
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _legacy_farm(self, gold=80, day=3):
+        from engine import fresh_state, save_state, load_crops
+        state = fresh_state(load_crops())
+        state["gold"] = gold
+        state["day"] = day
+        save_state(state, engine.STATE_PATH)
+        return state
+
+    def test_without_slots_load_and_save_use_state_path(self):
+        import saves
+        from engine import default_state_path, load_state, save_state, load_crops
+        self.assertIsNone(saves.current_slot_id())
+        self.assertEqual(default_state_path(), engine.STATE_PATH)
+        state = self._legacy_farm(gold=91, day=2)
+        loaded = load_state(load_crops())
+        self.assertEqual(loaded["gold"], 91)
+        self.assertFalse((self.tmp / "saves" / "active.json").exists())
+
+    def test_migrate_copies_legacy_into_permanent_first_farm_and_keeps_the_snapshot(self):
+        import saves
+        from engine import default_state_path, load_state, load_crops
+        self._legacy_farm(gold=123, day=4)
+        slot = saves.migrate_legacy_state(backup=True)
+        self.assertEqual(slot, saves.FIRST_FARM_ID)
+        self.assertEqual(saves.current_slot_id(), saves.FIRST_FARM_ID)
+        self.assertEqual(default_state_path(), saves.slot_state_path(saves.FIRST_FARM_ID))
+        loaded = load_state(load_crops())
+        self.assertEqual(loaded["gold"], 123)
+        self.assertEqual(loaded["day"], 4)
+        # Root snapshot is left in place.
+        snap = json.loads(engine.STATE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(snap["gold"], 123)
+        entries = saves.list_slots()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["name"], "First Farm")
+        self.assertTrue(entries[0]["active"])
+        self.assertTrue(entries[0]["protected"])
+        backups = list((self.tmp / "backups").glob("before-save-slots-*"))
+        self.assertTrue(backups, "migrate should copy the farm into a local backup first")
+        backed = json.loads((backups[-1] / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(backed["gold"], 123)
+        self.assertEqual(saves.migrate_legacy_state(backup=False), saves.FIRST_FARM_ID)
+        # A later change to the leftover snapshot must not overwrite First Farm.
+        snap["gold"] = 1
+        engine.STATE_PATH.write_text(json.dumps(snap), encoding="utf-8")
+        self.assertEqual(saves.migrate_legacy_state(backup=False), saves.FIRST_FARM_ID)
+        again = json.loads(saves.slot_state_path(saves.FIRST_FARM_ID).read_text(encoding="utf-8"))
+        self.assertEqual(again["gold"], 123)
+
+    def test_maybe_migrate_live_is_a_noop_in_tests(self):
+        import saves
+        self._legacy_farm()
+        self.assertFalse(saves.is_live_tree())
+        self.assertIsNone(saves.maybe_migrate_live())
+        self.assertIsNone(saves.current_slot_id())
+
+    def test_new_load_rename_never_overwrite_another_slot(self):
+        import saves
+        from engine import load_state, save_state, load_crops, do_action
+        self._legacy_farm(gold=200, day=5)
+        saves.migrate_legacy_state(backup=False)
+        ok, msg, sid = saves.new_slot("")
+        self.assertFalse(ok)
+        self.assertIsNone(sid)
+        ok, msg, sid = saves.new_slot("Orchard")
+        self.assertTrue(ok, msg)
+        self.assertEqual(sid, "orchard")
+        fresh = load_state(load_crops())
+        self.assertEqual(fresh["gold"], 80)
+        self.assertEqual(fresh["day"], 1)
+        # First Farm is unchanged.
+        first = json.loads(saves.slot_state_path(saves.FIRST_FARM_ID).read_text(encoding="utf-8"))
+        self.assertEqual(first["gold"], 200)
+        self.assertEqual(first["day"], 5)
+        # Play in the new slot, then switch back; progress is kept in each.
+        fresh["gold"] = 50
+        save_state(fresh)
+        refused, message, _ = saves.new_slot("orchard")
+        self.assertFalse(refused)
+        self.assertIn("already exists", message)
+        refused, message, _ = saves.new_slot("First Farm")
+        self.assertFalse(refused)
+        ok, message, sid = saves.load_slot("First Farm")
+        self.assertTrue(ok, message)
+        self.assertEqual(sid, saves.FIRST_FARM_ID)
+        loaded = load_state(load_crops())
+        self.assertEqual(loaded["gold"], 200)
+        orchard = json.loads(saves.slot_state_path("orchard").read_text(encoding="utf-8"))
+        self.assertEqual(orchard["gold"], 50)
+        ok, message, sid = saves.rename_slot("first-farm", "Home Place")
+        self.assertTrue(ok, message)
+        self.assertEqual(sid, saves.FIRST_FARM_ID)
+        meta = saves.read_meta(saves.FIRST_FARM_ID)
+        self.assertEqual(meta["name"], "Home Place")
+        refused, message, _ = saves.rename_slot("orchard", "home place")
+        self.assertFalse(refused)
+        listed = saves.format_slot_list()
+        self.assertIn("Home Place", listed)
+        self.assertIn("(active)", listed)
+        self.assertIn("Orchard", listed)
+        missing, message, _ = saves.load_slot("no-such-farm")
+        self.assertFalse(missing)
+        # Colliding slugs get a suffix; the first slot is left alone.
+        ok, message, sid = saves.new_slot("Orchard Lane")
+        self.assertTrue(ok, message)
+        # "Orchard Lane" slugs to orchard-lane, not orchard. Force a collision:
+        ok, message, sid = saves.new_slot("ORCHARD")
+        self.assertFalse(ok)
+        # A different name that slugs to orchard should unique-ify.
+        # "Orchard!" slugs to orchard and the display name differs.
+        ok, message, sid = saves.new_slot("The Orchard!")
+        self.assertTrue(ok, message)
+        self.assertEqual(sid, "the-orchard")
+        # Direct slug collision: create "Meadow", then a name that slugs to meadow.
+        ok, message, sid = saves.new_slot("Meadow")
+        self.assertTrue(ok, message)
+        self.assertEqual(sid, "meadow")
+        ok, message, sid = saves.new_slot("Meadow!!")
+        self.assertTrue(ok, message)
+        self.assertEqual(sid, "meadow-2")
+        meadow = json.loads(saves.slot_state_path("meadow").read_text(encoding="utf-8"))
+        self.assertEqual(meadow["day"], 1)
+
+    def test_cli_new_without_a_name_does_not_wipe_the_farm(self):
+        import io
+        import contextlib
+        import cli
+        import saves
+        from engine import load_state, load_crops
+        self._legacy_farm(gold=222, day=6)
+        saves.migrate_legacy_state(backup=False)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = cli.main(["new"])
+        self.assertEqual(code, 2)
+        self.assertIn("Farm name", err.getvalue())
+        state = load_state(load_crops())
+        self.assertEqual(state["gold"], 222)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["saves"])
+        self.assertEqual(code, 0)
+        self.assertIn("First Farm", out.getvalue())
+        self.assertIn("(active)", out.getvalue())
+
+    def test_cli_and_mcp_can_list_and_switch(self):
+        import io
+        import contextlib
+        import cli
+        import saves
+        import mcp_server
+        from engine import load_state, load_crops, save_state
+        self._legacy_farm(gold=140, day=2)
+        saves.migrate_legacy_state(backup=False)
+        text, is_error = mcp_server.farm_saves("list")
+        self.assertFalse(is_error)
+        self.assertIn("First Farm", text)
+        ok_text, is_error = mcp_server.farm_saves("new", name="River Bank")
+        self.assertFalse(is_error)
+        self.assertIn("River Bank", ok_text)
+        state = load_state(load_crops())
+        self.assertEqual(state["day"], 1)
+        text, is_error = mcp_server.farm_saves("load", slot="First Farm")
+        self.assertFalse(is_error)
+        self.assertEqual(load_state(load_crops())["gold"], 140)
+        text, is_error = mcp_server.farm_saves("rename", name="The First Farm", slot="first-farm")
+        self.assertFalse(is_error)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["load", "river-bank"]), 0)
+        self.assertIn("River Bank", out.getvalue())
+        self.assertEqual(load_state(load_crops())["day"], 1)
+
+    def test_journal_archive_follows_the_active_slot_when_not_redirected(self):
+        import saves
+        from engine import journal_archive_path
+        self._legacy_farm()
+        saves.migrate_legacy_state(backup=False)
+        # Tests redirect the archive path; honor that.
+        self.assertEqual(journal_archive_path(), engine.JOURNAL_ARCHIVE_PATH)
+        # When the path is the engine default, use the slot file.
+        engine.JOURNAL_ARCHIVE_PATH = engine.ROOT / "local" / "journal-archive.json"
+        self.assertEqual(journal_archive_path(), saves.slot_journal_path(saves.FIRST_FARM_ID))
+
+    def test_reset_state_writes_the_legacy_path_not_the_active_slot(self):
+        import saves
+        from engine import reset_state, load_crops
+        self._legacy_farm(gold=77, day=8)
+        saves.migrate_legacy_state(backup=False)
+        reset_state(load_crops())
+        first = json.loads(saves.slot_state_path(saves.FIRST_FARM_ID).read_text(encoding="utf-8"))
+        self.assertEqual(first["gold"], 77)
+        snap = json.loads(engine.STATE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(snap["day"], 1)
+        self.assertEqual(snap["gold"], 80)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ TILL_HOLD_DAYS = 5
 
 TOOL_HOE = "hoe"
 TOOL_CAN = "watering_can"
+TOOL_SHOVEL = "shovel"
 
 TOOLS = {
     TOOL_HOE: {
@@ -22,6 +23,11 @@ TOOLS = {
         "name": "watering can",
         "name_plural": "watering cans",
         "starting": 2,
+    },
+    TOOL_SHOVEL: {
+        "name": "shovel",
+        "name_plural": "shovels",
+        "starting": 1,
     },
 }
 
@@ -147,7 +153,10 @@ FERT_KIND_TO_ITEM = {info["kind"]: item for item, info in FERTILIZERS.items()}
 
 ITEM_ALIASES = {
     "hoe": TOOL_HOE,
+    "hoes": TOOL_HOE,
     "watering_can": TOOL_CAN,
+    "shovel": TOOL_SHOVEL,
+    "shovels": TOOL_SHOVEL,
     "watering-can": TOOL_CAN,
     "wateringcan": TOOL_CAN,
     "watering can": TOOL_CAN,

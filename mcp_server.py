@@ -156,6 +156,25 @@ def farm_end_turn(player: str, note: str | None = None, path: Path | None = None
     return farm_do(player, command, path=path)
 
 
+def farm_saves(action: str | None = None, name: str | None = None, slot: str | None = None) -> tuple[str, bool]:
+    """List, create, switch, or rename named farm slots."""
+    import saves
+    saves.maybe_migrate_live()
+    verb = (action or "list").strip().lower() or "list"
+    if verb == "list":
+        return saves.format_slot_list(), False
+    if verb == "new":
+        ok, message, _sid = saves.new_slot(str(name or ""))
+        return message, not ok
+    if verb == "load":
+        ok, message, _sid = saves.load_slot(str(slot or name or ""))
+        return message, not ok
+    if verb == "rename":
+        ok, message, _sid = saves.rename_slot(str(slot or ""), str(name or ""))
+        return message, not ok
+    return "Unknown saves action. Use list, new, load, or rename.", True
+
+
 def farm_rules() -> str:
     rules = load_rules()
     crops = load_crops()
@@ -197,6 +216,8 @@ def farm_rules() -> str:
             "take": energy_cost("take", rules),
             "drop": energy_cost("drop", rules),
             "craft": energy_cost("craft", rules),
+            "fertilize": energy_cost("fertilize", rules),
+            "unearth": energy_cost("unearth", rules),
             "end_turn": energy_cost("end_turn", rules),
         },
         "snacks_per_turn": int(rules.get("snacks_per_turn") or 2),
@@ -206,11 +227,11 @@ def farm_rules() -> str:
         "notes": [
             "The same engine and state.json as the CLI and web page.",
             "You can only act on your own turn.",
-            "You can only till, plant, water, harvest, or pluck the tile you are standing on.",
+            "You can only till, plant, water, harvest, pluck, or unearth the tile you are standing on. Unearth needs a shovel and returns a planted plot to plain soil.",
             "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`. Each step costs 5 energy, diagonals included.",
             "Ending your turn in the cabin is sleep (full energy tomorrow). Ending it elsewhere is passing out (half energy, where you fell).",
             "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). Eating spends the item instead of selling it.",
-            "Each player has a 4-slot backpack. Till needs a hoe in the backpack; water needs a watering can. One hoe and two cans start in the shared cabin chest. Take, drop, buy, sell, and craft only at the cabin. Harvest goes into the backpack. At the cabin, `take <item> 1` / `take <item> all` and `drop <item> 1` / `drop <item> all` move a stack between the chest and the backpack.",
+            "Each player has a 4-slot backpack. Till needs a hoe in the backpack; unearth needs a shovel; water needs a watering can. One hoe, one shovel, and two cans start in the shared cabin chest. Take, drop, buy, sell, and craft only at the cabin. Harvest goes into the backpack. At the cabin, `take <item> 1` / `take <item> all` and `drop <item> 1` / `drop <item> all` move a stack between the chest and the backpack.",
             "Craft at the cabin from discovered recipes you can cook (ingredients in the backpack or chest). Jam and kabocha soup start in the recipe book; others are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` lists the book.",
             "The shop sells June-bearing strawberry seeds (15G) and everbearing strawberry seedlings (40G) in spring and summer, and bread (8G), butter (10G), and milk (8G) year-round. June-bearing plants establish the first year and fruit every 7 days through spring into early summer after their first winter, then rest through autumn and winter. Everbearing seedlings settle in 4 days and fruit every 7 days from spring through summer into early autumn, resting only in winter. Both live two years and may send runners. Later crops stay in the backpack if you already grew them.",
             "The day advances when every player has ended their turn.",
@@ -370,6 +391,32 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "farm_saves",
+        "description": (
+            "List named farm saves, start a new farm, switch to a saved farm, or rename one. "
+            "Both players share the active slot. Switching saves the current farm first and "
+            "never overwrites another slot. A new farm needs a unique name. There is no delete."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "list (default), new, load, or rename",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Farm name for new or rename",
+                },
+                "slot": {
+                    "type": "string",
+                    "description": "Slot id or current name for load or rename",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "farm_rules",
         "description": "Return energy costs, movement and sleep rules, snack caps, crop prices (including raw eat energy, regrow days, and whether a crop is in the shop), and the configured players.",
         "inputSchema": {
@@ -403,6 +450,12 @@ def call_tool(name: str, arguments: dict | None) -> tuple[str, bool]:
             return farm_journal(None if season is None else str(season)), False
         if name == "farm_recipes":
             return farm_recipes(args.get("player")), False
+        if name == "farm_saves":
+            return farm_saves(
+                str(args.get("action") or "list"),
+                args.get("name"),
+                args.get("slot"),
+            )
         if name == "farm_rules":
             return farm_rules(), False
     except Exception:
@@ -432,7 +485,7 @@ def handle_rpc(message: dict) -> dict | None:
             "instructions": (
                 f"{title()} MCP. Use farm_look to see the farm, farm_do to act, "
                 "farm_end_turn to hand off, farm_journal for this year's season notes, "
-                "and farm_rules for costs and crops. "
+                "farm_saves to list or switch farms, and farm_rules for costs and crops. "
                 "The same save and turn rules as the CLI and web page."
             ),
         }

@@ -369,7 +369,18 @@ def _player_name_map() -> dict[str, str]:
 
 
 def journal_archive_path() -> Path:
-    return Path(JOURNAL_ARCHIVE_PATH)
+    explicit = Path(JOURNAL_ARCHIVE_PATH)
+    default = ROOT / "local" / "journal-archive.json"
+    if explicit.resolve() != default.resolve():
+        return explicit
+    try:
+        import saves
+        slot = saves.current_slot_id()
+        if slot:
+            return saves.slot_journal_path(slot)
+    except Exception:
+        pass
+    return explicit
 
 
 def _load_archive(path: Path | None = None) -> dict:
@@ -965,6 +976,13 @@ def stock_noun(info: dict | None = None, count: int = 1) -> str:
     return word + "s"
 
 
+def stock_label(kind: str, info: dict | None = None, count: int = 1) -> str:
+    """Crop-specific stock name, e.g. 'strawberry seeds' or '1 kabocha seed'."""
+    name = crop_name(kind, info)
+    noun = stock_noun(info, count)
+    return f"{name} {noun}"
+
+
 def shop_name(kind: str, info: dict | None = None) -> str:
     if info and info.get("shop_name"):
         return str(info["shop_name"])
@@ -1358,17 +1376,40 @@ def weather_arrive_message(weather: str) -> str:
     return flavor("clear") or "A clear day dawns over the farm."
 
 
+def default_state_path() -> Path:
+    """Active slot's state.json when slots are in use; otherwise STATE_PATH."""
+    try:
+        import saves
+        return saves.active_state_path()
+    except Exception:
+        return STATE_PATH
+
+
 def save_state(state: dict, path: Path | None = None) -> None:
-    dest = path or STATE_PATH
+    dest = path or default_state_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")
     text = json.dumps(state, indent=2, ensure_ascii=False) + "\n"
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(dest)
+    try:
+        import saves
+        saves.touch_meta_for_state_path(dest, state)
+    except Exception:
+        pass
 
 
 def load_state(crops: dict | None = None, path: Path | None = None) -> dict:
-    src = path or STATE_PATH
+    src = path or default_state_path()
     if not src.exists():
+        # A missing named slot must not be quietly replaced with a fresh farm.
+        try:
+            import saves
+            slot = saves.current_slot_id() if path is None else None
+        except Exception:
+            slot = None
+        if slot:
+            raise FileNotFoundError(f"Active farm slot {slot!r} has no state file.")
         state = fresh_state(crops)
         save_state(state, src)
         return state
@@ -1382,8 +1423,8 @@ def load_state(crops: dict | None = None, path: Path | None = None) -> dict:
 def session(write: bool = True, crops: dict | None = None, path: "Path | None" = None):
     """Lock, load, optionally save state.json. Safe for CLI and web together."""
     crops = crops or load_crops()
-    dest = path or STATE_PATH
-    lock_path = LOCK_PATH if dest == STATE_PATH else Path(str(dest) + ".lock")
+    dest = path or default_state_path()
+    lock_path = LOCK_PATH if dest.resolve() == Path(STATE_PATH).resolve() else Path(str(dest) + ".lock")
     lock_path.touch(exist_ok=True)
     with open(lock_path, "a", encoding="utf-8") as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)
@@ -1396,10 +1437,11 @@ def session(write: bool = True, crops: dict | None = None, path: "Path | None" =
             fcntl.flock(lockf, fcntl.LOCK_UN)
 
 
-def reset_state(crops: dict | None = None) -> dict:
+def reset_state(crops: dict | None = None, path: Path | None = None) -> dict:
+    """Write a fresh farm to an explicit path (tests). Prefer saves.new_slot for play."""
     crops = crops or load_crops()
     state = fresh_state(crops)
-    save_state(state)
+    save_state(state, path or STATE_PATH)
     return state
 
 
@@ -1779,6 +1821,64 @@ def till(state: dict, crops: dict, row, col, player: str | None = None) -> tuple
     return True, msg
 
 
+def clear_runner_links_to(state: dict, row: int, col: int) -> None:
+    """Drop runner_from pointers that name this tile, once the plant here is gone."""
+    from sprites import parse_runner_from
+
+    target = (int(row), int(col))
+    for _r, _c, tile in iter_tiles(state):
+        crop = tile.get("crop")
+        if not crop:
+            continue
+        if parse_runner_from(crop) == target:
+            crop.pop("runner_from", None)
+
+
+def unearth(
+    state: dict,
+    crops: dict,
+    row,
+    col,
+    player: str | None = None,
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Dig up the plant on this tile and return the ground to plain soil."""
+    r, c, err = parse_row_col(row, col)
+    if err:
+        return False, err
+    tile = get_tile(state, r, c)
+    here = position_name(r, c)
+    if tile["type"] == "cabin":
+        return False, f"That's the cabin ({here}). You can't unearth the porch."
+    crop = tile.get("crop")
+    if not crop or not crop.get("kind"):
+        return False, f"Nothing to unearth at {here}. The soil is already empty."
+    kind = crop.get("kind")
+    name = crop_name(kind, crop_info(crops, kind))
+    if player:
+        from inventory import pack_has, TOOL_SHOVEL
+
+        if not pack_has(state, player, TOOL_SHOVEL):
+            return False, (
+                f"{display_name(player)} needs a shovel in their backpack to unearth a plant. "
+                "Take one from the cabin chest."
+            )
+    clear_runner_links_to(state, r, c)
+    tile["crop"] = None
+    tile["weed"] = None
+    tile["weedy"] = False
+    tile["weedy_ticks"] = 0
+    tile["fertilizer"] = None
+    tile["tilled"] = False
+    clear_till_hold(tile)
+    msg = (
+        f"{who(player, 'unearth', 'unearths')} the {name} at {here}, "
+        "returning the ground to plain soil."
+    )
+    log_append(state, msg, player)
+    return True, msg
+
+
 def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -> tuple[bool, str]:
     r, c, err = parse_row_col(row, col)
     if err:
@@ -1805,20 +1905,19 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
         return False, f"{name[0].upper() + name[1:]} only grows in {when}. It is {state['season']}."
     seed_key = stock_key(kind, info)
     name = crop_name(kind, info)
-    noun = stock_noun(info, 1)
-    nouns = stock_noun(info, 2)
+    seeds = stock_label(kind, info, 2)
     from inventory import pack_has, take_available, sync_inventory_view
     have = int(state["inventory"].get(seed_key, 0) or 0)
     if player and not pack_has(state, player, seed_key):
         return False, (
-            f"No {name} {nouns} in the backpack. Take some from the cabin chest, "
+            f"No {seeds} in the backpack. Take some from the cabin chest, "
             "or buy them at the shop."
         )
     if not player and have < 1:
-        return False, f"You have no {name} {nouns}. Buy some at the shop."
+        return False, f"You have no {seeds}. Buy some at the shop."
     taken = take_available(state, seed_key, 1, player, pack_only=bool(player))
     if taken < 1:
-        return False, f"You have no {name} {nouns}. Buy some at the shop."
+        return False, f"You have no {seeds}. Buy some at the shop."
     tile["crop"] = {
         "kind": kind,
         "planted_day": int(state["day"]),
@@ -1829,7 +1928,8 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
         "health": 100,
     }
     clear_till_hold(tile)
-    msg = f"{who(player, 'plant', 'plants')} {a_or_an(name)} {name} {noun} at {here}."
+    planted = stock_label(kind, info, 1)
+    msg = f"{who(player, 'plant', 'plants')} {a_or_an(planted)} {planted} at {here}."
     log_append(state, msg, player)
     return True, msg
 
@@ -2387,8 +2487,7 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         return False, err
     price = int(info["seed_price"]) * count
     gold = int(state["gold"])
-    noun = stock_noun(info, count)
-    label = f"{crop_name(kind, info)} {noun}"
+    label = stock_label(kind, info, count)
     if gold < price:
         return (
             False,
@@ -3409,6 +3508,10 @@ def legal_actions(
             actions.append(f"harvest {r} {c}")
         if tile_has_weed(tile) and energy >= energy_cost("pluck", rules):
             actions.append(f"pluck {r} {c}")
+        if crop and crop.get("kind") and energy >= energy_cost("unearth", rules):
+            from inventory import pack_has, TOOL_SHOVEL
+            if not actor or pack_has(state, actor, TOOL_SHOVEL, 1, rules):
+                actions.append(f"unearth {r} {c}")
         if energy >= energy_cost("fertilize", rules) and not fertilizer_on_tile(tile, state, crops):
             from inventory import pack_of, chest_of, is_fertilizer
             bags = []
@@ -3445,6 +3548,11 @@ def legal_actions(
         from inventory import fertilizer_info
         for item in fertilizer_shop_items(state.get("season"), rules):
             info = fertilizer_info(item, rules)
+            if info and int(state["gold"]) >= int(info["price"]):
+                actions.append(f"buy {item} 1")
+        from inventory import staple_shop_items, staple_info
+        for item in staple_shop_items(rules):
+            info = staple_info(item, rules)
             if info and int(state["gold"]) >= int(info["price"]):
                 actions.append(f"buy {item} 1")
         sellable = {}
@@ -3501,6 +3609,310 @@ def legal_actions(
     return actions
 
 
+_ACTION_DESCRIPTOR = re.compile(r" \(([^()]*)\)\s*$")
+
+
+def strip_action_descriptor(command: str) -> str:
+    """Remove a trailing '(descriptor)' so pasted look lines still parse."""
+    return _ACTION_DESCRIPTOR.sub("", (command or "").strip()).strip()
+
+
+def action_item_phrase(item: str, crops: dict | None, rules: dict | None) -> str:
+    """Crop-specific command name: 'strawberry seeds', 'strawberry jam', 'hoe'."""
+    from inventory import normalize_item, item_label, is_staple
+
+    token = (item or "").strip()
+    key = normalize_item(token) or token
+    if key.endswith("_seed"):
+        kind = key[: -len("_seed")]
+        return stock_label(kind, crop_info(crops, kind), 2)
+    if key.endswith("_seedling"):
+        kind = key[: -len("_seedling")]
+        return stock_label(kind, crop_info(crops, kind), 2)
+    if (crops or {}).get("crops", {}).get(key) and not is_staple(key):
+        return stock_label(key, crop_info(crops, key), 2)
+    return item_label(key, crops, rules)
+
+
+def humanize_action_command(command: str, crops: dict | None = None, rules: dict | None = None) -> str:
+    """Spaced, crop-specific wording for the command part of a look line."""
+    raw = strip_action_descriptor(command)
+    parts = raw.split()
+    if not parts:
+        return raw
+    verb = parts[0].lower()
+    args = parts[1:]
+
+    def is_rc(a, b) -> bool:
+        return a.isdigit() and b.isdigit()
+
+    if verb in {"till", "water", "harvest", "pluck", "unearth"}:
+        return verb
+    if verb == "fertilize":
+        kind = None
+        if len(args) == 1 and not args[0].isdigit():
+            kind = args[0]
+        elif len(args) >= 3:
+            kind = args[2]
+        return f"fertilize {kind}" if kind else "fertilize"
+    if verb == "plant":
+        kind = args[-1] if args else ""
+        return f"plant {kind}".strip()
+    if verb in {"take", "drop", "sell"}:
+        if not args:
+            return verb
+        count = args[-1] if args[-1].isdigit() or args[-1].lower() == "all" else None
+        item = " ".join(args[:-1] if count is not None else args)
+        phrase = action_item_phrase(item, crops, rules)
+        return f"{verb} {phrase} {count}" if count is not None else f"{verb} {phrase}"
+    if verb == "eat":
+        from_chest = bool(args and args[-1].lower() == "chest")
+        item = " ".join(args[:-1] if from_chest else args)
+        phrase = action_item_phrase(item, crops, rules)
+        return f"eat {phrase} chest" if from_chest else f"eat {phrase}"
+    if verb == "buy":
+        count = args[-1] if args and (args[-1].isdigit() or args[-1].lower() == "all") else None
+        item = " ".join(args[:-1] if count is not None else args)
+        phrase = action_item_phrase(item, crops, rules)
+        return f"buy {phrase} {count}" if count is not None else f"buy {phrase}"
+    if verb == "craft":
+        item = " ".join(args)
+        phrase = action_item_phrase(item, crops, rules)
+        return f"craft {phrase}"
+    return raw
+
+
+def _energy_word(n: int) -> str:
+    return f"{int(n)} energy"
+
+
+def action_descriptor(
+    command: str,
+    state: dict,
+    crops: dict,
+    player: str | None = None,
+    rules: dict | None = None,
+) -> str:
+    """Short deterministic result of a legal action. No advice."""
+    from inventory import (
+        pack_of,
+        chest_of,
+        stack_count,
+        item_eat_energy,
+        item_sell_price,
+        recipe_ingredients,
+        recipes,
+        fertilizer_info,
+        staple_info,
+        is_fertilizer,
+        is_staple,
+        normalize_item,
+        pack_space_for,
+        FERTILIZERS,
+    )
+
+    rules = rules or load_rules()
+    raw = strip_action_descriptor(command)
+    parts = raw.split()
+    if not parts:
+        return ""
+    verb = parts[0].lower()
+    args = parts[1:]
+    actor = normalize_player(player) or normalize_player(state.get("current_player"))
+    here = player_where(state, actor) if actor else (CABIN_ROW, CABIN_COL)
+    step = step_energy(rules)
+
+    def bags_left(item: str) -> int:
+        have = 0
+        if actor:
+            have += stack_count(pack_of(state, actor, rules), item)
+        return max(0, have - 1)
+
+    if verb == "move" and args:
+        if args[0] == "to" and len(args) >= 3:
+            r, c, err = parse_row_col(args[1], args[2])
+            if err:
+                return ""
+            steps = len(path_steps(here, (r, c)))
+            cost = steps * step
+            step_word = "step" if steps == 1 else "steps"
+            return f"{steps} {step_word}, {_energy_word(cost)}"
+        direction = args[0]
+        delta = MOVE_DELTA.get(direction)
+        if delta:
+            dest = (here[0] + delta[0], here[1] + delta[1])
+            return f"to r{dest[0]} c{dest[1]}, {_energy_word(step)}"
+        return ""
+    if verb == "go" and args and args[0] == "cabin":
+        dest = (CABIN_ROW, CABIN_COL)
+        steps = len(path_steps(here, dest))
+        cost = steps * step
+        step_word = "step" if steps == 1 else "steps"
+        return f"to r{dest[0]} c{dest[1]}, {steps} {step_word}, {_energy_word(cost)}"
+    if verb in {"till", "water", "harvest", "pluck", "plant", "unearth", "fertilize"}:
+        cost = energy_cost(verb, rules)
+        if verb == "unearth":
+            r, c = here
+            if len(args) >= 2 and args[0].isdigit():
+                parsed = parse_row_col(args[0], args[1])
+                if not parsed[2]:
+                    r, c = parsed[0], parsed[1]
+            tile = get_tile(state, r, c)
+            crop = (tile or {}).get("crop") or {}
+            kind = crop.get("kind")
+            name = crop_name(kind, crop_info(crops, kind)) if kind else "plant"
+            return f"removes {name}, untills, {_energy_word(cost)}"
+        if verb == "plant":
+            kind = args[-1] if args else ""
+            info = crop_info(crops, kind) or {}
+            used = stock_label(kind, info, 1) if kind else "seed"
+            return f"{_energy_word(cost)}, uses 1 {used}"
+        if verb == "fertilize":
+            kind = None
+            if len(args) == 1 and not args[0].isdigit():
+                kind = args[0]
+            elif len(args) >= 3:
+                kind = args[2]
+            item = None
+            if kind:
+                for key, info in FERTILIZERS.items():
+                    if info.get("kind") == kind or key == kind or key == f"fertilizer_{kind}":
+                        item = key
+                        break
+            elif actor:
+                for slot in pack_of(state, actor, rules):
+                    if slot and is_fertilizer(slot.get("item")):
+                        item = slot["item"]
+                        break
+            info = fertilizer_info(item, rules) if item else None
+            label = (info or {}).get("kind") or kind or "fertilizer"
+            if item and FERTILIZERS.get(item, {}).get("name"):
+                # "yield-boost fertilizer" -> "yield-boost"
+                name = FERTILIZERS[item]["name"]
+                label = name.replace(" fertilizer", "")
+            left = bags_left(item) if item else 0
+            bag_word = "bag" if left == 1 else "bags"
+            return f"{label}, {left} {bag_word} left"
+        if verb == "harvest":
+            return "into the backpack" if cost == 0 else _energy_word(cost)
+        return _energy_word(cost)
+    if verb == "buy":
+        count = 1
+        if args and args[-1].isdigit():
+            count = int(args[-1])
+            item_tok = " ".join(args[:-1])
+        else:
+            item_tok = " ".join(args)
+        item = normalize_item(item_tok) or normalize_kind(item_tok) or item_tok
+        price = None
+        if is_staple(item):
+            info = staple_info(item, rules) or {}
+            price = int(info.get("price") or 0) * count
+        elif is_fertilizer(item) or item in FERTILIZERS:
+            info = fertilizer_info(item, rules) or FERTILIZERS.get(item) or {}
+            price = int(info.get("price") or 0) * count
+        else:
+            kind = normalize_kind(item_tok) or item
+            info = crop_info(crops, kind) or {}
+            if info.get("seed_price") is not None:
+                price = int(info["seed_price"]) * count
+        if price is None:
+            return ""
+        left = int(state.get("gold") or 0) - price
+        return f"−{price}G, leaves {left}G"
+    if verb == "sell":
+        from inventory import parse_item_and_count
+
+        item, count, err = parse_item_and_count(args)
+        if err or not item:
+            item = normalize_item(" ".join(args[:-1] if args and args[-1].isdigit() else args)) or ""
+            count = int(args[-1]) if args and args[-1].isdigit() else 1
+        price = item_sell_price(item, crops, rules)
+        if price is None:
+            return ""
+        gained = int(price) * int(count or 1)
+        return f"+{gained}G"
+    if verb in {"take", "drop"}:
+        count_tok = args[-1] if args else "1"
+        item = normalize_item(" ".join(args[:-1] if args else [])) or (args[0] if args else "")
+        chest_have = stack_count(chest_of(state, rules), item)
+        pack_have = stack_count(pack_of(state, actor, rules), item) if actor else 0
+        if verb == "take":
+            have = chest_have
+            if str(count_tok).lower() == "all":
+                n = have
+                if actor:
+                    room = pack_space_for(state, actor, item, n, rules)
+                    # pack_space_for is a bool for n items; take-all is only listed if all fit
+                return f"takes {n}"
+            n = int(count_tok) if str(count_tok).isdigit() else 1
+            left = max(0, have - n)
+            return "leaves 0" if left == 0 else f"leaves {left} in chest"
+        # drop
+        if str(count_tok).lower() == "all":
+            n = pack_have
+            return f"drops {n}, chest will have {chest_have + n}"
+        n = int(count_tok) if str(count_tok).isdigit() else 1
+        return f"chest will have {chest_have + n}"
+    if verb == "eat":
+        from_chest = bool(args and args[-1].lower() == "chest")
+        item = normalize_item(" ".join(args[:-1] if from_chest else args)) or ""
+        restore = item_eat_energy(item, crops, rules)
+        if restore is None:
+            return ""
+        if actor:
+            cap = max_energy(rules)
+            energy = int(player_slot(state, actor)["energy"])
+            gained = min(int(restore), max(0, cap - energy))
+        else:
+            gained = int(restore)
+        return f"+{gained} energy"
+    if verb == "craft":
+        rec_id = normalize_item(" ".join(args)) or " ".join(args)
+        rec = recipes(rules).get(rec_id) or {}
+        cost = energy_cost("craft", rules)
+        bits = []
+        for item, n in recipe_ingredients(rec):
+            from inventory import item_name as inv_item_name
+            bits.append(inv_item_name(item, n, crops, rules))
+        used = ", ".join(bits) if bits else "ingredients"
+        return f"{_energy_word(cost)}, uses {used}"
+    if verb == "end" and args and args[0].lower() == "turn":
+        cap = max_energy(rules)
+        faint = pass_out_energy(rules)
+        if actor and is_player_in_cabin(state, actor):
+            return f"sleep in cabin, {cap} energy tomorrow"
+        return f"pass out, {faint} energy"
+    return ""
+
+
+def format_legal_action(
+    command: str,
+    state: dict,
+    crops: dict,
+    player: str | None = None,
+    rules: dict | None = None,
+) -> str:
+    display = humanize_action_command(command, crops, rules)
+    desc = action_descriptor(command, state, crops, player, rules)
+    if desc:
+        return f"{display} ({desc})"
+    return display
+
+
+def described_legal_actions(
+    state: dict,
+    crops: dict,
+    player: str | None = None,
+    rules: dict | None = None,
+) -> list[str]:
+    rules = rules or load_rules()
+    return [
+        format_legal_action(cmd, state, crops, player, rules)
+        for cmd in legal_actions(state, crops, player=player, rules=rules)
+    ]
+
+
 def do_action(
     state: dict,
     crops: dict,
@@ -3511,7 +3923,7 @@ def do_action(
     """Apply one command to the in-memory state. Does not load or save files."""
     rules = rules or load_rules()
     migrate_state(state, rules)
-    raw = (command or "").strip()
+    raw = strip_action_descriptor((command or "").strip())
     if not raw:
         return False, "Say what to do, like: water 1 2"
     parts = raw.split()
@@ -3528,7 +3940,7 @@ def do_action(
             "The day advances when both players have ended their turn. Use: end turn",
         )
     if verb in {"new", "reset"}:
-        return False, "To start a new farm, run: python3 cli.py new"
+        return False, 'To start a new farm, run: python3 cli.py new "Farm name"'
 
     ensure_discovered_recipes(state, rules)
     actor, err = parse_player(player)
@@ -3555,6 +3967,14 @@ def do_action(
         elif parts and parts[-1].lower() == "chest":
             from_chest = True
             parts = parts[:-1]
+        elif (
+            (len(parts) >= 2 and parts[-2].lower() == "from" and parts[-1].lower() == "shop")
+            or (parts and parts[-1].lower() == "shop")
+        ):
+            return False, (
+                "You can't eat from the shop. Buy it first, then eat it "
+                "from your backpack or the chest."
+            )
         if not parts:
             return False, "Usage: eat <food>   example: eat strawberry jam"
         return eat(state, crops, " ".join(parts), actor, rules, from_chest=from_chest)
@@ -3609,7 +4029,7 @@ def do_action(
         stood = _must_stand_here(state, actor, r, c)
         if stood:
             return False, stood
-    plot_verbs = {"till", "plant", "water", "harvest", "pluck"}
+    plot_verbs = {"till", "plant", "water", "harvest", "pluck", "unearth"}
     if verb in plot_verbs:
         if verb == "plant":
             if len(args) == 1:
@@ -3667,13 +4087,15 @@ def do_action(
         ok, msg = sell(state, crops, item, count, actor)
     elif verb == "pluck":
         ok, msg = pluck(state, crops, r, c, actor)
+    elif verb == "unearth":
+        ok, msg = unearth(state, crops, r, c, actor, rules)
     elif verb == "fertilize":
         ok, msg = fertilize(state, crops, r, c, fert_kind, actor, rules)
     else:
         return (
             False,
             "Unknown action. Try look, move, go cabin, till, plant, water, harvest, "
-            "pluck, fertilize, eat, buy, sell, take, drop, craft, recipes, or end turn.",
+            "pluck, unearth, fertilize, eat, buy, sell, take, drop, craft, recipes, or end turn.",
         )
 
     if ok and cost:

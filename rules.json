@@ -14,7 +14,8 @@
     "take": 0,
     "drop": 0,
     "craft": 5,
-    "fertilize": 5
+    "fertilize": 5,
+    "unearth": 5
   },
   "weeds": {
     "min_new_per_day": 1,

@@ -27,6 +27,7 @@ from engine import (
     do_action,
     is_player_in_cabin,
     legal_actions,
+    format_legal_action,
     load_crops,
     load_rules,
     load_state,
@@ -817,6 +818,33 @@ PAGE = r"""<!DOCTYPE html>
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
+    .save-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.7rem 0.8rem;
+      margin: 0.55rem 0;
+    }
+    .save-card.active { border-color: var(--gold); }
+    .save-card .save-name { font-weight: 700; color: var(--ink); }
+    .save-card .save-meta { color: var(--muted); font-size: 0.9rem; margin: 0.2rem 0 0.5rem; }
+    .save-card .save-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .save-new {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin: 0.8rem 0 0.3rem;
+      align-items: center;
+    }
+    .save-new input[type="text"] {
+      flex: 1 1 12rem;
+      min-width: 8rem;
+    }
+    .save-confirm {
+      margin: 0.7rem 0;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid var(--gold);
+      border-radius: 12px;
+    }
     .shop-card {
       display: grid;
       grid-template-columns: 88px 1fr;
@@ -877,13 +905,14 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>P</kbd> plant
         &middot; <kbd>H</kbd> harvest
         &middot; <kbd>Q</kbd> pluck a weed
+        &middot; <kbd>U</kbd> unearth
         &middot; <kbd>F</kbd> fertilize
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> write a note
         &middot; <kbd>Enter</kbd> in the note box ends the turn
         &middot; <kbd>E</kbd> then <kbd>Enter</kbd> ends with no note
-        &middot; <kbd>Esc</kbd> closes the shop or journal or deselects
+        &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth or end turn
       </p>
     </section>
     <aside class="panel">
@@ -892,6 +921,7 @@ PAGE = r"""<!DOCTYPE html>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button">Shop <kbd>S</kbd></button>
         <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
+        <button class="btn" id="open-saves" type="button">Saves</button>
         <label class="art-pack-wrap">Art
           <select id="art-pack" aria-label="Art pack"></select>
         </label>
@@ -945,6 +975,22 @@ PAGE = r"""<!DOCTYPE html>
       <div id="journal-body" class="shop-body"></div>
     </div>
   </div>
+  <div id="saves-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="saves-backdrop"></div>
+    <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="saves-title">
+      <div class="shop-head">
+        <h2 id="saves-title">Saved farms</h2>
+        <button type="button" class="btn" id="saves-close">Close</button>
+      </div>
+      <p class="shop-empty" id="saves-intro">Both players share the active farm. Switching saves the current one first and never overwrites another slot.</p>
+      <div id="saves-confirm" class="save-confirm" hidden></div>
+      <div id="saves-body" class="shop-body"></div>
+      <div class="save-new">
+        <input id="saves-new-name" type="text" maxlength="80" placeholder="Name a new farm" autocomplete="off">
+        <button type="button" class="btn primary" id="saves-new">Start a new farm</button>
+      </div>
+    </div>
+  </div>
   <script>
     const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
     const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
@@ -966,8 +1012,12 @@ PAGE = r"""<!DOCTYPE html>
     let lastData = null;
     let plantPick = null; /* {kinds, index} while choosing a seed */
     let endConfirm = false;
+    let unearthConfirm = false;
     let shopOpen = false;
     let journalOpen = false;
+    let savesOpen = false;
+    let savesSwitch = null;
+    let savesRenameId = null;
     let journalSeason = "spring";
     const JOURNAL_SEASONS = ["spring", "summer", "autumn", "winter"];
     const shopQty = {};
@@ -1275,15 +1325,16 @@ PAGE = r"""<!DOCTYPE html>
     function cropInfo(kind) {
       return (lastData && lastData.crops && lastData.crops[kind]) || {};
     }
-    function itemName(key, n) {
+    function itemName(key, n, data) {
       n = (n == null) ? 1 : n;
-      const labels = lastData && lastData.item_names;
+      data = data || lastData;
+      const labels = data && data.item_names;
       if (labels && labels[key]) {
         const info = labels[key];
         const noun = (n === 1) ? (info.name || spacedName(key)) : (info.name_plural || ((info.name || spacedName(key)) + "s"));
         return n + " " + noun;
       }
-      const fert = lastData && lastData.fertilizers && lastData.fertilizers[key];
+      const fert = data && data.fertilizers && data.fertilizers[key];
       if (fert) {
         const noun = (n === 1) ? (fert.name || spacedName(key)) : ((fert.name_plural) || ((fert.name || spacedName(key)) + "s"));
         return n + " " + noun;
@@ -1292,7 +1343,7 @@ PAGE = r"""<!DOCTYPE html>
       let stock = null;
       if (key.endsWith("_seedling")) { kind = key.slice(0, -9); stock = "seedling"; }
       else if (key.endsWith("_seed")) { kind = key.slice(0, -5); stock = "seed"; }
-      const info = cropInfo(kind);
+      const info = (data && data.crops && data.crops[kind]) || cropInfo(kind);
       const name = info.name || spacedName(kind);
       if (stock) {
         const noun = stock + (n === 1 ? "" : "s");
@@ -1300,6 +1351,21 @@ PAGE = r"""<!DOCTYPE html>
       }
       const fruit = n === 1 ? name : (info.name_plural || (name + "s"));
       return n + " " + fruit;
+    }
+    function shopOwnedKey(kind, info, opts, data) {
+      const staples = (data && data.staples) || {};
+      const fertilizers = (data && data.fertilizers) || {};
+      if (staples[kind] || fertilizers[kind] || (opts && opts.sell && !opts.buy)) {
+        return kind;
+      }
+      const stockWord = (info && info.stock) || "seed";
+      if (!stockWord || stockWord === "bag") return kind;
+      return kind + "_" + stockWord;
+    }
+    function shopOwnedCount(kind, info, opts, data) {
+      const inv = (data && data.state && data.state.inventory) || {};
+      const key = shopOwnedKey(kind, info, opts, data);
+      return itemName(key, inv[key] || 0, data);
     }
     function spacedName(key) {
       return String(key || "").replace(/_/g, " ");
@@ -1485,6 +1551,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       renderRecentNotes(data);
       if (journalOpen) renderJournal(data);
+      if (savesOpen) renderSaves(data);
       $("look").textContent = data.look || "";
       const log = (s.log || []).slice(-8).reverse();
       $("log").innerHTML = log.map(function (e) {
@@ -1579,27 +1646,55 @@ PAGE = r"""<!DOCTYPE html>
         "till " + workR + " " + workC,
         "water " + workR + " " + workC,
         "harvest " + workR + " " + workC,
-        "pluck " + workR + " " + workC
+        "pluck " + workR + " " + workC,
+        "unearth " + workR + " " + workC
       ];
       const plantPrefix = "plant " + workR + " " + workC + " ";
+      const fertPrefix = "fertilize " + workR + " " + workC;
       const legal = data.actions || [];
+      const lines = data.action_lines || {};
+      function actionLabel(act, fallback) {
+        const line = lines[act];
+        if (!line) return fallback || act;
+        const bare = (fallback || act.split(" ")[0]);
+        const desc = line.match(/ \((.*)\)$/);
+        return desc ? (bare + " (" + desc[1] + ")") : (line || bare);
+      }
       for (const act of legal) {
         let show = false;
         let label = act;
         if (prefix.indexOf(act) !== -1) {
           show = true;
-          label = act.split(" ")[0];
+          if (act.indexOf("unearth ") === 0) {
+            label = actionLabel(act, "unearth");
+          } else {
+            label = actionLabel(act, act.split(" ")[0]);
+          }
         } else if (act.indexOf(plantPrefix) === 0) {
           show = true;
-          label = "plant " + act.slice(plantPrefix.length);
+          label = actionLabel(act, "plant " + act.slice(plantPrefix.length));
+        } else if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
+          show = true;
+          label = actionLabel(act, act.replace(fertPrefix + " ", "fertilize ").replace(fertPrefix, "fertilize"));
         }
         if (!show) continue;
         const b = document.createElement("button");
         b.type = "button";
         b.className = "btn";
         b.textContent = label;
-        b.addEventListener("click", function () { actCmd(act); });
+        b.addEventListener("click", function () {
+          if (act.indexOf("unearth ") === 0) { keyUnearth(false); return; }
+          actCmd(act);
+        });
         box.appendChild(b);
+      }
+      // Walk-here descriptor when looking at another tile
+      if (stand && (stand.r !== r || stand.c !== c)) {
+        const walkCmd = "move to " + r + " " + c;
+        const walkBtn = box.querySelector("button");
+        if (walkBtn && walkBtn.textContent === "Walk here") {
+          walkBtn.textContent = actionLabel(walkCmd, "Walk here");
+        }
       }
       if (plantPick && plantPick.kinds && plantPick.kinds.length) {
         renderPlantPicker(box, workR, workC, plantPick);
@@ -1734,6 +1829,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     function openJournal() {
       closeShop();
+      closeSaves();
       journalOpen = true;
       const modal = $("journal-modal");
       if (modal) modal.hidden = false;
@@ -1749,6 +1845,154 @@ PAGE = r"""<!DOCTYPE html>
       journalOpen = false;
       const modal = $("journal-modal");
       if (modal) modal.hidden = true;
+    }
+    function openSaves() {
+      closeShop();
+      closeJournal();
+      savesOpen = true;
+      const modal = $("saves-modal");
+      if (modal) modal.hidden = false;
+      if (lastData) renderSaves(lastData);
+    }
+    function closeSaves() {
+      savesOpen = false;
+      savesSwitch = null;
+      savesRenameId = null;
+      const modal = $("saves-modal");
+      if (modal) modal.hidden = true;
+      const confirm = $("saves-confirm");
+      if (confirm) { confirm.hidden = true; confirm.innerHTML = ""; }
+    }
+    async function postSaves(body) {
+      const res = await fetch("/api/saves", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body || {})
+      });
+      if (res.status === 401 || res.status === 403) {
+        showAuthNeeded();
+        return null;
+      }
+      const data = await res.json();
+      lastData = data;
+      lastSig = JSON.stringify(data.state);
+      if (data.message) showToast(data.message, data.ok);
+      try { render(data); } catch (err) { console.error(err); }
+      if (savesOpen) renderSaves(data);
+      return data;
+    }
+    function renderSaves(data) {
+      const body = $("saves-body");
+      if (!body) return;
+      const info = (data && data.saves) || {};
+      const slots = info.slots || [];
+      body.innerHTML = "";
+      if (!slots.length) {
+        const empty = document.createElement("p");
+        empty.className = "shop-empty";
+        empty.textContent = "No saved farms yet.";
+        body.appendChild(empty);
+      }
+      slots.forEach(function (slot) {
+        const card = document.createElement("div");
+        card.className = "save-card" + (slot.active ? " active" : "");
+        const name = document.createElement("div");
+        name.className = "save-name";
+        name.textContent = slot.name + (slot.active ? " (active)" : "");
+        const meta = document.createElement("div");
+        meta.className = "save-meta";
+        meta.textContent = "Day " + slot.day + ", " + slot.season + ", year " + slot.year
+          + " · " + slot.gold + "G · last played " + (slot.last_played_text || "never");
+        const row = document.createElement("div");
+        row.className = "save-actions";
+        if (!slot.active) {
+          const sw = document.createElement("button");
+          sw.type = "button";
+          sw.className = "btn primary";
+          sw.textContent = "Switch";
+          sw.addEventListener("click", function () { requestSwitch(slot); });
+          row.appendChild(sw);
+        }
+        const ren = document.createElement("button");
+        ren.type = "button";
+        ren.className = "btn";
+        ren.textContent = "Rename";
+        ren.addEventListener("click", function () { beginRename(slot); });
+        row.appendChild(ren);
+        if (savesRenameId === slot.id) {
+          const input = document.createElement("input");
+          input.type = "text";
+          input.maxLength = 80;
+          input.value = slot.name;
+          input.setAttribute("aria-label", "New name for " + slot.name);
+          const save = document.createElement("button");
+          save.type = "button";
+          save.className = "btn primary";
+          save.textContent = "Save name";
+          save.addEventListener("click", function () {
+            const next = input.value.trim();
+            savesRenameId = null;
+            postSaves({action: "rename", slot: slot.id, name: next});
+          });
+          row.appendChild(input);
+          row.appendChild(save);
+        }
+        card.appendChild(name);
+        card.appendChild(meta);
+        card.appendChild(row);
+        body.appendChild(card);
+      });
+    }
+    function requestSwitch(slot) {
+      savesSwitch = slot;
+      const box = $("saves-confirm");
+      if (!box) return;
+      box.hidden = false;
+      box.innerHTML = "";
+      const p = document.createElement("p");
+      p.textContent = "Switch to " + slot.name + "? The current farm is saved first. Both players will play this one.";
+      const row = document.createElement("div");
+      row.className = "save-actions";
+      const ok = document.createElement("button");
+      ok.type = "button";
+      ok.className = "btn primary";
+      ok.textContent = "Switch";
+      ok.addEventListener("click", function () {
+        const target = savesSwitch;
+        savesSwitch = null;
+        box.hidden = true;
+        box.innerHTML = "";
+        if (target) postSaves({action: "load", slot: target.id, confirm: true});
+      });
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", function () {
+        savesSwitch = null;
+        box.hidden = true;
+        box.innerHTML = "";
+      });
+      row.appendChild(ok);
+      row.appendChild(cancel);
+      box.appendChild(p);
+      box.appendChild(row);
+    }
+    function beginRename(slot) {
+      savesRenameId = slot.id;
+      if (lastData) renderSaves(lastData);
+    }
+    function startNewFarm() {
+      const input = $("saves-new-name");
+      const name = input ? String(input.value || "").trim() : "";
+      if (!name) {
+        showToast("Name the new farm first.", false);
+        return;
+      }
+      postSaves({action: "new", name: name}).then(function (data) {
+        if (data && data.ok && input) input.value = "";
+      });
     }
     function renderJournal(data) {
       const tabs = $("journal-tabs");
@@ -1791,6 +2035,7 @@ PAGE = r"""<!DOCTYPE html>
       }).join("");
     }
     function openShop() {
+      closeSaves();
       closeJournal();
       shopOpen = true;
       const modal = $("shop-modal");
@@ -1809,7 +2054,7 @@ PAGE = r"""<!DOCTYPE html>
 
     function shopEmptyMessage(season) {
       const name = cap(season || "this season");
-      return "Nothing in season yet. " + name + " seeds arrive in a later update.";
+      return "Nothing in season yet. " + name + " crops arrive in a later update.";
     }
 
     function appendShopCard(shop, data, kind, info, opts) {
@@ -1864,7 +2109,7 @@ PAGE = r"""<!DOCTYPE html>
         " · " + info.seed_price + "G" +
         (info.sell_price ? " · sell " + info.sell_price + "G" : "") +
         (eat ? " · eat +" + eat + " energy" : "") +
-        (stock === "bag" ? "" : (" · pack: " + seeds + " " + stock + (seeds === 1 ? "" : "s") + ", " + fruit + " " + fruitName)) +
+        " · " + shopOwnedCount(kind, info, opts, data) +
         "</div>";
       const row = document.createElement("div");
       row.className = "shop-qty";
@@ -1916,15 +2161,6 @@ PAGE = r"""<!DOCTYPE html>
         sell.disabled = fruit < 1 || !data.your_turn || !data.in_cabin;
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
         row.appendChild(sell);
-        if (eat) {
-          const eatBtn = document.createElement("button");
-          eatBtn.type = "button";
-          eatBtn.className = "btn";
-          eatBtn.textContent = "Eat (+" + eat + ")";
-          eatBtn.disabled = fruit < 1 || !data.your_turn;
-          eatBtn.addEventListener("click", function () { actCmd("eat " + kind); });
-          row.appendChild(eatBtn);
-        }
       }
       body.appendChild(row);
       card.appendChild(body);
@@ -2106,7 +2342,7 @@ PAGE = r"""<!DOCTYPE html>
       } else {
         const title = document.createElement("div");
         title.className = "shop-section-title";
-        title.textContent = "Seeds in season";
+        title.textContent = "In season";
         shop.appendChild(title);
         forSale.forEach(function (pair) {
           appendShopCard(shop, data, pair[0], pair[1], {buy: true, sell: false});
@@ -2397,6 +2633,39 @@ PAGE = r"""<!DOCTYPE html>
       actCmd("pluck");
     }
 
+    function standingCropName(data) {
+      const stand = standingFrom(data);
+      if (!stand || !data || !data.state || !data.state.tiles) return null;
+      const tile = data.state.tiles[stand.r - 1][stand.c - 1];
+      const crop = tile && tile.crop;
+      if (!crop || !crop.kind) return null;
+      const info = cropInfo(crop.kind);
+      let name = (info && info.name) || spacedName(crop.kind);
+      if (crop.stage === "withered") name = "withered " + name;
+      else if (crop.stage === "dormant") name = "dormant " + name;
+      return name;
+    }
+
+    function keyUnearth(immediate) {
+      if (!needTurn() || !needHere()) return;
+      const stand = standingFrom(lastData);
+      const name = standingCropName(lastData);
+      if (!name || !stand) {
+        unearthConfirm = false;
+        showToast("Nothing to unearth here.", false);
+        return;
+      }
+      if (immediate || unearthConfirm) {
+        unearthConfirm = false;
+        actCmd("unearth");
+        return;
+      }
+      unearthConfirm = true;
+      endConfirm = false;
+      if (lastData) render(lastData);
+      showToast("Unearth the " + name + " at r" + stand.r + " c" + stand.c + "? Press U or Enter to confirm, Esc to cancel.", true);
+    }
+
     function fertilizerKindsInPack(pack) {
       const bags = [];
       const seen = {};
@@ -2501,8 +2770,13 @@ PAGE = r"""<!DOCTYPE html>
           closeJournal();
           return;
         }
-        if (endConfirm || plantPick) {
+        if (savesOpen) {
+          closeSaves();
+          return;
+        }
+        if (endConfirm || plantPick || unearthConfirm) {
           endConfirm = false;
+          unearthConfirm = false;
           plantPick = null;
           if (lastData) render(lastData);
           showToast("");
@@ -2517,6 +2791,11 @@ PAGE = r"""<!DOCTYPE html>
         if (plantPick) {
           ev.preventDefault();
           confirmPlant();
+          return;
+        }
+        if (unearthConfirm) {
+          ev.preventDefault();
+          keyUnearth(true);
           return;
         }
         if (endConfirm) {
@@ -2565,10 +2844,11 @@ PAGE = r"""<!DOCTYPE html>
         openJournal();
         return;
       }
-      if (shopOpen || journalOpen) return;
+      if (shopOpen || journalOpen || savesOpen) return;
       if (letter === "t") {
         ev.preventDefault();
         endConfirm = false;
+        unearthConfirm = false;
         plantPick = null;
         keyTill();
         return;
@@ -2576,6 +2856,7 @@ PAGE = r"""<!DOCTYPE html>
       if (letter === "w") {
         ev.preventDefault();
         endConfirm = false;
+        unearthConfirm = false;
         plantPick = null;
         keyWater();
         return;
@@ -2589,6 +2870,7 @@ PAGE = r"""<!DOCTYPE html>
       if (letter === "h") {
         ev.preventDefault();
         endConfirm = false;
+        unearthConfirm = false;
         plantPick = null;
         keyHarvest();
         return;
@@ -2596,13 +2878,22 @@ PAGE = r"""<!DOCTYPE html>
       if (letter === "q") {
         ev.preventDefault();
         endConfirm = false;
+        unearthConfirm = false;
         plantPick = null;
         keyPluck();
+        return;
+      }
+      if (letter === "u") {
+        ev.preventDefault();
+        endConfirm = false;
+        plantPick = null;
+        keyUnearth(false);
         return;
       }
       if (letter === "f") {
         ev.preventDefault();
         endConfirm = false;
+        unearthConfirm = false;
         plantPick = null;
         keyFertilize();
         return;
@@ -2632,6 +2923,18 @@ PAGE = r"""<!DOCTYPE html>
     if (closeJournalBtn) closeJournalBtn.addEventListener("click", function () { closeJournal(); });
     const journalBackdrop = $("journal-backdrop");
     if (journalBackdrop) journalBackdrop.addEventListener("click", function () { closeJournal(); });
+    const openSavesBtn = $("open-saves");
+    if (openSavesBtn) openSavesBtn.addEventListener("click", function () { openSaves(); });
+    const closeSavesBtn = $("saves-close");
+    if (closeSavesBtn) closeSavesBtn.addEventListener("click", function () { closeSaves(); });
+    const savesBackdrop = $("saves-backdrop");
+    if (savesBackdrop) savesBackdrop.addEventListener("click", function () { closeSaves(); });
+    const newSaveBtn = $("saves-new");
+    if (newSaveBtn) newSaveBtn.addEventListener("click", function () { startNewFarm(); });
+    const newSaveName = $("saves-new-name");
+    if (newSaveName) newSaveName.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") { ev.preventDefault(); startNewFarm(); }
+    });
     initArtPackControl();
     restoreRecentNotesOpen();
     poll();
@@ -2885,12 +3188,18 @@ def api_payload(
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
     sprites = [[sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)] for r, row in enumerate(state["tiles"])]
+    actions = legal_actions(state, crops, player=viewer, rules=rules)
     return {
         "ok": ok,
         "message": message,
         "state": state,
         "sprites": sprites,
-        "actions": legal_actions(state, crops, player=viewer, rules=rules),
+        "actions": actions,
+        "action_lines": {
+            cmd: format_legal_action(cmd, state, crops, viewer, rules)
+            for cmd in actions
+        },
+        "saves": __import__("saves").public_payload(),
         "look": describe_state(state, crops, viewer=viewer),
         "crops": _crop_catalog(crops),
         "viewer": viewer,
@@ -3069,7 +3378,7 @@ class FarmHandler(BaseHTTPRequestHandler):
         if self._host_forbidden() or self._origin_forbidden():
             return
         path = unquote(urlparse(self.path).path)
-        if path != "/api/do":
+        if path not in {"/api/do", "/api/saves"}:
             self._send(404, "not found\n", "text/plain; charset=utf-8")
             return
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
@@ -3097,12 +3406,35 @@ class FarmHandler(BaseHTTPRequestHandler):
             self._send(400, "invalid json\n", "text/plain; charset=utf-8")
             return
         # Player comes from the token, never from the body.
-        command = str(data.get("command") or data.get("action") or "")
-        with session(write=True) as (state, crops):
-            ok, message = do_action(state, crops, command, player=player)
-            if ok:
-                maybe_notify_after_end_turn(player, state, ok)
-            payload = api_payload(state, crops, ok, message, player=player)
+        if path == "/api/saves":
+            import saves
+            saves.maybe_migrate_live()
+            action = str(data.get("action") or data.get("command") or "list").strip().lower()
+            name = data.get("name")
+            slot = data.get("slot")
+            confirm = bool(data.get("confirm"))
+            if action == "list":
+                ok, message = True, ""
+            elif action == "new":
+                ok, message, _sid = saves.new_slot(str(name or ""))
+            elif action == "load":
+                if not confirm:
+                    ok, message = False, "Switching farms needs confirmation."
+                else:
+                    ok, message, _sid = saves.load_slot(str(slot or name or ""))
+            elif action == "rename":
+                ok, message, _sid = saves.rename_slot(str(slot or ""), str(name or ""))
+            else:
+                ok, message = False, "Unknown saves action. Use list, new, load, or rename."
+            with session(write=False) as (state, crops):
+                payload = api_payload(state, crops, ok, message, player=player)
+        else:
+            command = str(data.get("command") or data.get("action") or "")
+            with session(write=True) as (state, crops):
+                ok, message = do_action(state, crops, command, player=player)
+                if ok:
+                    maybe_notify_after_end_turn(player, state, ok)
+                payload = api_payload(state, crops, ok, message, player=player)
         self._send(
             200,
             json.dumps(payload),
@@ -3132,6 +3464,8 @@ def try_bind(host: str, port: int) -> ReusableServer | None:
 
 def serve(port: int = PORT) -> None:
     # Make sure a state file exists before the first request.
+    import saves
+    saves.maybe_migrate_live()
     load_state(load_crops())
     hosts = bind_hosts()
 

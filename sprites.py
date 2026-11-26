@@ -795,6 +795,7 @@ def is_safe_key(key: str) -> bool:
 _ITEM_LABELS = {
     "hoe": "HOE",
     "watering_can": "CAN",
+    "shovel": "SHVL",
     "strawberry_jam": "JAM",
     "kabocha_soup": "SOUP",
     "root_stew": "STEW",
@@ -814,6 +815,7 @@ _ITEM_LABELS = {
 _ITEM_COLORS = {
     "hoe": ("#6b4a2b", "#c4a574"),
     "watering_can": ("#3d5c6e", "#9ec3d4"),
+    "shovel": ("#4a5560", "#c4a574"),
     "strawberry_jam": ("#8b1e2d", "#f2d4a3"),
     "kabocha_soup": ("#8a5a12", "#f0d48a"),
     "root_stew": ("#5a3a22", "#e2c48a"),

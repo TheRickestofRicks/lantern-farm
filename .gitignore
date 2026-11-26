@@ -12,3 +12,5 @@ mcp.env
 state.json
 local/
 journal-archive.json
+# Named farm slots (state, metadata, per-slot journal).
+saves/

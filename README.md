@@ -2,8 +2,13 @@
 
 A tiny text-first farming game. Two players share one farm and take turns.
 
-The world lives in `state.json`. That file is the single source of truth. The
-text view describes every tile exactly as it is; the picture view maps the
+The world lives in a named save slot under `saves/` (gitignored). Both
+players share the active slot. The first live farm is copied into a permanent
+slot called **First Farm** and stays there; starting a new farm creates a
+new slot and never overwrites an existing one. A leftover `state.json` at the
+repo root, if present, is only a snapshot from before slots.
+
+The text view describes every tile exactly as it is; the picture view maps the
 same tiles to sprite keys and draws an SVG for each one.
 
 Player names, the default CLI and web players, the page theme, flavor text,
@@ -78,7 +83,10 @@ python3 cli.py do "buy strawberry 1"
 python3 cli.py do "buy everbearing 1"
 python3 cli.py do "sell strawberry 1"
 python3 cli.py --player player1 do "end turn"
-python3 cli.py new          # start over at day 1, starting player's turn
+python3 cli.py saves        # list named farms; First Farm is permanent
+python3 cli.py new "Farm name"   # start a fresh farm in a new slot (current farm is kept)
+python3 cli.py load first-farm   # switch to a slot (saves the current farm first)
+python3 cli.py rename first-farm "New name"
 ```
 
 `--player` can go before or after the subcommand. After every successful
@@ -235,7 +243,7 @@ configured.
   Notes are always labelled as untrusted player text.
 - A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
 - A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (strawberries 1–3, kabocha and roots 1–2, always at least one).
-- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till) and a watering can (needed to water) each take a slot. One hoe and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, and kabocha cream soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
+- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till), a shovel (needed to unearth a plant and return the plot to plain soil; key U), and a watering can (needed to water) each take a slot. One hoe, one shovel, and two cans start in the shared cabin chest. Carry harvests home to share or sell; buy, sell, take, drop, and craft only at the cabin. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, and kabocha cream soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
@@ -315,20 +323,28 @@ start as a small plant rather than a seed.
 
 ## Files
 
-- `state.json` — the live farm (gitignored). If it is missing, the engine
-  creates a fresh day-1 farm. `state.example.json` is a generic starter save
-  (Player 1 / Player 2) you can copy to `state.json`. The current year's
-  journal lives in the save; older years are archived under `local/`
-  (also gitignored).
+- `saves/` — named farm slots (gitignored). Each slot has `state.json`,
+  `meta.json` (name, day, season, year, gold, last played), and its own
+  journal archive. `saves/active.json` points at the shared active slot.
+  The first live farm is migrated into permanent **First Farm**. There is no
+  delete command; a slot is never overwritten unless you explicitly start a
+  new farm under a new name or switch to it and then play. The web Saves
+  panel asks for confirmation before switching.
+- `state.json` — leftover snapshot at the repo root (gitignored), if present.
+  After the First Farm migration, play happens in the active slot, not this
+  file. `state.example.json` is a generic starter save (Player 1 / Player 2).
+  The current year's journal lives in the save; older years are archived in
+  the slot (and, for older layouts, under `local/`, also gitignored).
 - `crops.json` — crop data and starting conditions
 - `rules.json` — energy costs, movement, sleep, snacks, max energy, and weed rules
 - `config.example.json` — generic names, theme, and flavor (Player 1 / Player 2, no notify)
 - `config.local.json` — your overlay (gitignored): names, theme, flavor, optional notify
 - `config.py` — loads the example and overlays the local file
-- `engine.py` — actions: move, till, plant, water, harvest, pluck, eat, buy, sell, end turn
+- `engine.py` — actions: move, till, plant, water, harvest, pluck, unearth, eat, buy, sell, end turn
 - `describe.py` — the full text view, including an ASCII mini map
 - `sprites.py` — shared `sprite_key(tile)` mapping, plus SVG tiles
 - `hey_notify.py` — optional handoff ping if `notify` is configured
+- `saves.py` — named save slots (list, new, switch, rename)
 - `cli.py` — command line (default player from config)
 - `web.py` — local http.server on port 8790 (default player from config)
 - `mcp_server.py` — MCP tools for the same engine and save

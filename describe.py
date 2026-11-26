@@ -27,6 +27,7 @@ from engine import (
     stock_word,
     known_players,
     legal_actions,
+    format_legal_action,
     load_crops,
     load_rules,
     load_state,
@@ -474,7 +475,7 @@ def describe_state(
         lines.append("Legal actions (row col, 1-indexed, row 1 is the top):")
         if actions:
             for act in actions:
-                lines.append(f"  {act}")
+                lines.append(f"  {format_legal_action(act, state, crops, viewer or current, rules)}")
         else:
             lines.append("  (none)")
 
@@ -513,7 +514,7 @@ def describe_state(
         "(general 15G, yield-boost 25G, growth-boost 20G). Feed a plot with "
         "`fertilize` (key F) while the bag is in your backpack; one bag per plot per season. "
         "The sprite key on each tile is the same one the image view uses. "
-        "You can only till, plant, water, harvest, or pluck the tile you are standing on. "
+        "You can only till, plant, water, harvest, pluck, or unearth the tile you are standing on. `unearth` (key U) needs a shovel and returns a planted plot to plain soil. "
         "Move with `move up/down/left/right`, `move to <row> <col>`, or `go cabin`; "
         "each step costs 5 energy, diagonals included. "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "

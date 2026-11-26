@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 
 from describe import describe_state, format_season_journal, look
-from engine import do_action, normalize_season, parse_player, reset_state, session
+from engine import do_action, normalize_season, parse_player, session
 from hey_notify import maybe_notify_after_end_turn
 
 
@@ -29,7 +29,10 @@ def usage() -> str:
   python3 cli.py journal summer
   python3 cli.py do "<action>"
 {examples}
-  python3 cli.py new
+  python3 cli.py saves
+  python3 cli.py new "Farm name"
+  python3 cli.py load <slot>
+  python3 cli.py rename <slot> "New name"
 
 The CLI plays as {display_name(cli_p)} ({cli_p}) by default. The web page plays as {display_name(web_p)} ({web_p}).
 Use --player {id_list} to override (before or after the subcommand).
@@ -43,6 +46,7 @@ Actions:
   water                   (or water <row> <col>)
   harvest                 (or harvest <row> <col>)
   pluck                   (or pluck <row> <col>)
+  unearth                 (or unearth <row> <col> — shovel in the backpack; removes the plant and untills)
   eat <crop>
   buy <kind> <count>      (at the cabin)
   sell <kind> <count>     (at the cabin, from backpack or chest)
@@ -54,9 +58,8 @@ Actions:
   end turn <note>
   end turn: <note>
 
-You can only till, plant, water, harvest, or pluck the tile you are standing on.
-Till needs a hoe in your backpack; water needs a watering can. There is one hoe
-and two cans in the world; they start in the cabin chest. Each player has a
+You can only till, plant, water, harvest, pluck, or unearth the tile you are standing on.
+Till needs a hoe in your backpack; unearth needs a shovel; water needs a watering can. There is one hoe, one shovel, and two cans in the world; they start in the cabin chest. Each player has a
 4-slot backpack (tools take a slot each). Harvest goes into the backpack — if it is
 full, walk home and drop something first. Buy, sell, take, drop, and craft
 are done at the cabin. The shop also sells bread (8G), butter (10G), and milk
@@ -144,6 +147,30 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(err + "\n")
         return 2
     cmd = args[0].lower()
+    import saves
+    # Live farm only: copy state.json into the permanent First Farm slot once.
+    if cmd in {"look", "do", "journal", "recipes", "recipe", "saves", "new", "reset", "load", "rename"}:
+        saves.maybe_migrate_live()
+    if cmd in {"saves", "save", "slots"}:
+        sys.stdout.write(saves.format_slot_list())
+        return 0
+    if cmd == "load":
+        token = " ".join(args[1:]).strip()
+        if not token:
+            sys.stderr.write("Usage: python3 cli.py load <slot>\n")
+            return 2
+        ok, message, _slot = saves.load_slot(token)
+        sys.stdout.write(message + "\n")
+        if ok:
+            sys.stdout.write(look(viewer=player))
+        return 0 if ok else 1
+    if cmd == "rename":
+        if len(args) < 3:
+            sys.stderr.write("Usage: python3 cli.py rename <slot> \"New name\"\n")
+            return 2
+        ok, message, _slot = saves.rename_slot(args[1], " ".join(args[2:]))
+        sys.stdout.write(message + "\n")
+        return 0 if ok else 1
     if cmd == "look":
         sys.stdout.write(look(viewer=player))
         return 0
@@ -161,10 +188,17 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(format_season_journal(state, season or None))
         return 0
     if cmd in {"new", "reset"}:
-        reset_state()
-        sys.stdout.write(_new_farm_line())
-        sys.stdout.write(look(viewer=player))
-        return 0
+        name = " ".join(args[1:]).strip()
+        if not name:
+            sys.stderr.write('Usage: python3 cli.py new "Farm name"\n')
+            sys.stderr.write("This starts a fresh farm in a new save slot. The current farm is kept.\n")
+            return 2
+        ok, message, _slot = saves.new_slot(name)
+        sys.stdout.write(message + "\n")
+        if ok:
+            sys.stdout.write(_new_farm_line())
+            sys.stdout.write(look(viewer=player))
+        return 0 if ok else 1
     if cmd == "do":
         action = " ".join(args[1:]).strip()
         if (action.startswith('"') and action.endswith('"')) or (
@@ -178,10 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(look(viewer=player))
             return 0
         if action.lower() in {"new", "reset"}:
-            reset_state()
-            sys.stdout.write(_new_farm_line())
-            sys.stdout.write(look(viewer=player))
-            return 0
+            sys.stderr.write('To start a new farm, run: python3 cli.py new "Farm name"\n')
+            return 2
         with session(write=True) as (state, crops):
             ok, message = do_action(state, crops, action, player=player)
             sys.stdout.write(message + "\n")
