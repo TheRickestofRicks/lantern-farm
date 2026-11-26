@@ -108,6 +108,28 @@ def parse_player(player: str | None) -> tuple[str | None, str | None]:
     return None, f"Players are {ids}. Try --player {known_players()[-1] if known_players() else 'player1'}"
 
 
+def resolve_player_name(text: str | None) -> str | None:
+    """Match a player id or a display name (case-insensitive)."""
+    key = normalize_player(text)
+    if key:
+        return key
+    raw = str(text or "").strip().lower()
+    if not raw:
+        return None
+    for pid in known_players():
+        if display_name(pid).strip().lower() == raw:
+            return pid
+    return None
+
+
+def player_requested_carry(state: dict, player: str) -> bool:
+    return bool(player_slot(state, player).get("carry_home"))
+
+
+def player_was_carried_home(state: dict, player: str) -> bool:
+    return bool(player_slot(state, player).get("carried_home"))
+
+
 def max_energy(rules: dict | None = None) -> int:
     rules = rules or load_rules()
     return int(rules.get("max_energy", 100))
@@ -571,6 +593,44 @@ def parse_end_turn_command(command: str) -> tuple[bool, str]:
         if lower.startswith(prefix):
             return True, raw[len(prefix):].strip()
     return False, ""
+
+
+def parse_pass_turn_command(command: str) -> tuple[bool, bool]:
+    """True if this is a pass-turn command, plus whether they asked to be carried home."""
+    raw = strip_action_descriptor(command or "").strip().lower()
+    raw = " ".join(raw.replace(",", " ").split())
+    if raw in {"pass", "pass turn", "pass-turn", "pass_turn"}:
+        return True, False
+    if raw in {
+        "pass turn home",
+        "pass-turn home",
+        "pass_turn home",
+        "pass home",
+        "pass turn and wait",
+        "pass turn carry me home",
+        "pass turn and be carried home",
+        "pass turn, carry me home",
+    }:
+        return True, True
+    return False, False
+
+
+def parse_walk_home_command(command: str) -> tuple[bool, str | None]:
+    """True if this is walk <name> home, plus the raw name (not yet resolved)."""
+    raw = strip_action_descriptor(command or "").strip()
+    parts = raw.split()
+    if len(parts) < 3:
+        return False, None
+    if parts[0].lower() not in {"walk", "carry"}:
+        return False, None
+    if parts[-1].lower() != "home":
+        return False, None
+    mid = " ".join(parts[1:-1]).strip()
+    if not mid or mid.lower() in {"to", "the"}:
+        return False, None
+    if mid.lower().startswith("to "):
+        mid = mid[3:].strip()
+    return True, mid
 
 
 def days_per_season(crops: dict | None) -> int:
@@ -2225,12 +2285,113 @@ def _apply_end_note(state: dict, player: str, note: str | None) -> str:
     return text
 
 
+def carry_home_path(
+    state: dict,
+    player: str,
+    rules: dict | None = None,
+) -> tuple[list[tuple[str, int, int]] | None, int]:
+    """Places and double-movement energy to carry someone from here to the cabin."""
+    from hills import player_area, path_places, AREA_FARM, AREA_MINE, is_cabin_place
+
+    rules = rules or load_rules()
+    area = player_area(state, player)
+    here = player_where(state, player)
+    if is_cabin_place(area, *here):
+        return [], 0
+    if area == AREA_MINE:
+        return None, 0
+    places = path_places(area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
+    if not places:
+        return None, 0
+    return places, step_energy(rules) * 2 * len(places)
+
+
+def walk_player_home(
+    state: dict,
+    carrier: str,
+    passenger: str,
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Carry a waiting player to the cabin at double movement cost per step."""
+    from hills import (
+        player_area,
+        set_player_place,
+        is_cabin_place,
+        AREA_FARM,
+        AREA_MINE,
+        describe_where as describe_area_where,
+    )
+    from mine import player_floor
+
+    rules = rules or load_rules()
+    carrier, err = parse_player(carrier)
+    if err or not carrier:
+        return False, err or "Say who is walking them home."
+    passenger = resolve_player_name(passenger)
+    if not passenger:
+        names = " or ".join(display_name(p) for p in known_players())
+        return False, f"Walk who home? Try: walk {names.split(' or ')[0] if names else 'them'} home."
+    if passenger == carrier:
+        return False, "You can't walk yourself home that way. Use: go cabin"
+    if not player_requested_carry(state, passenger):
+        return False, (
+            f"{display_name(passenger)} hasn't asked to be carried home. "
+            "They can pass their turn and opt to wait."
+        )
+    if is_player_in_cabin(state, passenger):
+        return False, f"{display_name(passenger)} is already at the cabin."
+    carea = player_area(state, carrier)
+    parea = player_area(state, passenger)
+    chere = player_where(state, carrier)
+    phere = player_where(state, passenger)
+    if carea != parea or chere != phere:
+        where = describe_area_where(parea, *phere)
+        return False, (
+            f"Stand on the same tile as {display_name(passenger)} ({where}), "
+            "then walk them home."
+        )
+    if carea == AREA_MINE or parea == AREA_MINE:
+        return False, (
+            "Leave the mine first. Climb up or take the elevator to the entrance, "
+            "then walk them home."
+        )
+    places, cost = carry_home_path(state, carrier, rules)
+    if places is None:
+        return False, "There's no path to the cabin from here."
+    slot = player_slot(state, carrier)
+    energy = int(slot["energy"])
+    if cost > energy:
+        steps = len(places)
+        return (
+            False,
+            f"Not enough energy. Walking {display_name(passenger)} home is "
+            f"{steps_phrase(steps)} at double cost ({cost} energy); "
+            f"{display_name(carrier)} has {energy} left.",
+        )
+    set_player_place(state, carrier, AREA_FARM, CABIN_ROW, CABIN_COL)
+    set_player_place(state, passenger, AREA_FARM, CABIN_ROW, CABIN_COL)
+    slot["energy"] = energy - cost
+    pslot = player_slot(state, passenger)
+    pslot["carry_home"] = False
+    pslot["carried_home"] = True
+    steps = len(places)
+    msg = (
+        f"{display_name(carrier)} walks {display_name(passenger)} home to the cabin "
+        f"({steps_phrase(steps)}, {cost} energy)."
+    )
+    log_append(state, msg, carrier)
+    return True, msg
+
+
 def end_turn(
     state: dict,
     crops: dict,
     player: str,
     rules: dict | None = None,
     note: str | None = None,
+    *,
+    as_pass: bool = False,
+    request_carry: bool = False,
 ) -> tuple[bool, str]:
     rules = rules or load_rules()
     player, err = parse_player(player)
@@ -2240,12 +2401,44 @@ def end_turn(
     if current != player:
         return False, f"It's {display_name(current)}'s turn right now."
     note_text = _apply_end_note(state, player, note)
-    player_slot(state, player)["ended_turn"] = True
+    slot = player_slot(state, player)
+    if request_carry and not is_player_in_cabin(state, player):
+        slot["carry_home"] = True
+    elif not request_carry:
+        # A plain pass or end turn drops a carry request this player had made.
+        slot["carry_home"] = False
+    slot["ended_turn"] = True
     everyone_done = all(
         bool(player_slot(state, name).get("ended_turn"))
         for name in (normalize_player(p) for p in (rules.get("players") or KNOWN_PLAYERS))
         if name
     )
+    partner = other_player(player, rules)
+    waiting = [
+        name for name in known_players()
+        if player_requested_carry(state, name) and not is_player_in_cabin(state, name)
+    ]
+    # If this player just asked to be carried and the partner already ended,
+    # hand the turn back once so they can walk them home (or decline).
+    if everyone_done and waiting and request_carry and partner:
+        pslot = player_slot(state, partner)
+        if not pslot.get("carry_reopened"):
+            pslot["ended_turn"] = False
+            pslot["carry_reopened"] = True
+            state["current_player"] = partner
+            everyone_done = False
+            from hills import player_area, describe_where as describe_place_where, AREA_MINE
+            from mine import player_floor
+            here_area = player_area(state, player)
+            here_floor = player_floor(state, player) if here_area == AREA_MINE else None
+            here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
+            msg = (
+                f"{display_name(player)} passes the turn {here} and waits to be carried home. "
+                f"It is {display_name(partner)}'s turn to walk {display_name(player)} home, "
+                "or end the turn to leave them."
+            )
+            log_append(state, msg, player)
+            return True, msg
     night_notes = []
     from hills import player_area, describe_where as describe_place_where, AREA_MINE
     from mine import player_floor, wake_place_after_mine_passout, mine_of
@@ -2286,6 +2479,8 @@ def end_turn(
     here_area = player_area(state, player)
     here_floor = player_floor(state, player) if here_area == AREA_MINE else None
     here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
+    verb_phrase = "passes the turn" if as_pass or request_carry else "ends the turn"
+    wait_bit = " and waits to be carried home" if request_carry and not is_player_in_cabin(state, player) else ""
     if everyone_done:
         _ok, day_msg = advance_day(state, crops, rules)
         apply_new_day_turns(state, rules)
@@ -2293,13 +2488,13 @@ def end_turn(
         cap = player_energy_cap(state, nxt, rules)
         night = " ".join(night_notes)
         header = (
-            f"{display_name(player)} ends the turn {here}. {outlook}. "
+            f"{display_name(player)} {verb_phrase} {here}{wait_bit}. {outlook}. "
             f"The day turns. {day_msg} {night} "
             f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
         )
         log_append(
             state,
-            f"{display_name(player)} ends the turn {here}. A new day begins. {night} "
+            f"{display_name(player)} {verb_phrase} {here}{wait_bit}. A new day begins. {night} "
             f"It is {display_name(nxt)}'s turn.",
             player,
         )
@@ -2310,7 +2505,7 @@ def end_turn(
     # (Passing out or sleeping is resolved when the day actually turns.)
     cap = max_energy(rules)
     msg = (
-        f"{display_name(player)} ends the turn {here}. {outlook}. "
+        f"{display_name(player)} {verb_phrase} {here}{wait_bit}. {outlook}. "
         f"It is {display_name(nxt)}'s turn, {player_slot(state, nxt)['energy']}/{cap} energy."
     )
     log_append(state, msg, player)
@@ -4658,6 +4853,17 @@ def legal_actions(
                 if stack_count(chest_of(state, rules), "herbal_tea") >= 1:
                     actions.append("drink herbal_tea chest")
     actions.append("end turn")
+    actions.append("pass turn")
+    if not is_player_in_cabin(state, actor):
+        actions.append("pass turn home")
+    partner = other_player(actor, rules)
+    if partner and player_requested_carry(state, partner) and not is_player_in_cabin(state, partner):
+        from hills import player_area
+        if player_area(state, actor) == player_area(state, partner) and player_where(state, actor) == player_where(state, partner):
+            places, cost = carry_home_path(state, actor, rules)
+            energy = int(player_slot(state, actor)["energy"])
+            if places is not None and energy >= cost:
+                actions.append(f"walk {display_name(partner)} home")
     return actions
 
 
@@ -5030,6 +5236,27 @@ def action_descriptor(
             cap = preview_wake_energy(state, actor, rules)
             return f"sleep in cabin, {cap} energy tomorrow"
         return f"pass out, {faint} energy"
+    if verb == "pass":
+        if request := (len(args) >= 1 and " ".join(args).lower() in {
+            "turn home", "home", "turn and wait", "turn carry me home",
+            "turn and be carried home",
+        }):
+            return "end your turn and wait to be carried home"
+        if actor and is_player_in_cabin(state, actor):
+            cap = preview_wake_energy(state, actor, rules)
+            return f"end your turn, sleep in cabin, {cap} energy tomorrow"
+        faint = pass_out_energy(rules)
+        return f"end your turn, pass out, {faint} energy"
+    is_wh, who_raw = parse_walk_home_command(command)
+    if is_wh:
+        passenger = resolve_player_name(who_raw) if who_raw else None
+        name = display_name(passenger) if passenger else (who_raw or "them")
+        if actor:
+            places, cost = carry_home_path(state, actor, rules)
+            if places is None:
+                return f"carry {name} to the cabin, double movement"
+            return f"carry {name} to the cabin, double movement, {_energy_word(cost)}"
+        return f"carry {name} to the cabin, double movement"
     return ""
 
 
@@ -5101,6 +5328,17 @@ def do_action(
     is_end, note = parse_end_turn_command(raw)
     if is_end:
         return end_turn(state, crops, actor, rules, note=note)
+
+    is_pass, request_carry = parse_pass_turn_command(raw)
+    if is_pass:
+        return end_turn(
+            state, crops, actor, rules, note=None,
+            as_pass=True, request_carry=request_carry,
+        )
+
+    is_walk_home, who_home = parse_walk_home_command(raw)
+    if is_walk_home:
+        return walk_player_home(state, actor, who_home, rules)
 
     if verb in {"move", "go", "walk"}:
         return do_move_command(state, actor, verb, args, rules)

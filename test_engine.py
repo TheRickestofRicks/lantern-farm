@@ -47,6 +47,7 @@ from engine import (
     fresh_state,
     harvest,
     legal_actions,
+    format_legal_action,
     load_crops,
     load_rules,
     migrate_state,
@@ -5866,8 +5867,27 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertTrue(data.get("chestHiddenAfterClick"))
         self.assertFalse(data.get("chestOpenAfterClick"))
         self.assertEqual(data.get("chestStorageAfterClick"), "0")
-        self.assertRegex(data.get("invChestHeading") or "", r"(?i)^cabin chest$")
+        self.assertEqual((data.get("invChestHeading") or "").strip(), "CABIN CHEST")
         self.assertIn("recipe-book-head", data.get("invChestHeadingClass") or "")
+        css = html
+        self.assertIn("font-family: \"Iowan Old Style\", Palatino", css)
+        # The chest button must not inherit typography from the inventory panel.
+        self.assertNotRegex(
+            css,
+            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*font:\s*inherit",
+        )
+        self.assertRegex(
+            css,
+            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*text-transform:\s*uppercase",
+        )
+        self.assertRegex(
+            css,
+            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*letter-spacing:\s*0\.06em",
+        )
+        self.assertRegex(
+            css,
+            r"\.recipe-book-head\s*\{[^}]*text-transform:\s*uppercase",
+        )
 
 
     def test_web_hud_shows_bonus_energy_over_the_base_max(self):
@@ -6944,6 +6964,202 @@ class ForgedToolDisplay(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("a copper axe", msg)
         self.assertNotIn("an copper axe", msg)
+
+
+
+
+
+class PassTurnAndWalkHome(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+
+    def test_pass_turn_is_legal_any_time_and_hands_off_like_end_turn(self):
+        from hills import set_player_place, AREA_FARM
+        set_player_place(self.state, P1, AREA_FARM, 2, 1)
+        self.state["players"][P1]["energy"] = 0
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("pass turn", actions)
+        self.assertIn("pass turn home", actions)
+        self.assertIn("end turn", actions)
+        line = format_legal_action("pass turn", self.state, self.crops, P1, self.rules)
+        self.assertIn("end your turn", line)
+        self.assertIn("pass out", line)
+        ok, msg = do_action(self.state, self.crops, "pass turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(self.state["players"][P1]["ended_turn"])
+        self.assertFalse(self.state["players"][P1].get("carry_home"))
+        self.assertEqual(self.state["current_player"], P2)
+        self.assertIn("passes the turn", msg)
+        self.assertEqual(int(self.state["day"]), 1)
+
+    def test_pass_turn_home_then_walk_home_costs_double_and_sleeps_in_the_cabin(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE, player_area, AREA_FARM
+        from inventory import add_to_chest, sync_inventory_view
+        # P1 is in the hills at the gate; P2 stays in the cabin with plenty of energy.
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        self.state["players"][P2]["energy"] = 100
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        add_to_chest(self.state, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)  # P1 is not at the cabin
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        self.state["current_player"] = P2
+        ok, msg = do_action(self.state, self.crops, "fuel fireplace", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.state["current_player"] = P1
+        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(self.state["players"][P1].get("carry_home"))
+        self.assertIn("waits to be carried home", msg)
+        self.assertEqual(self.state["current_player"], P2)
+        # P2 is still in the cabin, so walk home is not listed until they stand on P1.
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertNotIn(f"walk {N1} home", actions)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 100
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertIn(f"walk {N1} home", actions)
+        line = format_legal_action(f"walk {N1} home", self.state, self.crops, P2, self.rules)
+        self.assertIn("double movement", line)
+        self.assertIn("10 energy", line)  # 1 step from the gate, doubled from 5
+        ok, msg = do_action(self.state, self.crops, f"walk {N1} home", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("home to the cabin", msg)
+        self.assertIn("10 energy", msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 90)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertTrue(is_player_in_cabin(self.state, P2))
+        self.assertFalse(self.state["players"][P1].get("carry_home"))
+        self.assertTrue(self.state["players"][P1].get("carried_home"))
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        # Day has not turned; P2 can end. P1 sleeps in the cabin and gets the fire bonus.
+        self.assertEqual(sleep_outlook(self.state, P1, self.rules), "You'll sleep in the cabin — 110 energy tomorrow")
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("slept in the cabin", msg)
+        self.assertIn("wakes with 110 energy", msg)
+        self.assertEqual(int(self.state["day"]), 2)
+        self.assertEqual(self.state["players"][P1]["energy"], 110)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 110)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+
+    def test_walk_home_refuses_without_enough_energy_and_nobody_moves(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        self.state["players"][P2]["energy"] = 5  # normal walk would be 5; double is 10
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        self.state["current_player"] = P2
+        here1 = player_where(self.state, P1)
+        here2 = player_where(self.state, P2)
+        ok, msg = do_action(self.state, self.crops, f"walk {N1} home", player=P2, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("Not enough energy", msg)
+        self.assertIn("10 energy", msg)
+        self.assertEqual(player_where(self.state, P1), here1)
+        self.assertEqual(player_where(self.state, P2), here2)
+        self.assertTrue(self.state["players"][P1].get("carry_home"))
+
+    def test_walk_home_is_not_legal_until_they_ask_and_you_stand_with_them(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 40
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertNotIn(f"walk {N2} home", actions)
+        ok, msg = do_action(self.state, self.crops, f"walk {N2} home", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("hasn't asked", msg)
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        # P2 is still in the cabin, not on P1's tile.
+        actions = legal_actions(self.state, self.crops, player=P2, rules=self.rules)
+        self.assertNotIn(f"walk {N1} home", actions)
+        ok, msg = do_action(self.state, self.crops, f"walk {N1} home", player=P2, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("Stand on the same tile", msg)
+
+    def test_already_ended_partner_gets_the_turn_back_to_carry(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        # P1 ends first in the cabin, then P2 asks to be carried.
+        self.state["players"][P1]["energy"] = 80
+        ok, _ = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 0
+        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["day"]), 1)
+        self.assertEqual(self.state["current_player"], P1)
+        self.assertFalse(self.state["players"][P1]["ended_turn"])
+        self.assertTrue(self.state["players"][P1].get("carry_reopened"))
+        self.assertIn("walk", msg.lower())
+        self.assertIn(N2, msg)
+        # P1 can decline by ending again; P2 then passes out.
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["day"]), 2)
+        self.assertIn("passed out", msg)
+        self.assertEqual(self.state["players"][P2]["energy"], 50)
+        self.assertFalse(is_player_in_cabin(self.state, P2))
+
+    def test_partner_ending_without_carrying_lets_them_pass_out(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["day"]), 2)
+        self.assertIn("passed out", msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertFalse(is_player_in_cabin(self.state, P1))
+
+    def test_pass_turn_home_in_the_cabin_does_not_set_a_carry_request(self):
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("pass turn", actions)
+        self.assertNotIn("pass turn home", actions)
+        ok, msg = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(self.state["players"][P1].get("carry_home"))
+        self.assertEqual(self.state["current_player"], P2)
+
+    def test_walk_home_alone_still_goes_to_the_cabin(self):
+        stand(self.state, P1, 2, 1)
+        self.state["players"][P1]["energy"] = 40
+        ok, msg = do_action(self.state, self.crops, "walk home", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        self.assertIn("walks to the cabin", msg)
+
+    def test_web_payload_lists_pass_and_walk_home_and_the_page_has_buttons(self):
+        import web
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 0
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertIn("pass turn", payload["actions"])
+        self.assertIn("pass turn home", payload["actions"])
+        html = web.render_page(viewer=P1)
+        self.assertIn('id="pass-turn"', html)
+        self.assertIn('id="pass-turn-home"', html)
+        self.assertIn('id="walk-home"', html)
+        ok, _ = do_action(self.state, self.crops, "pass turn home", player=P1, rules=self.rules)
+        self.assertTrue(ok)
+        set_player_place(self.state, P2, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P2]["energy"] = 40
+        payload = web.api_payload(self.state, self.crops, player=P2)
+        self.assertIn(f"walk {N1} home", payload["actions"])
+
 
 
 if __name__ == "__main__":

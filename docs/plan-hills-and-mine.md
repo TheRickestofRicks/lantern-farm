@@ -316,14 +316,6 @@ well. Design notes only; not built yet.
   the home. The kitchen (currently reachable through the recipe book at
   the cabin) will be rebuilt into that interior.
 
-- **Pass turn.** A pass-turn button, later, after plants and features
-  have settled.
-
-- **Walk home** (paired with pass turn). A player at 0 energy can pass
-  turn and opt to be carried home. The other player walks to them and
-  carries them to the cabin at double movement cost. The carried player
-  counts as sleeping in the cabin, so fire and fed bonuses apply.
-
 - **Tulips.**
 
 - **Yearly wet/dry season variants**, with hints so the year-to-year

@@ -220,6 +220,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
   <title>__TITLE__</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
@@ -550,6 +551,8 @@ PAGE = r"""<!DOCTYPE html>
       letter-spacing: 0.06em;
       text-transform: uppercase;
       font-size: 0.92rem;
+      font-weight: inherit;
+      font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }
     .recipe-entry {
       margin: 0.55rem 0 0;
@@ -871,19 +874,25 @@ PAGE = r"""<!DOCTYPE html>
     }
     button.shop-section-title.chest-toggle,
     button.recipe-book-head.chest-toggle {
+      /* Reset button chrome only. Do not use font/letter-spacing/text-transform:
+         inherit — those would take the parent panel's styles and undo the heading. */
       cursor: pointer;
       background: none;
       border: 0;
       padding: 0;
-      font: inherit;
-      color: inherit;
-      letter-spacing: inherit;
-      text-transform: inherit;
       display: flex;
       align-items: center;
       gap: 0.3rem;
       width: 100%;
       text-align: left;
+    }
+    button.recipe-book-head.chest-toggle {
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 0.92rem;
+      font-weight: inherit;
+      font-family: "Iowan Old Style", Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }
     button.chest-toggle::before { content: "▾"; font-size: 0.85em; }
     .chest-section.is-collapsed button.chest-toggle::before { content: "▸"; }
@@ -1013,6 +1022,9 @@ PAGE = r"""<!DOCTYPE html>
       <div class="actions" id="tile-actions"></div>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
+        <button class="btn" id="pass-turn" type="button">Pass turn</button>
+        <button class="btn" id="pass-turn-home" type="button">Pass turn, carry me home</button>
+        <button class="btn" id="walk-home" type="button" hidden>Walk them home</button>
         <input id="end-note" type="text" maxlength="280" placeholder="__NOTE_PLACEHOLDER__" autocomplete="off" spellcheck="true">
       </div>
       <div class="sleep-outlook" id="sleep-outlook"></div>
@@ -1902,6 +1914,35 @@ PAGE = r"""<!DOCTYPE html>
           endBtn.textContent = "End turn (you'll pass out)";
         }
       }
+      const actions = data.actions || [];
+      const passBtn = $("pass-turn");
+      if (passBtn) {
+        passBtn.hidden = !data.your_turn;
+        passBtn.disabled = !data.your_turn;
+      }
+      const passHomeBtn = $("pass-turn-home");
+      if (passHomeBtn) {
+        const canPassHome = !!(data.your_turn && actions.indexOf("pass turn home") !== -1);
+        passHomeBtn.hidden = !canPassHome;
+        passHomeBtn.disabled = !canPassHome;
+      }
+      const walkHomeBtn = $("walk-home");
+      if (walkHomeBtn) {
+        let walkCmd = null;
+        for (let i = 0; i < actions.length; i++) {
+          if (/^walk .+ home$/.test(actions[i])) { walkCmd = actions[i]; break; }
+        }
+        if (walkCmd && data.your_turn) {
+          walkHomeBtn.hidden = false;
+          walkHomeBtn.disabled = false;
+          walkHomeBtn.textContent = walkCmd.charAt(0).toUpperCase() + walkCmd.slice(1);
+          walkHomeBtn.setAttribute("data-cmd", walkCmd);
+        } else {
+          walkHomeBtn.hidden = true;
+          walkHomeBtn.disabled = true;
+          walkHomeBtn.removeAttribute("data-cmd");
+        }
+      }
       const outlookEl = $("sleep-outlook");
       if (outlookEl) {
         outlookEl.textContent = data.your_turn ? (data.sleep_outlook || "") : "";
@@ -2760,7 +2801,7 @@ PAGE = r"""<!DOCTYPE html>
       const title = document.createElement("button");
       title.type = "button";
       title.className = "recipe-book-head chest-toggle";
-      title.textContent = "Cabin chest";
+      title.textContent = "CABIN CHEST";
       title.setAttribute("aria-expanded", open ? "true" : "false");
       const body = document.createElement("div");
       body.className = "chest-section-body";
@@ -3135,6 +3176,35 @@ PAGE = r"""<!DOCTYPE html>
     $("end-turn").addEventListener("click", function () {
       submitEndTurn();
     });
+    const passTurnBtn = $("pass-turn");
+    if (passTurnBtn) {
+      passTurnBtn.addEventListener("click", function () {
+        if (!needTurn()) return;
+        endConfirm = false;
+        plantPick = null;
+        actCmd("pass turn");
+      });
+    }
+    const passTurnHomeBtn = $("pass-turn-home");
+    if (passTurnHomeBtn) {
+      passTurnHomeBtn.addEventListener("click", function () {
+        if (!needTurn()) return;
+        endConfirm = false;
+        plantPick = null;
+        actCmd("pass turn home");
+      });
+    }
+    const walkHomeBtn = $("walk-home");
+    if (walkHomeBtn) {
+      walkHomeBtn.addEventListener("click", function () {
+        if (!needTurn()) return;
+        const cmd = walkHomeBtn.getAttribute("data-cmd");
+        if (!cmd) return;
+        endConfirm = false;
+        plantPick = null;
+        actCmd(cmd);
+      });
+    }
 
     $("end-note").addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") {
