@@ -223,6 +223,13 @@ def comfort_fire_wood(rules: dict | None = None) -> int:
         return 1
 
 
+def comfort_stove_wood(rules: dict | None = None) -> int:
+    try:
+        return max(1, int(_comfort_cfg(rules).get("stove_wood", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
 def chest_wood_count(state: dict, rules: dict | None = None) -> int:
     from inventory import stack_count, normalize_chest
 
@@ -237,14 +244,28 @@ def fireplace_is_fueled(state: dict) -> bool:
     return bool(state.get("fireplace_fueled"))
 
 
-def available_wood(state: dict, player: str | None = None, rules: dict | None = None) -> int:
-    """Wood in the pack and chest, without creating a chest on a fresh farm."""
+def stove_is_fueled(state: dict) -> bool:
+    return bool(state.get("stove_fueled"))
+
+
+def set_stove_fueled(state: dict, fueled: bool) -> None:
+    state["stove_fueled"] = bool(fueled)
+
+
+def available_wood(
+    state: dict,
+    player: str | None = None,
+    rules: dict | None = None,
+    *,
+    pack_only: bool = False,
+) -> int:
+    """Wood on hand. pack_only=True counts the backpack alone."""
     from inventory import pack_of, stack_count, normalize_chest
 
     n = 0
     if player:
         n += int(stack_count(pack_of(state, player, rules), "wood") or 0)
-    if "chest" in state:
+    if not pack_only and "chest" in state:
         n += int(stack_count(normalize_chest(state.get("chest"), rules), "wood") or 0)
     return n
 
@@ -379,6 +400,7 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
             wake[name] = faint
     # The fuel was for this night, whether or not anyone slept in the cabin.
     set_cabin_fire(state, False)
+    set_stove_fueled(state, False)
     return {"fire": fire, "fed": fed, "tea": tea, "together": together, "wake": wake}
 
 
@@ -396,20 +418,58 @@ def fuel_fireplace(state: dict, player: str, rules: dict | None = None) -> tuple
     if fireplace_is_fueled(state):
         return False, "The fireplace is already fueled for tonight."
     need = comfort_fire_wood(rules)
-    if available_wood(state, player, rules) < need:
+    if available_wood(state, player, rules, pack_only=True) < need:
         return False, (
-            f"Need {item_name('wood', need)} in the backpack or the chest to fuel the fireplace."
+            f"Need {item_name('wood', need)} in the backpack to fuel the fireplace. "
+            "Take wood from the chest first."
         )
-    taken = take_available(state, "wood", need, player, pack_only=False, rules=rules)
+    taken = take_available(state, "wood", need, player, pack_only=True, rules=rules)
     if taken < need:
         return False, (
-            f"Need {item_name('wood', need)} in the backpack or the chest to fuel the fireplace."
+            f"Need {item_name('wood', need)} in the backpack to fuel the fireplace. "
+            "Take wood from the chest first."
         )
     sync_inventory_view(state, rules)
     set_cabin_fire(state, True)
     msg = (
         f"{who(player, 'fuel', 'fuels')} the fireplace with "
         f"{item_name('wood', need)}. It will keep the cabin warm tonight."
+    )
+    log_append(state, msg, player)
+    return True, msg
+
+
+
+def fuel_stove(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Spend 1 wood from the pack and 5 energy so the stove can cook for the day."""
+    from inventory import take_available, sync_inventory_view, item_name
+
+    rules = rules or load_rules()
+    player, err = parse_player(player)
+    if err:
+        return False, err
+    from cabin import player_at_cabin_tile
+    if not player_at_cabin_tile(state, player, "kitchen"):
+        return False, "Load wood into the stove at the kitchen inside the cabin."
+    if stove_is_fueled(state):
+        return False, "The stove is already fueled for today."
+    need = comfort_stove_wood(rules)
+    if available_wood(state, player, rules, pack_only=True) < need:
+        return False, (
+            f"Need {item_name('wood', need)} in the backpack to load the stove. "
+            "Take wood from the chest first."
+        )
+    taken = take_available(state, "wood", need, player, pack_only=True, rules=rules)
+    if taken < need:
+        return False, (
+            f"Need {item_name('wood', need)} in the backpack to load the stove. "
+            "Take wood from the chest first."
+        )
+    sync_inventory_view(state, rules)
+    set_stove_fueled(state, True)
+    msg = (
+        f"{who(player, 'load', 'loads')} the stove with "
+        f"{item_name('wood', need)}. It will cook for the rest of the day."
     )
     log_append(state, msg, player)
     return True, msg
@@ -648,13 +708,16 @@ def parse_end_turn_command(command: str) -> tuple[bool, str]:
     return False, ""
 
 
-def parse_pass_turn_command(command: str) -> tuple[bool, bool]:
-    """True if this is a pass-turn command, plus whether they asked to be carried home."""
-    raw = strip_action_descriptor(command or "").strip().lower()
-    raw = " ".join(raw.replace(",", " ").split())
-    if raw in {"pass", "pass turn", "pass-turn", "pass_turn"}:
-        return True, False
-    if raw in {
+def parse_pass_turn_command(command: str) -> tuple[bool, bool, str]:
+    """True if this is a pass-turn command, plus carry-home request and optional note."""
+    text = strip_action_descriptor(command or "").strip()
+    if not text:
+        return False, False, ""
+    collapsed = " ".join(text.replace(",", " ").split())
+    low = collapsed.lower()
+    if low in {"pass", "pass turn", "pass-turn", "pass_turn"}:
+        return True, False, ""
+    if low in {
         "pass turn home",
         "pass-turn home",
         "pass_turn home",
@@ -662,10 +725,55 @@ def parse_pass_turn_command(command: str) -> tuple[bool, bool]:
         "pass turn and wait",
         "pass turn carry me home",
         "pass turn and be carried home",
-        "pass turn, carry me home",
     }:
-        return True, True
-    return False, False
+        return True, True, ""
+
+    def _cut(src: str, prefix: str) -> str | None:
+        if src.lower().startswith(prefix):
+            return src[len(prefix):].strip()
+        return None
+
+    home_prefixes = (
+        "pass turn and be carried home:",
+        "pass turn, carry me home:",
+        "pass turn carry me home:",
+        "pass turn and wait:",
+        "pass turn home:",
+        "pass-turn home:",
+        "pass_turn home:",
+        "pass home:",
+        "pass turn and be carried home ",
+        "pass turn, carry me home ",
+        "pass turn carry me home ",
+        "pass turn and wait ",
+        "pass turn home ",
+        "pass-turn home ",
+        "pass_turn home ",
+        "pass home ",
+    )
+    for prefix in home_prefixes:
+        rest = _cut(text, prefix)
+        if rest is not None:
+            return True, True, rest
+        rest = _cut(collapsed, prefix)
+        if rest is not None:
+            return True, True, rest
+
+    pass_prefixes = (
+        "pass turn:",
+        "pass-turn:",
+        "pass_turn:",
+        "pass:",
+        "pass turn ",
+        "pass-turn ",
+        "pass_turn ",
+        "pass ",
+    )
+    for prefix in pass_prefixes:
+        rest = _cut(text, prefix)
+        if rest is not None:
+            return True, False, rest
+    return False, False, ""
 
 
 def parse_walk_home_command(command: str) -> tuple[bool, str | None]:
@@ -2044,10 +2152,19 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             normalize_area, AREA_FARM, AREA_MINE, is_cabin_place, max_hp as hills_max_hp,
         )
         area = normalize_area(prev.get("area"))
+        spawned = False
         if not in_bounds(row, col):
             row, col = CABIN_ROW, CABIN_COL
             area = AREA_FARM
+            spawned = True
         slept = is_cabin_place(area, row, col)
+        # A brand-new or unplaced player spawns on the farm cabin tile.
+        # After a real night in the cabin, they wake at the interior bed.
+        if slept and not spawned:
+            from cabin import CABIN_BED
+            from hills import AREA_CABIN
+            row, col = CABIN_BED
+            area = AREA_CABIN
         floor = None
         if (not slept) and area == AREA_MINE:
             from mine import wake_place_after_mine_passout, mine_of
@@ -2081,9 +2198,9 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             "energy": wake,
             "energy_max": wake if slept else cap,
             "ended_turn": False,
-            "row": CABIN_ROW if slept else row,
-            "col": CABIN_COL if slept else col,
-            "area": AREA_FARM if slept else area,
+            "row": row,
+            "col": col,
+            "area": area,
             "hp": hp,
             "hp_max": hp_max,
             "snacks_eaten": 0,
@@ -2566,6 +2683,72 @@ def end_turn(
     )
     log_append(state, msg, player)
     return True, msg
+
+
+
+def pass_turn(
+    state: dict,
+    crops: dict,
+    player: str,
+    rules: dict | None = None,
+    note: str | None = None,
+    *,
+    request_carry: bool = False,
+) -> tuple[bool, str]:
+    """Hand the turn to the other player without ending this player's day."""
+    rules = rules or load_rules()
+    player, err = parse_player(player)
+    if err:
+        return False, err
+    current = normalize_player(state.get("current_player"))
+    if current != player:
+        return False, f"It's {display_name(current)}'s turn right now."
+    partner = other_player(player, rules)
+    if not partner:
+        return False, "There is no one to pass the turn to."
+    waiting = bool(request_carry and not is_player_in_cabin(state, player))
+    partner_slot = player_slot(state, partner)
+    partner_ended = bool(partner_slot.get("ended_turn"))
+    can_reopen = waiting and partner_ended and not partner_slot.get("carry_reopened")
+    if partner_ended and not can_reopen:
+        return False, (
+            f"{display_name(partner)} has already ended their turn. "
+            "End your turn to finish the day."
+        )
+    _apply_end_note(state, player, note)
+    slot = player_slot(state, player)
+    if waiting:
+        slot["carry_home"] = True
+    elif not request_carry:
+        slot["carry_home"] = False
+    from hills import player_area, describe_where as describe_place_where, AREA_MINE
+    from mine import player_floor
+    here_area = player_area(state, player)
+    here_floor = player_floor(state, player) if here_area == AREA_MINE else None
+    here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
+    cap = max_energy(rules)
+    if can_reopen:
+        partner_slot["ended_turn"] = False
+        partner_slot["carry_reopened"] = True
+        state["current_player"] = partner
+        msg = (
+            f"{display_name(player)} passes the turn {here} and waits to be carried home. "
+            f"{display_name(player)}'s day is not over. "
+            f"It is {display_name(partner)}'s turn to walk {display_name(player)} home, "
+            "or end the turn to leave them."
+        )
+        log_append(state, msg, player)
+        return True, msg
+    state["current_player"] = partner
+    wait_bit = " and waits to be carried home" if waiting else ""
+    msg = (
+        f"{display_name(player)} passes the turn to {display_name(partner)} {here}{wait_bit}. "
+        f"{display_name(player)}'s day is not over. "
+        f"It is {display_name(partner)}'s turn, {player_slot(state, partner)['energy']}/{cap} energy."
+    )
+    log_append(state, msg, player)
+    return True, msg
+
 
 
 # --- actions -----------------------------------------------------------------
@@ -4557,8 +4740,11 @@ def format_recipe_book(
             extra.append(f"eat +{int(eat)} energy")
         tail = f" ({'; '.join(extra)})" if extra else ""
         ready = ""
-        if player and player_at_cabin_tile(state, player, "kitchen") and recipe_is_craftable(state, rec_id, player, rules, crops):
-            ready = " Ready to cook."
+        if player and player_at_cabin_tile(state, player, "kitchen"):
+            if not stove_is_fueled(state):
+                ready = " The stove needs wood first."
+            elif recipe_is_craftable(state, rec_id, player, rules, crops):
+                ready = " Ready to cook."
         lines.append(f"  {name}: {ings}.{tail}{ready}")
     return "\n".join(lines) + "\n"
 
@@ -4583,6 +4769,8 @@ def craft(state: dict, recipe, player: str, rules: dict | None = None, crops: di
     from cabin import player_at_cabin_tile
     if not player_at_cabin_tile(state, player, "kitchen"):
         return False, "Craft at the kitchen inside the cabin."
+    if not stove_is_fueled(state):
+        return False, "Load wood into the stove first. Take wood from the chest into your backpack, then stand at the kitchen and use: fuel stove"
     key = normalize_item(str(recipe)) or str(recipe or "").strip().lower().replace(" ", "_")
     recs = recipes(rules)
     rec = recs.get(key)
@@ -4898,9 +5086,17 @@ def legal_actions(
         and actor
         and not fireplace_is_fueled(state)
         and energy >= energy_cost("fuel_fireplace", rules)
-        and available_wood(state, actor, rules) >= comfort_fire_wood(rules)
+        and available_wood(state, actor, rules, pack_only=True) >= comfort_fire_wood(rules)
     ):
         actions.append("fuel fireplace")
+    if (
+        player_at_cabin_tile(state, actor, "kitchen")
+        and actor
+        and not stove_is_fueled(state)
+        and energy >= energy_cost("fuel_stove", rules)
+        and available_wood(state, actor, rules, pack_only=True) >= comfort_stove_wood(rules)
+    ):
+        actions.append("fuel stove")
     if player_at_cabin_tile(state, actor, "chest"):
         if actor:
             from inventory import pack_space_for
@@ -4918,7 +5114,7 @@ def legal_actions(
                 actions.extend(take_drop_actions("take", item, have))
     if player_at_cabin_tile(state, actor, "kitchen"):
         ensure_discovered_recipes(state, rules)
-        if energy >= energy_cost("craft", rules):
+        if stove_is_fueled(state) and energy >= energy_cost("craft", rules):
             for rec_id in discovered_recipe_ids(state, rules):
                 if recipe_is_craftable(state, rec_id, actor, rules, crops):
                     actions.append(f"craft {rec_id}")
@@ -4949,10 +5145,12 @@ def legal_actions(
                 if stack_count(chest_of(state, rules), "herbal_tea") >= 1:
                     actions.append("drink herbal_tea chest")
     actions.append("end turn")
-    actions.append("pass turn")
+    partner = other_player(actor, rules)
+    partner_ended = bool(partner and player_slot(state, partner).get("ended_turn"))
+    if not partner_ended:
+        actions.append("pass turn")
     if not is_player_in_cabin(state, actor):
         actions.append("pass turn home")
-    partner = other_player(actor, rules)
     if partner and player_requested_carry(state, partner) and not is_player_in_cabin(state, partner):
         from hills import player_area
         if player_area(state, actor) == player_area(state, partner) and player_where(state, actor) == player_where(state, partner):
@@ -5330,9 +5528,14 @@ def action_descriptor(
             bits.append(inv_item_name(item, n, crops, rules))
         used = ", ".join(bits) if bits else "ingredients"
         return f"{_energy_word(cost)}, uses {used}"
-    if verb == "fuel":
-        cost = energy_cost("fuel_fireplace", rules)
-        need = comfort_fire_wood(rules)
+    if verb == "fuel" or verb == "load":
+        target = " ".join(args).lower()
+        if verb == "load" or "stove" in target or target in {"wood", "kitchen"}:
+            cost = energy_cost("fuel_stove", rules)
+            need = comfort_stove_wood(rules)
+        else:
+            cost = energy_cost("fuel_fireplace", rules)
+            need = comfort_fire_wood(rules)
         wood = "1 wood" if need == 1 else f"{need} wood"
         return f"{_energy_word(cost)}, uses {wood}"
     if verb == "end" and args and args[0].lower() == "turn":
@@ -5345,19 +5548,15 @@ def action_descriptor(
             return desc
         return f"pass out, {faint} energy"
     if verb == "pass":
-        if request := (len(args) >= 1 and " ".join(args).lower() in {
+        partner = other_player(actor, rules) if actor else None
+        who = display_name(partner) if partner else "the other player"
+        home = bool(args and " ".join(args).lower() in {
             "turn home", "home", "turn and wait", "turn carry me home",
             "turn and be carried home",
-        }):
-            return "end your turn and wait to be carried home"
-        if actor and is_player_in_cabin(state, actor):
-            cap = preview_wake_energy(state, actor, rules)
-            desc = f"end your turn, sleep in cabin, {cap} energy tomorrow"
-            if together_rest_applies(state, rules):
-                desc += ", sleeping close tonight"
-            return desc
-        faint = pass_out_energy(rules)
-        return f"end your turn, pass out, {faint} energy"
+        })
+        if home:
+            return f"hand the turn to {who} and wait to be carried home; your day is not over"
+        return f"hand the turn to {who}; your day is not over"
     is_wh, who_raw = parse_walk_home_command(command)
     if is_wh:
         passenger = resolve_player_name(who_raw) if who_raw else None
@@ -5440,11 +5639,11 @@ def do_action(
     if is_end:
         return end_turn(state, crops, actor, rules, note=note)
 
-    is_pass, request_carry = parse_pass_turn_command(raw)
+    is_pass, request_carry, pass_note = parse_pass_turn_command(raw)
     if is_pass:
-        return end_turn(
-            state, crops, actor, rules, note=None,
-            as_pass=True, request_carry=request_carry,
+        return pass_turn(
+            state, crops, actor, rules, note=pass_note,
+            request_carry=request_carry,
         )
 
     is_walk_home, who_home = parse_walk_home_command(raw)
@@ -5581,8 +5780,12 @@ def do_action(
             return False, refused
 
     cost_verb = verb
-    if verb == "fuel":
-        cost_verb = "fuel_fireplace"
+    if verb == "fuel" or verb == "load":
+        target = " ".join(args).strip().lower()
+        if verb == "load" or "stove" in target or target in {"wood", "kitchen"}:
+            cost_verb = "fuel_stove"
+        else:
+            cost_verb = "fuel_fireplace"
     if verb == "enter":
         what = (args[0].lower() if args else "")
         cost_verb = "enter_cabin" if what in {"cabin", "house", "home"} else "enter_mine"
@@ -5717,11 +5920,16 @@ def do_action(
         if not words:
             return False, "Usage: forge <tool>   example: forge hoe"
         ok, msg = forge_tool(state, actor, " ".join(words), want, rules)
-    elif verb == "fuel":
+    elif verb == "fuel" or verb == "load":
         target = " ".join(args).strip().lower()
-        if target not in {"", "fireplace", "the fireplace", "fire"}:
-            return False, "Usage: fuel fireplace"
-        ok, msg = fuel_fireplace(state, actor, rules)
+        stove_targets = {"stove", "the stove", "kitchen", "wood", "wood stove", "the kitchen"}
+        fire_targets = {"", "fireplace", "the fireplace", "fire"}
+        if verb == "load" or target in stove_targets:
+            ok, msg = fuel_stove(state, actor, rules)
+        elif target in fire_targets:
+            ok, msg = fuel_fireplace(state, actor, rules)
+        else:
+            return False, "Usage: fuel fireplace  or  fuel stove"
     elif verb == "reorder":
         if not args or args[0].lower() != "chest":
             return False, "Usage: reorder chest <item> <item> ..."
@@ -5731,7 +5939,7 @@ def do_action(
             False,
             "Unknown action. Try look, move, go cabin, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
             "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
-            "eat, buy, sell, take, drop, craft, recipes, fuel fireplace, or end turn.",
+            "eat, buy, sell, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
         )
 
     if ok and cost:

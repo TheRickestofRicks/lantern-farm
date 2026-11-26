@@ -66,12 +66,14 @@ def is_farm_cabin_tile(area: str | None, row: int, col: int) -> bool:
 
 
 def get_cabin_tile(state: dict, row: int, col: int) -> dict:
-    from engine import fireplace_is_fueled
+    from engine import fireplace_is_fueled, stove_is_fueled
 
     kind = cabin_tile_kind(row, col)
     tile = {"type": f"cabin_{kind}" if kind != "floor" else "cabin_floor"}
     if kind == "fireplace":
         tile["fire"] = bool(fireplace_is_fueled(state))
+    elif kind == "kitchen":
+        tile["fire"] = bool(stove_is_fueled(state))
     return tile
 
 

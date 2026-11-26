@@ -325,15 +325,21 @@ well. Design notes only; not built yet.
   The top-right empty tile is reserved for a buildable display case
   later; it stays plain floor in this pass. Fuel the fireplace from
   the fireplace tile, open the cabin chest from the chest tile, and
-  cook from the kitchen tile (the recipe book, which currently works
-  anywhere at the cabin, moves there). Ending a turn anywhere inside
-  is still cabin sleep; the bed is the place you see yourselves rest,
-  and the upgraded-bed “well rested” bonus stays parked until that
-  upgrade exists. Decorating the home is a later follow-on, after
-  this interior is in and playing. Storybook art for the floor and
-  furniture (including lit/unlit fireplace and stove) is in. Interior
-  tile labels use the same r1 c1 style as the farm. The web CABIN CHEST
-  panel is shown only while you are inside the interior.
+  cook from the kitchen tile after loading wood from the backpack (one
+  load cooks for the day and resets at dawn). The web recipe book is
+  shown only at the chest (r1c2) or the kitchen (r3c2). Fireplace fuel
+  also comes from the backpack, not straight from the chest. Ending a
+  turn anywhere inside is still cabin sleep; players who slept in the
+  cabin wake at the double bed (r1c1). The upgraded-bed “well rested”
+  bonus stays parked until that upgrade exists. Decorating the home is
+  a later follow-on. Storybook art for the floor and furniture
+  (including lit/unlit fireplace and stove) is in. Interior tile labels
+  use the same r1 c1 style as the farm. The web CABIN CHEST panel is
+  shown only while you are inside the interior.
+
+- **Fireplace fuel storage.** An upgrade that keeps wood near the fireplace so you don't have to carry each load from the chest.
+
+- **Propane stove.** A shop-bought stove that cooks without chopping wood; fuel is purchased from the shop instead of loaded from the pack.
 
 - **Tulips.**
 

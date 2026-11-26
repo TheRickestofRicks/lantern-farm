@@ -33,6 +33,7 @@ from engine import (
     load_state,
     max_energy,
     player_energy_cap,
+    stove_is_fueled,
     migrate_state,
     normalize_player,
     session,
@@ -2955,10 +2956,30 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function renderRecipeBook(data) {
+      const panel = $("recipe-book");
       const el = $("recipe-book-body");
       if (!el) return;
+      const show = !!(data.at_chest || data.at_kitchen);
+      if (panel) {
+        panel.hidden = !show;
+        if (!show) panel.open = false;
+      }
       el.innerHTML = "";
-      if (data.in_cabin && !data.at_kitchen) {
+      if (!show) return;
+      if (data.at_kitchen && !data.stove_fueled) {
+        const hint = document.createElement("p");
+        hint.className = "shop-empty";
+        hint.textContent = "The stove needs wood before you can cook today. Load wood from your backpack.";
+        el.appendChild(hint);
+        if (data.your_turn) {
+          const load = document.createElement("button");
+          load.type = "button";
+          load.className = "btn";
+          load.textContent = "Load wood";
+          load.addEventListener("click", function () { actCmd("fuel stove"); });
+          el.appendChild(load);
+        }
+      } else if (data.at_chest && !data.at_kitchen) {
         const hint = document.createElement("p");
         hint.className = "shop-empty";
         hint.textContent = "Walk to the kitchen inside the cabin to cook.";
@@ -2999,7 +3020,7 @@ PAGE = r"""<!DOCTYPE html>
           desc.textContent = entry.description;
           row.appendChild(desc);
         }
-        if (data.at_kitchen && entry.craftable && data.your_turn) {
+        if (data.at_kitchen && data.stove_fueled && entry.craftable && data.your_turn) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn";
@@ -3223,20 +3244,45 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
 
-    function endTurnCommand() {
+    let pendingNoteAction = "end";
+
+    function noteText() {
       const box = $("end-note");
       let note = box ? box.value : "";
       note = String(note || "").replace(/\s+/g, " ").trim();
       if (note.length > 280) note = note.slice(0, 280).trim();
+      return note;
+    }
+
+    function endTurnCommand() {
+      const note = noteText();
       if (note) return "end turn " + note;
       return "end turn";
+    }
+
+    function passTurnCommand(home) {
+      const note = noteText();
+      const base = home ? "pass turn home" : "pass turn";
+      if (note) return base + ": " + note;
+      return base;
     }
 
     function submitEndTurn() {
       if (!needTurn()) return;
       endConfirm = false;
       plantPick = null;
+      pendingNoteAction = "end";
       actCmd(endTurnCommand());
+    }
+
+    function submitNoteAction() {
+      if (!needTurn()) return;
+      const action = pendingNoteAction || "end";
+      endConfirm = false;
+      plantPick = null;
+      if (action === "pass") actCmd(passTurnCommand(false));
+      else if (action === "pass home") actCmd(passTurnCommand(true));
+      else actCmd(endTurnCommand());
     }
 
     $("end-turn").addEventListener("click", function () {
@@ -3245,19 +3291,13 @@ PAGE = r"""<!DOCTYPE html>
     const passTurnBtn = $("pass-turn");
     if (passTurnBtn) {
       passTurnBtn.addEventListener("click", function () {
-        if (!needTurn()) return;
-        endConfirm = false;
-        plantPick = null;
-        actCmd("pass turn");
+        focusNoteBox("pass");
       });
     }
     const passTurnHomeBtn = $("pass-turn-home");
     if (passTurnHomeBtn) {
       passTurnHomeBtn.addEventListener("click", function () {
-        if (!needTurn()) return;
-        endConfirm = false;
-        plantPick = null;
-        actCmd("pass turn home");
+        focusNoteBox("pass home");
       });
     }
     const walkHomeBtn = $("walk-home");
@@ -3276,7 +3316,7 @@ PAGE = r"""<!DOCTYPE html>
       if (ev.key === "Enter") {
         ev.preventDefault();
         ev.stopPropagation();
-        submitEndTurn();
+        submitNoteAction();
         return;
       }
       if (ev.key === "Escape") {
@@ -3544,16 +3584,23 @@ PAGE = r"""<!DOCTYPE html>
       return true;
     }
 
-    function focusNoteBox() {
+    function focusNoteBox(action) {
       if (!needTurn()) return;
+      pendingNoteAction = action || "end";
       const box = $("end-note");
       if (!box) {
-        submitEndTurn();
+        submitNoteAction();
         return;
       }
       endConfirm = false;
       box.focus();
-      showToast("Add a note if you like, then press Enter to end your turn.", true);
+      if (pendingNoteAction === "pass") {
+        showToast("Add a note if you like, then press Enter to pass the turn.", true);
+      } else if (pendingNoteAction === "pass home") {
+        showToast("Add a note if you like, then press Enter to pass and wait to be carried home.", true);
+      } else {
+        showToast("Add a note if you like, then press Enter to end your turn.", true);
+      }
     }
 
     function requestEndTurn(immediate) {
@@ -3849,8 +3896,12 @@ PAGE = r"""<!DOCTYPE html>
         const data = lastData || {};
         if (data.at_kitchen) {
           const book = $("recipe-book");
-          if (book) book.open = true;
-          showToast("The kitchen. Open the recipe book to cook.", true);
+          if (book) { book.hidden = false; book.open = true; }
+          if (!data.stove_fueled) {
+            showToast("The stove needs wood first. Load wood from your backpack.", true);
+          } else {
+            showToast("The kitchen. Open the recipe book to cook.", true);
+          }
           return;
         }
         if (data.at_chest) {
@@ -4116,7 +4167,7 @@ def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: s
             "description": rec.get("description") or "",
             "sell_price": sell,
             "eat_energy": eat,
-            "craftable": at_kitchen and recipe_is_craftable(state, rec_id, player, rules, crops),
+            "craftable": at_kitchen and stove_is_fueled(state) and recipe_is_craftable(state, rec_id, player, rules, crops),
         })
     return out
 
@@ -4295,6 +4346,8 @@ def api_payload(
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
         "fireplace_fueled": bool(state.get("fireplace_fueled")),
         "fuel_fireplace_energy": energy_cost("fuel_fireplace", rules),
+        "stove_fueled": bool(state.get("stove_fueled")),
+        "fuel_stove_energy": energy_cost("fuel_stove", rules),
         "cabin": [CABIN_ROW, CABIN_COL],
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
         "chest": state.get("chest") or [],
