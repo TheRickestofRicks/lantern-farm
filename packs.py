@@ -91,10 +91,11 @@ def ground_key_for(parsed: dict) -> str | None:
     kind = (parsed or {}).get("kind")
     if kind in {None, "cabin", "unknown"}:
         return None
+    typ = parsed.get("type") or kind
+    if parsed.get("mine") or typ in {"mine_floor", "mine_safe"}:
+        return typ
     if parsed.get("hills"):
         typ = parsed.get("type") or kind
-        if typ in {"mine_floor", "mine_safe"}:
-            return typ
         if typ == "mine_entrance":
             base = "mine_entrance_closed" if parsed.get("closed") else "mine_entrance"
         elif typ == "hillside":
@@ -196,6 +197,40 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
     if not gfile:
         return None
     layers.append({"role": "ground", "file": gfile})
+    typ = parsed.get("type") or parsed.get("kind")
+    if parsed.get("mine") or typ in {"mine_floor", "mine_safe"}:
+        def add_ov(name: str, role: str = "crop") -> bool:
+            ffile = _pack_file(manifest, overlays.get(name) or "")
+            if not ffile:
+                return False
+            layers.append({"role": role, "file": ffile})
+            return True
+        rock = parsed.get("rock")
+        if rock:
+            if rock == "copper_ore":
+                okey = "mine_rock_copper"
+            elif rock == "iron_ore":
+                okey = "mine_rock_iron"
+            elif rock == "gold_ore":
+                okey = "mine_rock_gold"
+            else:
+                okey = "mine_rock"
+            if not add_ov(okey):
+                return None
+        else:
+            if parsed.get("ladder") == "open" and not add_ov("mine_ladder"):
+                return None
+            if parsed.get("ladder_up"):
+                if not add_ov("mine_ladder_up"):
+                    return None
+            elif parsed.get("exit") or parsed.get("shaft"):
+                if not add_ov("mine_shaft"):
+                    return None
+            if parsed.get("lantern") and not add_ov("mine_lantern"):
+                return None
+            if parsed.get("elevator") and not add_ov("mine_elevator"):
+                return None
+        return layers
     fert = parsed.get("fertilizer")
     if fert:
         ffile = _pack_file(manifest, overlays.get(f"fertilizer_{fert}") or "")

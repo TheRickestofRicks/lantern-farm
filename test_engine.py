@@ -2667,6 +2667,8 @@ class ArtPackAndPage(unittest.TestCase):
             "axe", "wood", "wild_onion", "wild_berry", "wild_mushroom",
             "wild_berry_jam", "wild_onion_soup", "mushroom_soup",
             "oyster_mushroom", "pickaxe",
+            "stone", "copper_ore", "iron_ore", "gold_ore",
+            "sugar",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -2858,6 +2860,7 @@ class PackChestAndCraft(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "drop hoe", player=P1)
         self.assertTrue(ok, msg)
         give_item(self.state, "strawberry", 3, player=P1)
+        give_item(self.state, "sugar", 1, player=P1)
         ok, msg = do_action(self.state, self.crops, "craft strawberry_jam", player=P1)
         self.assertTrue(ok, msg)
         from inventory import pack_has
@@ -3171,6 +3174,7 @@ class CraftPricesAndNames(unittest.TestCase):
 
     def test_craft_costs_five_energy(self):
         give_item(self.state, "strawberry", 3, player=P1)
+        give_item(self.state, "sugar", 1, player=P1)
         energy = self.state["players"][P1]["energy"]
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
@@ -3181,6 +3185,7 @@ class CraftPricesAndNames(unittest.TestCase):
     def test_crafted_foods_sell_for_more_than_their_ingredients(self):
         from inventory import item_sell_price
         from engine import crop_info
+        from inventory import recipes, ingredient_cost
         jam = item_sell_price("strawberry_jam", self.crops, self.rules)
         soup = item_sell_price("kabocha_soup", self.crops, self.rules)
         stew = item_sell_price("root_stew", self.crops, self.rules)
@@ -3188,7 +3193,8 @@ class CraftPricesAndNames(unittest.TestCase):
         kabocha = int(crop_info(self.crops, "kabocha")["sell_price"])
         carrot = int(crop_info(self.crops, "carrot")["sell_price"])
         turnip = int(crop_info(self.crops, "turnip")["sell_price"])
-        self.assertGreater(jam, 3 * berry)
+        self.assertGreater(jam, ingredient_cost(recipes(self.rules)["strawberry_jam"], self.crops, self.rules))
+        self.assertGreater(jam, 3 * berry)  # still beats the fruit alone too
         self.assertGreater(soup, kabocha)
         self.assertGreater(stew, carrot + turnip)
 
@@ -3433,6 +3439,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
             self.assertIn("bread", listing)
             self.assertIn("butter", listing)
             self.assertIn("milk", listing)
+            self.assertIn("sugar", listing)
         self.state["season"] = "winter"
         gold = int(self.state["gold"])
         ok, msg = do_action(self.state, self.crops, "buy bread 1", player=P1, rules=self.rules)
@@ -3441,6 +3448,42 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertNotIn("_", msg)
         self.assertEqual(int(self.state["gold"]), gold - 8)
         self.assertTrue(pack_has(self.state, P1, "bread", 1, self.rules))
+
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "buy sugar 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["gold"]), gold - 5)
+        self.assertTrue(pack_has(self.state, P1, "sugar", 1, self.rules))
+
+    def test_jam_cannot_be_crafted_without_sugar(self):
+        from inventory import pack_has, recipes, ingredient_cost, item_sell_price
+        from engine import crop_info
+
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 100
+        give_item(self.state, "strawberry", 3, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("sugar", msg.lower())
+        self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+
+        give_item(self.state, "sugar", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+
+        berry = int(crop_info(self.crops, "strawberry")["sell_price"])
+        rhubarb = int(crop_info(self.crops, "rhubarb")["sell_price"])
+        jam = recipes(self.rules)["strawberry_jam"]
+        wild = recipes(self.rules)["wild_berry_jam"]
+        rhub = recipes(self.rules)["rhubarb_strawberry_jam"]
+        # Old input costs (no sugar): 75 / 0 / 81. New costs include 5G sugar.
+        self.assertEqual(ingredient_cost(jam, self.crops, self.rules), 3 * berry + 5)
+        self.assertEqual(ingredient_cost(wild, self.crops, self.rules), 5)
+        self.assertEqual(ingredient_cost(rhub, self.crops, self.rules), 2 * rhubarb + berry + 5)
+        self.assertEqual(item_sell_price("strawberry_jam", self.crops, self.rules), 90)
+        self.assertEqual(item_sell_price("wild_berry_jam", self.crops, self.rules), 55)
+        self.assertEqual(item_sell_price("rhubarb_strawberry_jam", self.crops, self.rules), 95)
 
     def test_staples_are_edible_snacks(self):
         from inventory import add_to_pack, pack_has, item_eat_energy
@@ -3456,6 +3499,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertEqual(item_eat_energy("bread_half", self.crops, self.rules), 5)
         self.assertEqual(item_eat_energy("butter", self.crops, self.rules), 6)
         self.assertEqual(item_eat_energy("milk", self.crops, self.rules), 8)
+        self.assertFalse(item_eat_energy("sugar", self.crops, self.rules))
 
     def test_starting_book_has_jam_and_soup_but_not_later_recipes(self):
         from engine import discovered_recipe_ids, format_recipe_book, legal_actions
@@ -3467,6 +3511,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         book = format_recipe_book(self.state, self.crops, self.rules, player=P1)
         self.assertIn("strawberry jam", book)
         self.assertIn("3 berries (strawberries or wild berries)", book)
+        self.assertIn("1 sugar", book)
         self.assertIn("kabocha soup", book)
         self.assertNotIn("jam toast", book)
         self.assertNotIn("bread and butter", book)
@@ -3731,8 +3776,9 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
             "eat bread (+5 energy)",
         )
         add_to_pack(self.state, P1, "strawberry", 3, self.rules)
+        add_to_pack(self.state, P1, "sugar", 1, self.rules)
         line = format_legal_action("craft strawberry_jam", self.state, self.crops, P1, self.rules)
-        self.assertEqual(line, "craft strawberry jam (5 energy, uses 3 strawberries)")
+        self.assertEqual(line, "craft strawberry jam (5 energy, uses 3 strawberries, 1 sugar)")
         # legal_actions stay bare commands; look shows the human names + descriptors.
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
@@ -4120,6 +4166,7 @@ class SpringPlantedCrops(unittest.TestCase):
         self.state["players"][P1]["energy"] = 100
         add_to_chest(self.state, "rhubarb", 2, self.rules)
         add_to_chest(self.state, "strawberry", 1, self.rules)
+        add_to_chest(self.state, "sugar", 1, self.rules)
         ok, msg = do_action(self.state, self.crops, "craft rhubarb strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "rhubarb_strawberry_jam", 1))
@@ -4606,6 +4653,7 @@ class ForageFood(unittest.TestCase):
         self.assertFalse(pack_has(self.state, P1, "wild_onion", 1, self.rules))
 
         give_item(self.state, "wild_berry", 2, player=P1)
+        give_item(self.state, "sugar", 1, player=P1)
         ok, msg = do_action(self.state, self.crops, "craft wild berry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "wild_berry_jam", 1, self.rules))
@@ -4619,6 +4667,7 @@ class ForageFood(unittest.TestCase):
         # Wild berries fill strawberry jam's berry pool.
         give_item(self.state, "strawberry", 1, player=P1)
         give_item(self.state, "wild_berry", 2, player=P1)
+        give_item(self.state, "sugar", 1, player=P1)
         ok, msg = do_action(self.state, self.crops, "craft strawberry jam", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
@@ -5050,6 +5099,8 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertFalse(cleared.get("rock"))
         self.assertEqual(cleared.get("ladder"), "open")
         self.assertIn("ladder", msg.lower())
+        self.assertIn("stone", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "stone", 1, self.rules))
         self.assertEqual(self.state["players"][P1]["energy"], 90)
         self.assertIn("climb down", legal_actions(self.state, self.crops, P1, self.rules))
         ok, msg = do_action(self.state, self.crops, "climb down", player=P1, rules=self.rules)
@@ -5278,6 +5329,157 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(normalize_item("gold ore"), "gold_ore")
         self.assertNotEqual(normalize_item("gold"), "gold_ore")
 
+    def test_plain_rock_yields_sellable_stone_and_respects_pack_space(self):
+        from hills import set_player_place, AREA_MINE, AREA_FARM
+        from mine import get_mine_tile, iter_mine_tiles
+        from inventory import pack_has, add_to_pack, item_sell_price
+        from sprites import sprite_key, parse_sprite_key
+        from packs import layers_for_key, load_manifest
+
+        exit_tile = {"type": "mine_floor", "exit": True}
+        self.assertEqual(sprite_key(exit_tile, floor=1), "mine_floor_shaft")
+        self.assertEqual(sprite_key(exit_tile), "mine_floor_shaft")
+        self.assertEqual(sprite_key(exit_tile, floor=2), "mine_floor_ladder_up")
+        up = parse_sprite_key("mine_floor_ladder_up")
+        self.assertTrue(up.get("ladder_up"))
+        self.assertTrue(up.get("mine"))
+        door = parse_sprite_key("mine_floor_shaft")
+        self.assertTrue(door.get("exit") or door.get("shaft"))
+        self.assertFalse(door.get("ladder_up"))
+
+        man = load_manifest("storybook")
+        rock_layers = layers_for_key("mine_floor_rock", man)
+        self.assertEqual([layer["role"] for layer in rock_layers], ["ground", "crop"])
+        self.assertIn("mine_floor", rock_layers[0]["file"])
+        self.assertIn("mine_rock.png", rock_layers[1]["file"])
+        up_layers = layers_for_key("mine_safe_ladder_up", man)
+        self.assertIn("mine_safe", up_layers[0]["file"])
+        self.assertIn("mine_ladder_up", up_layers[1]["file"])
+        self.assertIn("mine_shaft", layers_for_key("mine_floor_shaft", man)[1]["file"])
+        self.assertIn("mine_rock_copper", layers_for_key("mine_floor_rock_copper", man)[1]["file"])
+        self.assertEqual(item_sell_price("stone", self.crops, self.rules), 1)
+
+        self._enter()
+        found = next(
+            ((r, c) for r, c, tile in iter_mine_tiles(self.state, 1, self.rules) if tile.get("rock") == "stone"),
+            None,
+        )
+        self.assertIsNotNone(found)
+        r, c = found
+        set_player_place(self.state, P1, AREA_MINE, r, c, floor=1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("stone", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "stone", 1, self.rules))
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        self.assertFalse(get_mine_tile(self.state, 1, r, c, self.rules).get("rock"))
+
+        # Fill the stone stack to its cap too, or a second piece would still fit.
+        add_to_pack(self.state, P1, "stone", 7, self.rules)
+        while add_to_pack(self.state, P1, "wood", 8, self.rules) == 0:
+            pass
+        found2 = next(
+            (
+                (rr, cc)
+                for rr, cc, tile in iter_mine_tiles(self.state, 1, self.rules)
+                if tile.get("rock") == "stone" and (rr, cc) != found
+            ),
+            None,
+        )
+        self.assertIsNotNone(found2)
+        r, c = found2
+        set_player_place(self.state, P1, AREA_MINE, r, c, floor=1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("room", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertTrue(get_mine_tile(self.state, 1, r, c, self.rules).get("rock"))
+
+        set_player_place(self.state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        gold = int(self.state["gold"] or 0)
+        ok, msg = do_action(self.state, self.crops, "sell stone 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(self.state["gold"]), gold + 1)
+
+    def test_iron_pickaxe_yields_extra_stone_and_gold_splashes_a_neighbour(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import get_mine_tile, iter_mine_tiles, set_tool_tier
+        from inventory import pack_has, TOOL_PICKAXE
+
+        self._enter()
+        set_tool_tier(self.state, TOOL_PICKAXE, "iron")
+        target = neigh = None
+        for r, c, tile in iter_mine_tiles(self.state, 1, self.rules):
+            if tile.get("exit") or tile.get("elevator") or tile.get("lantern"):
+                continue
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                rr, cc = r + dr, c + dc
+                if not (1 <= rr <= 3 and 1 <= cc <= 3):
+                    continue
+                other = get_mine_tile(self.state, 1, rr, cc, self.rules)
+                if other.get("exit") or other.get("elevator") or other.get("lantern"):
+                    continue
+                target, neigh = (r, c), (rr, cc)
+                break
+            if target:
+                break
+        self.assertIsNotNone(target)
+        tr, tc = target
+        nr, nc = neigh
+        # Clear other adjacent rocks so a later gold splash has only this neighbour.
+        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            rr, cc = tr + dr, tc + dc
+            if not (1 <= rr <= 3 and 1 <= cc <= 3):
+                continue
+            other = get_mine_tile(self.state, 1, rr, cc, self.rules)
+            if (rr, cc) == (nr, nc):
+                continue
+            if other.get("rock"):
+                other["rock"] = None
+        get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "stone", "ladder": None})
+        get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
+        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "stone", 2, self.rules), msg)
+        self.assertTrue(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+
+        set_tool_tier(self.state, TOOL_PICKAXE, "gold")
+        get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "gold_ore", "ladder": None})
+        get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
+        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "gold_ore", 2, self.rules), msg)
+        self.assertTrue(pack_has(self.state, P1, "stone", 4, self.rules), msg)
+        self.assertFalse(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
+        self.assertIn("stone", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+
+    def test_web_mine_payload_uses_shaft_on_floor_one_and_ladder_up_deeper(self):
+        import web
+        from hills import set_player_place, AREA_MINE
+        from mine import arrival_tile, get_mine_tile, ensure_mine
+
+        self._enter()
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload.get("view_floor"), 1)
+        r, c = arrival_tile(self.state, 1, self.rules)
+        self.assertTrue(get_mine_tile(self.state, 1, r, c, self.rules).get("exit"))
+        self.assertEqual(payload["sprites"][r - 1][c - 1], "mine_floor_shaft")
+
+        ensure_mine(self.state, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, *arrival_tile(self.state, 2, self.rules), floor=2)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload.get("view_floor"), 2)
+        r, c = arrival_tile(self.state, 2, self.rules)
+        self.assertEqual(payload["sprites"][r - 1][c - 1], "mine_floor_ladder_up")
+
 
 class WebHudAndOverview(unittest.TestCase):
     def test_overview_sits_above_this_tile_and_status_has_icons(self):
@@ -5352,6 +5554,10 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertEqual(catalog["wild_onion"].get("eat_energy"), 6)
         self.assertEqual(catalog["wild_berry"].get("eat_energy"), 8)
         self.assertNotIn("eat_energy", catalog["wild_mushroom"])
+        self.assertEqual(catalog["stone"].get("sell_price"), 1)
+        self.assertEqual(catalog["wood"].get("sell_price"), 4)
+        self.assertEqual(catalog["copper_ore"].get("sell_price"), 8)
+        self.assertEqual(catalog["sugar"].get("sell_price"), 2)
 
     def test_web_chest_lists_produce_and_eat_forage_not_under_backpack(self):
         import web
@@ -5405,13 +5611,15 @@ class ShopChestWebUi(unittest.TestCase):
             data["shopBackpackPresent"],
             "chest produce was listed under From the backpack: " + (data.get("shopBackpackText") or ""),
         )
-        self.assertTrue(data["shopChestPresent"])
-        self.assertRegex(data["shopChestText"].lower(), r"spinach")
-        self.assertRegex(data["shopChestText"].lower(), r"turnip")
-        self.assertRegex(data["shopChestText"].lower(), r"wild onion")
-        self.assertTrue(any(t.lower().startswith("take") for t in data["shopChestButtons"]))
-        self.assertTrue(any("eat" in t.lower() and "6" in t for t in data["shopChestButtons"]))
+        self.assertFalse(data["shopChestPresent"], "cabin chest should not appear in the shop panel")
+        self.assertFalse(data.get("shopBackpackDropPresent"), "backpack drop should not appear in the shop panel")
+        self.assertFalse(data.get("shopKitchenPresent"), "kitchen should not appear in the shop panel")
         self.assertTrue(any(t.lower().startswith("eat") for t in data.get("eatButtons") or []))
+        self.assertTrue(
+            any("sell" in t.lower() and "4" in t for t in data["invChestButtons"]),
+            "wood in the chest should still be sellable from the cabin chest panel: "
+            + repr(data.get("invChestButtons")),
+        )
 
 
     def test_side_panel_hides_the_chest_when_not_in_the_cabin(self):
@@ -5484,6 +5692,36 @@ class ShopChestWebUi(unittest.TestCase):
         data = self._run_jsdom(payload, html)
         self.assertRegex(data.get("energyHud") or "", r"100/100")
         self.assertNotIn("over-max", data.get("energyHudClass") or "")
+
+    def test_shop_panel_is_buy_only_and_recipe_book_still_crafts(self):
+        import web
+        from hills import set_player_place, AREA_FARM
+
+        crops = load_crops()
+        rules = load_rules()
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        payload = web.api_payload(state, crops, player=P1)
+        book = list(payload.get("recipe_book") or [])
+        book.append({
+            "id": "strawberry_jam",
+            "name": "strawberry jam",
+            "craftable": True,
+            "ingredients_text": "3 berries, 1 sugar",
+        })
+        payload["recipe_book"] = book
+        html = web.render_page(viewer=P1)
+        data = self._run_jsdom(payload, html)
+        self.assertFalse(data.get("shopChestPresent"))
+        self.assertFalse(data.get("shopBackpackPresent"))
+        self.assertFalse(data.get("shopBackpackDropPresent"))
+        self.assertFalse(data.get("shopKitchenPresent"))
+        self.assertRegex((data.get("shopText") or "").lower(), r"sugar")
+        self.assertTrue(
+            any((t or "").strip().lower() == "craft" for t in (data.get("recipeCraftButtons") or [])),
+            "recipe book should still offer Craft: " + repr(data.get("recipeCraftButtons")),
+        )
 
 
 class CabinChestOrder(unittest.TestCase):
@@ -5925,10 +6163,14 @@ class EatButtonsWeb(unittest.TestCase):
             any(t.lower().startswith("eat") and "5" in t for t in data["packHalf"]["buttons"]),
             data["packHalf"],
         )
-        self.assertTrue(data["shopOnion"]["present"], data.get("shopText"))
+        self.assertFalse(
+            data["shopOnion"]["present"],
+            "wild onion should not be listed in the shop: " + (data.get("shopText") or ""),
+        )
+        self.assertTrue(data["chestOnion"]["present"], data.get("invText"))
         self.assertTrue(
-            any(t.lower().startswith("eat") and "6" in t for t in data["shopOnion"]["buttons"]),
-            data["shopOnion"],
+            any(t.lower().startswith("eat") and "6" in t for t in data["chestOnion"]["buttons"]),
+            data["chestOnion"],
         )
 
 

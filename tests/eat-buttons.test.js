@@ -47,7 +47,7 @@ function waitFor(check, tries) {
 
 function cardInfo(root, nameRe) {
   if (!root) return { present: false, text: "", buttons: [] };
-  const cards = Array.from(root.querySelectorAll(".shop-card"));
+  const cards = Array.from(root.querySelectorAll(".shop-card, .chest-card"));
   const card = cards.find((el) => nameRe.test(el.textContent || ""));
   if (!card) return { present: false, text: "", buttons: [] };
   return {
@@ -67,10 +67,12 @@ waitFor(() => {
   const packHalf = cardInfo(inv, /half loaf/i);
   const shopHalf = cardInfo(shop, /half loaf/i);
   const shopOnion = cardInfo(shop, /wild onion/i);
+  const chestOnion = cardInfo(inv, /wild onion/i);
   const result = {
     packHalf: packHalf,
     shopHalf: shopHalf,
     shopOnion: shopOnion,
+    chestOnion: chestOnion,
     invText: inv ? inv.textContent : "",
     shopText: shop ? shop.textContent : "",
   };

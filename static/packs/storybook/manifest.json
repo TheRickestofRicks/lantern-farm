@@ -17,7 +17,9 @@
     "hillside": "grounds/hillside.png",
     "hillside_snow": "grounds/hillside_snow.png",
     "mine_entrance_closed": "grounds/mine_entrance_closed.png",
-    "mine_entrance_closed_snow": "grounds/mine_entrance_closed_snow.png"
+    "mine_entrance_closed_snow": "grounds/mine_entrance_closed_snow.png",
+    "mine_floor": "grounds/mine_floor.png",
+    "mine_safe": "grounds/mine_safe.png"
   },
   "overlays": {
     "everbearing_dormant": "overlays/everbearing_dormant.png",
@@ -152,7 +154,16 @@
     "forage_wild_onion": "overlays/forage_wild_onion.png",
     "forage_wild_berry": "overlays/forage_wild_berry.png",
     "forage_wild_mushroom": "overlays/forage_wild_mushroom.png",
-    "cabin_smoke": "overlays/cabin_smoke.png"
+    "cabin_smoke": "overlays/cabin_smoke.png",
+    "mine_rock": "overlays/mine_rock.png",
+    "mine_rock_copper": "overlays/mine_rock_copper.png",
+    "mine_rock_iron": "overlays/mine_rock_iron.png",
+    "mine_rock_gold": "overlays/mine_rock_gold.png",
+    "mine_ladder": "overlays/mine_ladder.png",
+    "mine_shaft": "overlays/mine_shaft.png",
+    "mine_ladder_up": "overlays/mine_ladder_up.png",
+    "mine_lantern": "overlays/mine_lantern.png",
+    "mine_elevator": "overlays/mine_elevator.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",
@@ -237,6 +248,11 @@
     "wild_onion_soup": "items/wild_onion_soup.png",
     "mushroom_soup": "items/mushroom_soup.png",
     "oyster_mushroom": "items/oyster_mushroom.png",
-    "pickaxe": "items/pickaxe.png"
+    "pickaxe": "items/pickaxe.png",
+    "stone": "items/stone.png",
+    "copper_ore": "items/copper_ore.png",
+    "iron_ore": "items/iron_ore.png",
+    "gold_ore": "items/gold_ore.png",
+    "sugar": "items/sugar.png"
   }
 }

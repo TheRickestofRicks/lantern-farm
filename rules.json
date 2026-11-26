@@ -85,7 +85,10 @@
       "berries": 3,
       "eat_energy": 40,
       "sell_price": 90,
-      "description": "Three berries simmered into a jar of jam. A hearty snack, or a little more gold than the fruit alone."
+      "description": "Three berries simmered with sugar into a jar of jam. A hearty snack, still worth a little more than the fruit and sugar apart.",
+      "ingredients": {
+        "sugar": 1
+      }
     },
     "kabocha_soup": {
       "name": "kabocha soup",
@@ -170,11 +173,12 @@
     "wild_berry_jam": {
       "name": "wild berry jam",
       "ingredients": {
-        "wild_berry": 2
+        "wild_berry": 2,
+        "sugar": 1
       },
       "eat_energy": 32,
       "sell_price": 55,
-      "description": "Two handfuls of wild berries simmered into a jar of jam. A sweeter snack than the berries raw."
+      "description": "Two handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw."
     },
     "mushroom_soup": {
       "name": "mushroom soup",
@@ -213,6 +217,10 @@
       "price": 8,
       "sell_price": 4,
       "eat_energy": 8
+    },
+    "sugar": {
+      "price": 5,
+      "sell_price": 2
     }
   },
   "max_hp": 100,

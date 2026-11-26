@@ -1136,6 +1136,56 @@ PAGE = r"""<!DOCTYPE html>
       }
       return fallback || ("/item/" + item + ".svg");
     }
+    function parseMineSpriteKey(key) {
+      key = String(key || "").trim().toLowerCase();
+      let rock = null, ladder = false, shaft = false, lantern = false, elevator = false, ladderUp = false;
+      const ores = [["copper", "_rock_copper"], ["iron", "_rock_iron"], ["gold", "_rock_gold"]];
+      for (let i = 0; i < ores.length; i++) {
+        const suffix = ores[i][1];
+        if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+          rock = ores[i][0] + "_ore";
+          key = key.slice(0, -suffix.length);
+          break;
+        }
+      }
+      if (key.length >= 5 && key.slice(-5) === "_rock") {
+        rock = "stone";
+        key = key.slice(0, -5);
+      }
+      if (key.length >= 9 && key.slice(-9) === "_elevator") {
+        elevator = true;
+        key = key.slice(0, -9);
+      }
+      if (key.length >= 8 && key.slice(-8) === "_lantern") {
+        lantern = true;
+        key = key.slice(0, -8);
+      }
+      if (key.length >= 6 && key.slice(-6) === "_shaft") {
+        shaft = true;
+        key = key.slice(0, -6);
+      }
+      if (key.length >= 10 && key.slice(-10) === "_ladder_up") {
+        ladderUp = true;
+        key = key.slice(0, -10);
+      }
+      if (key.length >= 7 && key.slice(-7) === "_ladder") {
+        ladder = true;
+        key = key.slice(0, -7);
+      }
+      if (key !== "mine_floor" && key !== "mine_safe") return null;
+      return {
+        kind: key,
+        type: key,
+        rock: rock,
+        ladder: ladder ? "open" : null,
+        ladder_up: ladderUp,
+        exit: shaft || ladderUp,
+        shaft: shaft,
+        lantern: lantern,
+        elevator: elevator,
+        mine: true
+      };
+    }
     function parseHillsSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
       let forage = null, tree = null, snow = false;
@@ -1180,6 +1230,8 @@ PAGE = r"""<!DOCTYPE html>
     }
     function parseSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
+      const mineParsed = parseMineSpriteKey(key);
+      if (mineParsed) return mineParsed;
       const hillsParsed = parseHillsSpriteKey(key);
       if (hillsParsed) return hillsParsed;
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
@@ -1258,6 +1310,9 @@ PAGE = r"""<!DOCTYPE html>
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
+      if (parsed.mine || parsed.kind === "mine_floor" || parsed.kind === "mine_safe" || parsed.type === "mine_floor" || parsed.type === "mine_safe") {
+        return parsed.type || parsed.kind;
+      }
       if (parsed.hills) {
         let base;
         if (parsed.type === "mine_entrance" || parsed.kind === "mine_entrance") {
@@ -1304,6 +1359,32 @@ PAGE = r"""<!DOCTYPE html>
       if (!ground && gkey && gkey.slice(-5) === "_snow") ground = pack.grounds[gkey.slice(0, -5)];
       if (!ground) return null;
       layers.push("/static/packs/" + pack.id + "/" + ground);
+      if (parsed.mine || parsed.kind === "mine_floor" || parsed.kind === "mine_safe") {
+        const ov = pack.overlays || {};
+        function addOverlay(name) {
+          const f = ov[name];
+          if (!f) return false;
+          layers.push("/static/packs/" + pack.id + "/" + f);
+          return true;
+        }
+        if (parsed.rock) {
+          let rkey = "mine_rock";
+          if (parsed.rock === "copper_ore") rkey = "mine_rock_copper";
+          else if (parsed.rock === "iron_ore") rkey = "mine_rock_iron";
+          else if (parsed.rock === "gold_ore") rkey = "mine_rock_gold";
+          if (!addOverlay(rkey)) return null;
+        } else {
+          if (parsed.ladder === "open" && !addOverlay("mine_ladder")) return null;
+          if (parsed.ladder_up) {
+            if (!addOverlay("mine_ladder_up")) return null;
+          } else if (parsed.exit || parsed.shaft) {
+            if (!addOverlay("mine_shaft")) return null;
+          }
+          if (parsed.lantern && !addOverlay("mine_lantern")) return null;
+          if (parsed.elevator && !addOverlay("mine_elevator")) return null;
+        }
+        return layers;
+      }
       if (parsed.fertilizer) {
         const fkey = "fertilizer_" + parsed.fertilizer;
         const fert = pack.overlays && pack.overlays[fkey];
@@ -2713,7 +2794,8 @@ PAGE = r"""<!DOCTYPE html>
       const rec = recipeInfo(slot.item, opts.data);
       const crops = (opts.data && opts.data.crops) || {};
       const crop = crops[slot.item];
-      const sellPrice = (rec && rec.sell_price) || (crop && crop.sell_price);
+      const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
+      const sellPrice = (rec && rec.sell_price) || (crop && crop.sell_price) || named.sell_price;
       if (sellPrice) {
         addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", cabinTurn);
       }
@@ -2825,20 +2907,16 @@ PAGE = r"""<!DOCTYPE html>
       if (!data.in_cabin) {
         const note = document.createElement("p");
         note.className = "shop-empty";
-        note.textContent = "Walk to the cabin to buy, sell, craft, or use the chest. Harvested crops have to be carried home in your backpack.";
+        note.textContent = "Walk to the cabin to buy from the shop. Selling, crafting, and the chest all live in the cabin panels.";
         shop.appendChild(note);
       }
       const crops = data.crops || {};
       const season = (data.state && data.state.season) || "";
-      const packHeld = packSlotsOf(data);
       const forSale = [];
-      const sellables = [];
       for (const [kind, info] of Object.entries(crops)) {
-        const fruit = countItemInSlots(packHeld, kind);
         const shopSeasons = (info.shop_seasons && info.shop_seasons.length) ? info.shop_seasons : (info.seasons || []);
         const inSeason = info.available !== false && shopSeasons.indexOf(season) !== -1;
         if (inSeason) forSale.push([kind, info]);
-        if (fruit > 0) sellables.push([kind, info]);
       }
       if (!forSale.length) {
         const empty = document.createElement("p");
@@ -2877,7 +2955,7 @@ PAGE = r"""<!DOCTYPE html>
         title.textContent = "Staples";
         shop.appendChild(title);
         stapleSale.forEach(function (item) {
-          appendShopCard(shop, data, item, staples[item], {buy: true, sell: true});
+          appendShopCard(shop, data, item, staples[item], {buy: true, sell: false});
         });
       }
       const tools = data.tools || {};
@@ -2889,61 +2967,6 @@ PAGE = r"""<!DOCTYPE html>
         shop.appendChild(title);
         toolSale.forEach(function (item) {
           appendToolCard(shop, data, item, tools[item]);
-        });
-      }
-      if (sellables.length) {
-        const title = document.createElement("div");
-        title.className = "shop-section-title";
-        title.textContent = "From the backpack";
-        shop.appendChild(title);
-        sellables.forEach(function (pair) {
-          appendShopCard(shop, data, pair[0], pair[1], {buy: false, sell: true});
-        });
-      }
-      if (data.in_cabin) {
-        const chestTitle = document.createElement("div");
-        chestTitle.className = "shop-section-title";
-        chestTitle.textContent = "Cabin chest";
-        shop.appendChild(chestTitle);
-        const canAct = !!(data.your_turn && data.in_cabin);
-        renderChestCards(shop, data);
-        const pack = packSlotsOf(data);
-        const held = pack.filter(function (s) { return s && s.item; });
-        if (held.length) {
-          const dropTitle = document.createElement("div");
-          dropTitle.className = "shop-section-title";
-          dropTitle.textContent = "Backpack";
-          shop.appendChild(dropTitle);
-          held.forEach(function (slot) {
-            appendItemCard(shop, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
-          });
-        }
-        const book = data.recipe_book || [];
-        const cookable = book.filter(function (entry) { return entry && entry.craftable; });
-        const craftTitle = document.createElement("div");
-        craftTitle.className = "shop-section-title";
-        craftTitle.textContent = "Kitchen";
-        shop.appendChild(craftTitle);
-        if (!cookable.length) {
-          const hint = document.createElement("p");
-          hint.className = "shop-empty";
-          hint.textContent = "No discovered recipes you can cook right now. Ingredients come from the backpack and the chest.";
-          shop.appendChild(hint);
-        }
-        cookable.forEach(function (entry) {
-          const row = document.createElement("div");
-          row.className = "kitchen-craft";
-          const icon = document.createElement("img");
-          icon.src = itemIconSrc(entry.id);
-          icon.alt = entry.name || entry.id;
-          row.appendChild(icon);
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "btn";
-          btn.textContent = "Craft " + entry.name + " (" + (entry.ingredients_text || "") + ")";
-          btn.addEventListener("click", function () { actCmd("craft " + entry.id); });
-          row.appendChild(btn);
-          shop.appendChild(row);
         });
       }
     }
@@ -3741,7 +3764,7 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
     from inventory import FERTILIZERS, TOOLS, recipes, item_name
     from engine import stock_key
-    from inventory import STAPLES, MATERIALS, FORAGE_ITEMS, item_eat_energy
+    from inventory import STAPLES, MATERIALS, FORAGE_ITEMS, item_eat_energy, item_sell_price
     keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
@@ -3757,6 +3780,9 @@ def _item_name_catalog(crops: dict, rules: dict | None = None) -> dict:
         energy = item_eat_energy(key, crops, rules)
         if energy:
             entry["eat_energy"] = int(energy)
+        sell = item_sell_price(key, crops, rules)
+        if sell:
+            entry["sell_price"] = int(sell)
         out[key] = entry
     return out
 
@@ -3989,7 +4015,7 @@ def api_payload(
             view_area = AREA_FARM
     view_tiles = _payload_view_tiles(view_tiles, crops)
     sprites = [
-        [sprite_key(tile, sky, r + 1, c + 1) for c, tile in enumerate(row)]
+        [sprite_key(tile, sky, r + 1, c + 1, floor=view_floor if view_area == AREA_MINE else None) for c, tile in enumerate(row)]
         for r, row in enumerate(view_tiles)
     ]
     actions = legal_actions(state, crops, player=viewer, rules=rules)

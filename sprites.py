@@ -51,7 +51,7 @@ def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | 
     return name if name in set(VINE_DIRECTIONS) else None
 
 
-def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None) -> str:
+def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None, floor: int | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     typ = (tile or {}).get("type")
     if typ in {"mine_floor", "mine_safe"}:
@@ -66,7 +66,14 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
             if tile.get("ladder") == "open":
                 key += "_ladder"
             if tile.get("exit"):
-                key += "_shaft"
+                try:
+                    fl = int(floor) if floor is not None else 0
+                except (TypeError, ValueError):
+                    fl = 0
+                if fl >= 2:
+                    key += "_ladder_up"
+                else:
+                    key += "_shaft"
             if tile.get("lantern"):
                 key += "_lantern"
             if tile.get("elevator"):
@@ -1081,6 +1088,10 @@ def _parse_mine_sprite_key(key: str) -> dict | None:
     if raw.endswith("_shaft"):
         shaft = True
         raw = raw[: -len("_shaft")]
+    ladder_up = False
+    if raw.endswith("_ladder_up"):
+        ladder_up = True
+        raw = raw[: -len("_ladder_up")]
     if raw.endswith("_ladder"):
         ladder = True
         raw = raw[: -len("_ladder")]
@@ -1091,7 +1102,9 @@ def _parse_mine_sprite_key(key: str) -> dict | None:
         "type": raw,
         "rock": rock,
         "ladder": "open" if ladder else None,
-        "exit": shaft,
+        "ladder_up": ladder_up,
+        "exit": shaft or ladder_up,
+        "shaft": shaft,
         "lantern": lantern,
         "elevator": elevator,
         "mine": True,
@@ -1126,19 +1139,42 @@ def _rock_overlay(kind: str | None) -> str:
 
 
 def _ladder_overlay() -> str:
+    # Ladder into the ground, framed by a square of beams.
     return (
-        '<rect x="62" y="48" width="8" height="90" fill="#6b4a2b"/>'
-        '<rect x="90" y="48" width="8" height="90" fill="#6b4a2b"/>'
-        '<rect x="62" y="64" width="36" height="6" fill="#8a6a44"/>'
-        '<rect x="62" y="88" width="36" height="6" fill="#8a6a44"/>'
-        '<rect x="62" y="112" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="44" y="44" width="72" height="72" fill="#1a1410"/>'
+        '<rect x="40" y="40" width="80" height="10" fill="#6b4a2b"/>'
+        '<rect x="40" y="110" width="80" height="10" fill="#6b4a2b"/>'
+        '<rect x="40" y="40" width="10" height="80" fill="#6b4a2b"/>'
+        '<rect x="110" y="40" width="10" height="80" fill="#6b4a2b"/>'
+        '<rect x="64" y="52" width="6" height="68" fill="#8a6a44"/>'
+        '<rect x="90" y="52" width="6" height="68" fill="#8a6a44"/>'
+        '<rect x="64" y="64" width="32" height="5" fill="#c4a574"/>'
+        '<rect x="64" y="80" width="32" height="5" fill="#c4a574"/>'
+        '<rect x="64" y="96" width="32" height="5" fill="#c4a574"/>'
     )
 
 
 def _shaft_overlay() -> str:
+    # Mineshaft door seen from inside the tunnel.
     return (
-        '<ellipse cx="80" cy="88" rx="26" ry="16" fill="#1a1612"/>'
-        '<ellipse cx="80" cy="84" rx="18" ry="10" fill="#0e0c0a"/>'
+        '<ellipse cx="80" cy="86" rx="44" ry="48" fill="#2a2018"/>'
+        '<rect x="56" y="58" width="48" height="58" rx="2" fill="#6b4a2b"/>'
+        '<rect x="60" y="62" width="40" height="10" fill="#8a6a44"/>'
+        '<rect x="60" y="76" width="40" height="10" fill="#8a6a44"/>'
+        '<rect x="60" y="90" width="40" height="10" fill="#8a6a44"/>'
+        '<circle cx="90" cy="88" r="2" fill="#c4a574"/>'
+    )
+
+
+def _ladder_up_overlay() -> str:
+    # A ladder ending in midair (the way up on floors 2+).
+    return (
+        '<rect x="62" y="8" width="8" height="100" fill="#6b4a2b"/>'
+        '<rect x="90" y="8" width="8" height="100" fill="#6b4a2b"/>'
+        '<rect x="62" y="24" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="62" y="44" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="62" y="64" width="36" height="6" fill="#8a6a44"/>'
+        '<rect x="62" y="84" width="36" height="6" fill="#8a6a44"/>'
     )
 
 
@@ -1166,7 +1202,9 @@ def svg_mine_tile(info: dict) -> str:
         layers.append(_rock_overlay(info.get("rock")))
     if info.get("ladder") == "open":
         layers.append(_ladder_overlay())
-    if info.get("exit"):
+    if info.get("ladder_up"):
+        layers.append(_ladder_up_overlay())
+    elif info.get("exit") or info.get("shaft"):
         layers.append(_shaft_overlay())
     if info.get("lantern"):
         layers.append(_lantern_overlay())
@@ -1325,6 +1363,8 @@ _ITEM_LABELS = {
     "axe": "AXE",
     "pickaxe": "PICK",
     "wood": "WOOD",
+    "stone": "STONE",
+    "sugar": "SUGAR",
     "copper_ore": "COPPER",
     "iron_ore": "IRON",
     "gold_ore": "GOLD",
@@ -1362,6 +1402,8 @@ _ITEM_COLORS = {
     "axe": ("#4a3a28", "#d4c09a"),
     "pickaxe": ("#4a5560", "#c4a574"),
     "wood": ("#6b4a2b", "#e2c48a"),
+    "stone": ("#5a5348", "#c8c0b0"),
+    "sugar": ("#e8dcc8", "#6b4a2b"),
     "copper_ore": ("#8a4a1a", "#e2b07a"),
     "iron_ore": ("#4a5560", "#c0c8d0"),
     "gold_ore": ("#c9a227", "#fff4c8"),

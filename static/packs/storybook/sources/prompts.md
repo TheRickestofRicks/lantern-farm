@@ -96,6 +96,9 @@ Ground prompts (top-down square farm tile, no text, no frame, no people, no sign
 - **mine_entrance_closed** — A boarded-up mine door set in a rocky cave mouth on a grassy bank, weathered planks nailed shut, a dirt approach, clearly closed.
 - **mine_entrance_closed_snow** — The same sealed entrance, snow-dusted boards, full-bleed snowy ground around it. An earlier take that showed an open tunnel was replaced with the boarded door.
 
+- **mine_floor** — A dark packed-earth mine tunnel floor, seen from above, brown and grey soil packed hard, a little grit and no grass. Full-bleed ground, no frame, no people.
+- **mine_safe** — A warmer gold-flecked safe-chamber floor, still packed earth, a little brighter and more golden than the ordinary tunnel, seen from above, full-bleed.
+
 Overlay prompts (subject only on a flat vivid magenta-rose field, no soil, no pot, no text):
 
 - **tree_sapling** — A slender sapling with a thin brown trunk and a few fresh green leaves, seen slightly from above.
@@ -105,6 +108,16 @@ Overlay prompts (subject only on a flat vivid magenta-rose field, no soil, no po
 - **forage_wild_onion** — A small cluster of upright wild-onion leaves with one white flower, fairly small on the tile.
 - **forage_wild_berry** — A low leafy bush with a few ripe red berries.
 - **forage_wild_mushroom** — Three woodland mushrooms with tawny caps and pale stems.
+
+- **mine_rock** — A plain grey-brown boulder sitting on the mine floor, no crystals, subject only on magenta.
+- **mine_rock_copper** — The same boulder with visible copper-green and orange ore veins.
+- **mine_rock_iron** — The same boulder with visible silver-grey iron crystals.
+- **mine_rock_gold** — The same boulder with bright gold flecks and veins.
+- **mine_ladder** — A ladder going down into a dark hole in the floor, framed by a square of wooden beams, seen from above, subject only on magenta. The hole and the space between rungs should key to transparency.
+- **mine_shaft** — A wooden mineshaft door seen from inside the tunnel, set in a rough cave mouth, subject only on magenta. No pink fringe around the cave edge.
+- **mine_ladder_up** — A wooden ladder ending in midair, no ceiling, no hole, the way up from a deeper floor, subject only on magenta. Spaces between rungs should key to transparency.
+- **mine_lantern** — An oil lantern on a short post, sitting on the floor, warm glow, subject only on magenta, flush to the bottom of the square.
+- **mine_elevator** — An empty wooden-and-iron mine elevator cage, no cargo, subject only on magenta. The interior of the cage should key to transparency.
 
 - **zucchini_growing** — A young zucchini plant with lobed leaves and small fruits attached to the stems near the base, each with a yellow blossom at the fruit tip (real zucchini). Earlier takes with a floating flower and bare fruit tips were discarded. Wet and dry variants share this overlay.
 - **zucchini_mature** — The same plant at harvest, with much larger plump fruits still attached at the stem and a blossom at each tip. Wet and dry variants share this overlay.
@@ -122,3 +135,9 @@ Item-icon prompts (single centered object on magenta, same style as the hoe and 
 - **mushroom_soup** — A beige bowl of creamy brown mushroom bisque, sliced mushrooms and a swirl of cream on top.
 - **oyster_mushroom** — A cluster of fan-shaped cream and grey-beige oyster mushrooms with visible gills.
 - **pickaxe** — A classic wooden-haft miner's pickaxe with a steel double-pointed head. One icon covers every forge tier.
+
+- **stone** — A small pile of broken grey stone, a cheap mine material, single centered object on magenta.
+- **copper_ore** — A chunk of rock with copper-green and orange mineral, single centered object on magenta.
+- **iron_ore** — A chunk of rock with visible silver-grey iron crystals, single centered object on magenta.
+- **gold_ore** — A chunk of rock with bright gold flecks, single centered object on magenta.
+- **sugar** — A small brown paper sack of white sugar, maybe with a short wooden scoop and a little spilled sugar, single centered object on magenta. A glass jar of sugar nestled in the sack is fine.

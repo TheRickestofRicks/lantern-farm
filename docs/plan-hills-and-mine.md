@@ -292,3 +292,29 @@ Each phase should be its own playable stretch, not one giant commit.
    Cabin sleepers get +10 wake energy, and +10 more if that player ate
    at least 10 energy worth of food that day, up to 120. Forge fuel
    can still wait.
+
+## Later (after all art is working)
+
+These are parked until the current art and engine work is in and playing
+well. Design notes only; not built yet.
+
+- **Cabin interior.** Press E (enter cabin) from the farm cabin tile to
+  open a small interior grid, like the mine. Moving inside is free. The
+  fireplace becomes a tile you fuel by hand, and the cabin chest becomes
+  a real tile. Maybe bed and kitchen tiles too, and a way to decorate
+  the home. The kitchen (currently reachable through the recipe book at
+  the cabin) will be rebuilt into that interior.
+
+- **Pass turn.** A pass-turn button, later, after plants and features
+  have settled.
+
+- **Walk home** (paired with pass turn). A player at 0 energy can pass
+  turn and opt to be carried home. The other player walks to them and
+  carries them to the cabin at double movement cost. The carried player
+  counts as sleeping in the cabin, so fire and fed bonuses apply.
+
+- **Tulips.**
+
+- **Yearly wet/dry season variants**, with hints so the year-to-year
+  change is readable.
+

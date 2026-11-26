@@ -77,6 +77,13 @@ STAPLES = {
         "eat_energy": 8,
         "description": "A bottle of fresh milk. Good on its own, or with berries and soup.",
     },
+    "sugar": {
+        "name": "sugar",
+        "name_plural": "bags of sugar",
+        "price": 5,
+        "sell_price": 2,
+        "description": "A small bag of sugar from the village shop. Needed when you cook jam.",
+    },
 }
 
 # Forage and gathered materials (hills). Not shop stock.
@@ -86,6 +93,12 @@ MATERIALS = {
         "name_plural": "wood",
         "sell_price": 4,
         "description": "A small bundle of firewood, chopped in the hills.",
+    },
+    "stone": {
+        "name": "stone",
+        "name_plural": "stone",
+        "sell_price": 1,
+        "description": "A piece of broken stone from the mine. Not worth much, but it stacks, and may be useful later.",
     },
     "copper_ore": {
         "name": "copper ore",
@@ -141,10 +154,10 @@ DEFAULT_RECIPES = {
     "strawberry_jam": {
         "name": "strawberry jam",
         "berries": 3,
-        "ingredients": {},
+        "ingredients": {"sugar": 1},
         "eat_energy": 40,
         "sell_price": 90,
-        "description": "Three berries simmered down to a jar of jam. A hearty snack, or a little more gold than the fruit alone.",
+        "description": "Three berries simmered with sugar into a jar of jam. A hearty snack, still worth a little more than the fruit and sugar apart.",
     },
     "kabocha_soup": {
         "name": "kabocha soup",
@@ -197,10 +210,10 @@ DEFAULT_RECIPES = {
     },
     "rhubarb_strawberry_jam": {
         "name": "rhubarb strawberry jam",
-        "ingredients": {"rhubarb": 2, "strawberry": 1},
+        "ingredients": {"rhubarb": 2, "strawberry": 1, "sugar": 1},
         "eat_energy": 45,
         "sell_price": 95,
-        "description": "Tart rhubarb simmered with a strawberry. A brighter jam than strawberries alone, and worth more than the fruit raw.",
+        "description": "Tart rhubarb simmered with a strawberry and sugar. A brighter jam than strawberries alone, and worth more than the fruit and sugar apart.",
     },
     "garden_salad": {
         "name": "garden salad",
@@ -233,10 +246,10 @@ DEFAULT_RECIPES = {
     },
     "wild_berry_jam": {
         "name": "wild berry jam",
-        "ingredients": {"wild_berry": 2},
+        "ingredients": {"wild_berry": 2, "sugar": 1},
         "eat_energy": 32,
         "sell_price": 55,
-        "description": "Two handfuls of wild berries simmered into a jar of jam. A sweeter snack than the berries raw.",
+        "description": "Two handfuls of wild berries simmered with sugar into a jar of jam. A sweeter snack than the berries raw.",
     },
     "mushroom_soup": {
         "name": "mushroom soup",
@@ -289,6 +302,8 @@ ITEM_ALIASES = {
     "pick axe": TOOL_PICKAXE,
     "pick": TOOL_PICKAXE,
     "wood": "wood",
+    "stone": "stone",
+    "stones": "stone",
     "copper": "copper_ore",
     "copper ore": "copper_ore",
     "copper_ore": "copper_ore",
@@ -339,6 +354,9 @@ ITEM_ALIASES = {
     "milk": "milk",
     "bottle of milk": "milk",
     "bottles of milk": "milk",
+    "sugar": "sugar",
+    "bag of sugar": "sugar",
+    "bags of sugar": "sugar",
     "bread and butter": "bread_and_butter",
     "bread_and_butter": "bread_and_butter",
     "jam toast": "jam_toast",

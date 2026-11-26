@@ -573,28 +573,20 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
             f"{display_name(player)} needs a pickaxe in their backpack to break rock. "
             "Buy one from the shop after finding the mine entrance."
         )
-    ore = None if rock == "stone" else rock
-    got = 0
-    if ore:
-        got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
-        if not pack_space_for(state, player, ore, got, rules):
-            return False, "No room in the backpack for the ore. Drop something at the cabin first."
-        leftover = add_to_pack(state, player, ore, got, rules)
-        if leftover:
-            return False, "No room in the backpack for the ore. Drop something at the cabin first."
-        sync_inventory_view(state, rules)
+    got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
+    what = "the stone" if rock == "stone" else "the ore"
+    if not pack_space_for(state, player, rock, got, rules):
+        return False, f"No room in the backpack for {what}. Drop something at the cabin first."
+    leftover = add_to_pack(state, player, rock, got, rules)
+    if leftover:
+        return False, f"No room in the backpack for {what}. Drop something at the cabin first."
+    sync_inventory_view(state, rules)
     tile["rock"] = None
     revealed = tile.get("ladder") == "hidden"
     if revealed:
         tile["ladder"] = "open"
-    bits = []
-    if ore:
-        bits.append(f"and packs {item_name(ore, got)}.")
-    elif revealed:
-        bits.append("and uncovers a ladder down.")
-    else:
-        bits.append("and clears the rock.")
-    if revealed and ore:
+    bits = [f"and packs {item_name(rock, got)}."]
+    if revealed:
         bits[-1] = bits[-1][:-1] + ", uncovering a ladder down."
     # Gold pickaxe: also break one adjacent rock (NESW).
     splash = ""
@@ -621,24 +613,19 @@ def _splash_mine(state: dict, player: str, floor: int, row: int, col: int, rules
         rock = tile.get("rock")
         if not rock:
             continue
-        ore = None if rock == "stone" else rock
-        got = 0
-        if ore:
-            got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
-            if not pack_space_for(state, player, ore, got, rules):
-                return "."
-            leftover = add_to_pack(state, player, ore, got, rules)
-            if leftover:
-                return "."
-            sync_inventory_view(state, rules)
+        got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
+        if not pack_space_for(state, player, rock, got, rules):
+            return "."
+        leftover = add_to_pack(state, player, rock, got, rules)
+        if leftover:
+            return "."
+        sync_inventory_view(state, rules)
         tile["rock"] = None
         extra = ""
         if tile.get("ladder") == "hidden":
             tile["ladder"] = "open"
             extra = ", uncovering a ladder down"
-        if ore:
-            return f", and a neighbouring rock ({item_name(ore, got)}{extra})."
-        return f", and a neighbouring rock{extra}."
+        return f", and a neighbouring rock ({item_name(rock, got)}{extra})."
     return "."
 
 
@@ -855,7 +842,7 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
     if who_here:
         names = ", ".join(display_name(n) for n in who_here)
         who_bit = f" {names} standing here."
-    key = sprite_key(tile, None, row, col)
+    key = sprite_key(tile, None, row, col, floor=floor)
     return f"  {here} on mine floor {floor} — {typ}. {body.capitalize() if body[:1].islower() else body}{who_bit} (sprite: {key})"
 
 
