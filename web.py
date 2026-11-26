@@ -534,6 +534,27 @@ PAGE = r"""<!DOCTYPE html>
     .recipe-entry b { color: var(--ink); }
     .recipe-entry .recipe-meta { font-size: 0.9rem; }
     .recipe-book .btn { margin-top: 0.4rem; }
+    .recipe-entry-head {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .recipe-entry-head img,
+    .kitchen-craft img {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: var(--soil);
+      border: 1px solid var(--line);
+      flex: 0 0 auto;
+    }
+    .kitchen-craft {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.35rem 0;
+    }
     .inv-panel .shop-section-title { margin-top: 0; }
     .inv-panel .shop-card {
       grid-template-columns: 56px 1fr;
@@ -969,6 +990,14 @@ PAGE = r"""<!DOCTYPE html>
         if (ART_PACKS[i].id === id) return ART_PACKS[i];
       }
       return ART_PACKS[0];
+    }
+    function itemIconSrc(item, fallback) {
+      const pack = packById(artPackId);
+      const rel = pack && pack.items && pack.items[item];
+      if (rel && typeof rel === "string" && /^[a-z0-9_./-]+$/i.test(rel) && rel.indexOf("..") < 0) {
+        return "/static/packs/" + pack.id + "/" + rel;
+      }
+      return fallback || ("/item/" + item + ".svg");
     }
     function parseSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
@@ -1795,9 +1824,14 @@ PAGE = r"""<!DOCTYPE html>
       const card = document.createElement("div");
       card.className = "shop-card";
       const img = document.createElement("img");
-      img.src = (stock === "bag" || (data.fertilizers && data.fertilizers[kind]))
-        ? ("/item/" + kind + ".svg")
-        : ("/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg");
+      const fruitSprite = "/sprite/" + (info.sprite || (kind + "_mature_dry")) + ".svg";
+      if (stock === "bag" || (data.fertilizers && data.fertilizers[kind]) || (data.staples && data.staples[kind]) || (data.recipes && data.recipes[kind])) {
+        img.src = itemIconSrc(kind);
+      } else if (opts && opts.sell && !opts.buy) {
+        img.src = itemIconSrc(kind, fruitSprite);
+      } else {
+        img.src = itemIconSrc(kind + "_" + (stock || "seed"), fruitSprite);
+      }
       img.alt = title;
       card.appendChild(img);
       const body = document.createElement("div");
@@ -1917,7 +1951,7 @@ PAGE = r"""<!DOCTYPE html>
       const row = document.createElement("div");
       row.className = "shop-card";
       const img = document.createElement("img");
-      img.src = "/item/" + slot.item + ".svg";
+      img.src = itemIconSrc(slot.item);
       img.alt = itemName(slot.item, count);
       row.appendChild(img);
       const body = document.createElement("div");
@@ -1979,9 +2013,16 @@ PAGE = r"""<!DOCTYPE html>
       book.forEach(function (entry) {
         const row = document.createElement("div");
         row.className = "recipe-entry";
+        const head = document.createElement("div");
+        head.className = "recipe-entry-head";
+        const icon = document.createElement("img");
+        icon.src = itemIconSrc(entry.id);
+        icon.alt = entry.name || entry.id;
+        head.appendChild(icon);
         const title = document.createElement("b");
         title.textContent = entry.name || entry.id;
-        row.appendChild(title);
+        head.appendChild(title);
+        row.appendChild(head);
         const meta = document.createElement("div");
         meta.className = "recipe-meta";
         const bits = [];
@@ -2146,12 +2187,19 @@ PAGE = r"""<!DOCTYPE html>
           shop.appendChild(hint);
         }
         cookable.forEach(function (entry) {
+          const row = document.createElement("div");
+          row.className = "kitchen-craft";
+          const icon = document.createElement("img");
+          icon.src = itemIconSrc(entry.id);
+          icon.alt = entry.name || entry.id;
+          row.appendChild(icon);
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn";
           btn.textContent = "Craft " + entry.name + " (" + (entry.ingredients_text || "") + ")";
           btn.addEventListener("click", function () { actCmd("craft " + entry.id); });
-          shop.appendChild(btn);
+          row.appendChild(btn);
+          shop.appendChild(row);
         });
       }
     }

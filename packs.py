@@ -54,8 +54,11 @@ def load_manifest(pack_id: str) -> dict | None:
     data.setdefault("description", "")
     data.setdefault("grounds", {})
     data.setdefault("overlays", {})
+    data.setdefault("items", {})
     if not isinstance(data["grounds"], dict) or not isinstance(data["overlays"], dict):
         return None
+    if not isinstance(data.get("items"), dict):
+        data["items"] = {}
     return data
 
 
@@ -78,6 +81,7 @@ def public_packs() -> list[dict]:
             "grounds": man.get("grounds") or {},
             "overlays": man.get("overlays") or {},
             "cabins": man.get("cabins") or {},
+            "items": man.get("items") or {},
         })
         seen.add(man["id"])
     return packs

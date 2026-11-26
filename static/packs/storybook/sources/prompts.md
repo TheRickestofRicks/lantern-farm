@@ -72,3 +72,6 @@ The first `weed` and `weedy` overlays were painted in the centre of the cell, so
 
 The first cabin tiles had wooden steps leading to a four-pane lantern window and no front door. All five weather variants were repainted so a clearly visible wooden front door sits at the top of the steps, with the lantern-lit window beside it. The same cabin is used in clear, cloud, rain, storm, and snow. Style and yard ground were referenced from the Storybook `soil.png` and `soil_wet.png` tiles so the cabin matches neighbouring plots. The earlier no-door 1024 sources and 512 pack tiles are kept as `sources/originals/*_no_door.jpg` and `*_no_door.png`.
 
+## Item icons
+
+Inventory, shop, chest, kitchen, and recipe-book icons were painted in the same ink-and-watercolour Storybook style as the soil, cabin, and plant tiles: a single centered object on a transparent square, not a flat vector placeholder. Tools, three visually distinct fertilizer sacks (teal general, green yield, steel-blue growth), staples, crafted foods, produce, and seed packets live in `items/`. Raw paintings are kept as `sources/originals/item_*.jpg`. The everbearing seedling icon is a closer crop of the existing seedling overlay.

@@ -51,5 +51,33 @@
     "cabin_rain": "cabins/cabin_rain.png",
     "cabin_storm": "cabins/cabin_storm.png",
     "cabin_snow": "cabins/cabin_snow.png"
+  },
+  "items": {
+    "hoe": "items/hoe.png",
+    "watering_can": "items/watering_can.png",
+    "fertilizer_general": "items/fertilizer_general.png",
+    "fertilizer_yield": "items/fertilizer_yield.png",
+    "fertilizer_growth": "items/fertilizer_growth.png",
+    "bread": "items/bread.png",
+    "butter": "items/butter.png",
+    "milk": "items/milk.png",
+    "strawberry_jam": "items/strawberry_jam.png",
+    "kabocha_soup": "items/kabocha_soup.png",
+    "root_stew": "items/root_stew.png",
+    "bread_and_butter": "items/bread_and_butter.png",
+    "jam_toast": "items/jam_toast.png",
+    "strawberry_milk": "items/strawberry_milk.png",
+    "buttered_kabocha": "items/buttered_kabocha.png",
+    "kabocha_cream_soup": "items/kabocha_cream_soup.png",
+    "kabocha": "items/kabocha.png",
+    "turnip": "items/turnip.png",
+    "carrot": "items/carrot.png",
+    "strawberry": "items/strawberry.png",
+    "everbearing": "items/everbearing.png",
+    "strawberry_seed": "items/strawberry_seed.png",
+    "kabocha_seed": "items/kabocha_seed.png",
+    "turnip_seed": "items/turnip_seed.png",
+    "carrot_seed": "items/carrot_seed.png",
+    "everbearing_seedling": "items/everbearing_seedling.png"
   }
 }

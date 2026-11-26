@@ -2337,6 +2337,42 @@ class ArtPackAndPage(unittest.TestCase):
 
 
 
+    def test_storybook_item_icons_are_square_and_transparent(self):
+        from packs import PACKS_ROOT, load_manifest, public_packs, safe_pack_file
+
+        man = load_manifest("storybook")
+        items = man.get("items") or {}
+        expected = {
+            "hoe", "watering_can",
+            "fertilizer_general", "fertilizer_yield", "fertilizer_growth",
+            "bread", "butter", "milk",
+            "strawberry_jam", "kabocha_soup", "root_stew",
+            "bread_and_butter", "jam_toast", "strawberry_milk",
+            "buttered_kabocha", "kabocha_cream_soup",
+            "kabocha", "turnip", "carrot", "strawberry", "everbearing",
+            "strawberry_seed", "kabocha_seed", "turnip_seed", "carrot_seed",
+            "everbearing_seedling",
+        }
+        self.assertEqual(set(items), expected)
+        for key, rel in items.items():
+            path = PACKS_ROOT / "storybook" / rel
+            self.assertTrue(path.is_file(), key)
+            width, height, color, raw = self._png_info(path)
+            self.assertEqual((width, height), (512, 512), key)
+            self.assertEqual(color, 6, key)  # RGBA
+            rows = self._unfilter_rows(width, height, 4, raw)
+            # Corners should be transparent so the icon sits on the panel.
+            for x, y in ((0, 0), (511, 0), (0, 511), (511, 511)):
+                self.assertLessEqual(rows[y][x * 4 + 3], 16, f"{key} corner {x},{y}")
+            self.assertIsNotNone(safe_pack_file(f"/static/packs/storybook/{rel}"))
+        self.assertIsNone(
+            safe_pack_file("/static/packs/storybook/sources/originals/item_hoe.jpg")
+        )
+        packs = {p["id"]: p for p in public_packs()}
+        self.assertEqual(packs["storybook"]["items"]["hoe"], "items/hoe.png")
+        self.assertNotIn("items", packs["classic"])
+
+
 class TillHold(unittest.TestCase):
     def setUp(self):
         self.crops = load_crops()
@@ -2420,6 +2456,7 @@ class TillHold(unittest.TestCase):
         till(self.state, self.crops, 1, 1)
         line = describe_tile(self.state, self.crops, 1, 1)
         self.assertIn("5 days left until it reverts if left unwatered", line)
+
 
 class PackChestAndCraft(unittest.TestCase):
     def setUp(self):
