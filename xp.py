@@ -2,8 +2,8 @@
 
 Numbers live in a single ``xp`` table in ``rules.json`` so they are easy to
 tune. XP is granted during play from that table. Each skill's level is capped
-at 10; XP may still accumulate. Overall level uses the same thresholds on the
-sum of all skill XP.
+at 10; XP may still accumulate. Overall level is the sum of the five skill
+levels (each starts at 1), shown as N/50, and is capped at 50.
 """
 
 from __future__ import annotations
@@ -29,9 +29,12 @@ DEFAULT_XP = {
     "combat": {
         "slime": 10,
     },
+    "foraging": {
+        "pick": 3,
+    },
 }
 
-SKILLS = ("mining", "woodcutting", "farming", "combat")
+SKILLS = ("mining", "woodcutting", "farming", "combat", "foraging")
 
 # Cumulative XP thresholds for levels 1 through 10.
 DEFAULT_LEVELS = [0, 40, 100, 200, 350, 550, 800, 1100, 1500, 2000]
@@ -106,6 +109,11 @@ def farming_xp(action: str, rules: dict | None = None) -> int:
     if key in {"pluck", "pick"}:
         key = "harvest"
     return _amount(farming, key, 0)
+
+
+def foraging_xp(rules: dict | None = None) -> int:
+    """XP granted for picking one wild forage item."""
+    return _amount(_section("foraging", rules), "pick", 3)
 
 
 def combat_xp(kind: str | None = "slime", rules: dict | None = None) -> int:
@@ -217,8 +225,15 @@ def skill_level(state: dict, player: str | None, skill: str, rules: dict | None 
     return level_for_xp(int(amounts.get(key) or 0), rules)
 
 
+def overall_cap(rules: dict | None = None) -> int:
+    """Maximum overall level: skill cap times the number of skills (10 x 5 = 50)."""
+    return level_cap(rules) * len(SKILLS)
+
+
 def overall_level(state: dict, player: str | None, rules: dict | None = None) -> int:
-    return level_for_xp(total_xp(state, player), rules)
+    """Sum of the five skill levels, starting at 5 and capped at 50."""
+    total = sum(skill_level(state, player, skill, rules) for skill in SKILLS)
+    return min(max(0, total), overall_cap(rules))
 
 
 def grant_xp(
@@ -264,13 +279,15 @@ def xp_view(state: dict, player: str | None, rules: dict | None = None) -> dict:
             "capped": needed is None,
         }
     total = total_xp(state, player)
-    level, into, needed = xp_into_level(total, rules)
+    overall = overall_level(state, player, rules)
+    cap = overall_cap(rules)
     return {
         "total_xp": total,
-        "overall_level": level,
-        "overall_into": into,
-        "overall_next": needed,
-        "overall_capped": needed is None,
+        "overall_level": overall,
+        "overall_into": 0,
+        "overall_next": None,
+        "overall_capped": overall >= cap,
+        "overall_cap": cap,
         "level_cap": level_cap(rules),
         "skills": skills,
     }

@@ -2943,7 +2943,7 @@ class ArtPackAndPage(unittest.TestCase):
             "watering_can_copper", "watering_can_iron", "watering_can_gold",
             "axe_copper", "axe_iron", "axe_gold",
             "pickaxe_copper", "pickaxe_iron", "pickaxe_gold",
-            "quartz", "runestone_ore", "goo", "sleeping_bag",
+            "quartz", "runestone_ore", "runestone", "goo", "sleeping_bag",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -2963,6 +2963,99 @@ class ArtPackAndPage(unittest.TestCase):
         packs = {p["id"]: p for p in public_packs()}
         self.assertEqual(packs["storybook"]["items"]["hoe"], "items/hoe.png")
         self.assertNotIn("items", packs["classic"])
+
+    def test_web_item_icons_use_pack_art_on_every_surface(self):
+        """Chest, sidebar backpack, shop, inventory, and drag all share one pack-aware helper."""
+        import re
+        import web
+
+        html = web.PAGE
+        self.assertEqual(html.count("function itemIconSrc("), 1)
+        start = html.index("function itemIconSrc(")
+        nxt = html.find("\n    function ", start + 10)
+        src = html[start:nxt]
+        self.assertIn("pack.items", src)
+        self.assertIn('"/static/packs/" + pack.id + "/" + rel', src)
+        # The 56c4da0 overwrite always returned a placeholder SVG.
+        self.assertNotIn('return "/item/" + encodeURIComponent(key) + ".svg";', html)
+        for fn in (
+            "fillChestCell",
+            "appendItemCard",
+            "appendShopCard",
+            "appendToolCard",
+            "renderInvSlot",
+            "showDragGhost",
+        ):
+            m = re.search(r"function " + fn + r"\(", html)
+            self.assertIsNotNone(m, fn)
+            chunk_start = m.start()
+            chunk_end = html.find("\n    function ", chunk_start + 10)
+            chunk = html[chunk_start : chunk_end if chunk_end != -1 else chunk_start + 5000]
+            self.assertIn("itemIconSrc(", chunk, fn)
+
+    def test_shop_staples_have_art_in_both_styles(self):
+        """Bread, butter, and the other shop staples use existing pack PNGs and classic SVGs."""
+        from packs import PACKS_ROOT, load_manifest
+        from sprites import svg_for_item
+        from inventory import FERTILIZERS, TOOLS, EQUIPMENT, recipes, STAPLES, MATERIALS, FORAGE_ITEMS
+        from gear import CLOTHES, BOOTS
+        from engine import stock_key, load_rules, load_crops
+
+        staples = ("bread", "bread_half", "butter", "milk", "sugar", "herbal_tea", "bread_and_butter", "runestone")
+        man = load_manifest("storybook")
+        items = man.get("items") or {}
+        for key in staples:
+            rel = items.get(key)
+            self.assertTrue(rel, key)
+            # Use the existing painted file; do not require a regenerated one.
+            self.assertEqual(rel, f"items/{key}.png", key)
+            self.assertTrue((PACKS_ROOT / "storybook" / rel).is_file(), key)
+            svg = svg_for_item(key)
+            self.assertIn(f'data-item="{key}"', svg)
+            self.assertNotIn("<text", svg)
+            self.assertNotIn("BREAD", svg)
+            self.assertNotIn("BUTTER", svg)
+            self.assertNotIn("TEA", svg)
+            self.assertNotIn("RUNE", svg)
+
+        # Items still without storybook art (classic stays a lettered placeholder).
+        rules = load_rules()
+        crops = load_crops()
+        keys = list(TOOLS) + list(EQUIPMENT) + list(CLOTHES) + list(BOOTS) + list(FERTILIZERS)
+        keys += list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
+        for kind, info in (crops.get("crops") or {}).items():
+            keys.append(kind)
+            keys.append(stock_key(kind, info))
+        missing = sorted({k for k in keys if k not in items})
+        self.assertEqual(
+            missing,
+            ["blue_sweater", "green_hoodie", "hiking_boots", "leather_boots"],
+        )
+        # Runestone icons are used on every item surface through the shared helper.
+        import web
+        html = web.PAGE
+        self.assertEqual(html.count("function itemIconSrc("), 1)
+        self.assertIn("itemIconSrc(slot.item, slot)", html)  # chest + inventory + sidebar
+
+    def test_creation_table_has_art_in_both_styles(self):
+        from packs import PACKS_ROOT, load_manifest, safe_pack_file
+        from sprites import _cabin_interior_overlay
+
+        man = load_manifest("storybook")
+        rel = (man.get("overlays") or {}).get("cabin_table")
+        self.assertEqual(rel, "overlays/cabin_table.png")
+        path = PACKS_ROOT / "storybook" / rel
+        self.assertTrue(path.is_file())
+        width, height, color, raw = self._png_info(path)
+        self.assertEqual((width, height), (512, 512))
+        self.assertEqual(color, 6)  # RGBA
+        rows = self._unfilter_rows(width, height, 4, raw)
+        for x, y in ((0, 0), (511, 0), (0, 511), (511, 511)):
+            self.assertLessEqual(rows[y][x * 4 + 3], 16, f"corner {x},{y}")
+        self.assertIsNotNone(safe_pack_file("/static/packs/storybook/overlays/cabin_table.png"))
+        svg = _cabin_interior_overlay("table")
+        self.assertIn("<rect", svg)
+        self.assertIn("#8a5a28", svg)
 
 
 class TillHold(unittest.TestCase):
@@ -8192,7 +8285,8 @@ class ForgedToolDisplay(unittest.TestCase):
         self.assertEqual(payload["item_names"]["hoe"]["name"], "iron hoe")
         self.assertIn("#8a4a1a", svg_for_item("pickaxe_copper"))
         self.assertIn("PICK", svg_for_item("pickaxe_copper"))
-        self.assertIn("TEA", svg_for_item("herbal_tea"))
+        self.assertIn('data-item="herbal_tea"', svg_for_item("herbal_tea"))
+        self.assertNotIn("TEA", svg_for_item("herbal_tea"))
 
     def test_need_messages_use_the_forged_article(self):
         from inventory import TOOL_HOE, TOOL_AXE, TOOL_PICKAXE
@@ -9173,6 +9267,7 @@ class CabinInterior(unittest.TestCase):
         self.assertIn("cabin_door.png", srcs)
         self.assertIn("cabin_kitchen.png", srcs)
         self.assertIn("cabin_fireplace.png", srcs)
+        self.assertIn("cabin_table.png", srcs)
         # At the door, the Chest button stays hidden; it only shows on the chest tile.
         self.assertFalse(data.get("openChestPresent"))
         self.assertFalse(data.get("invChestPresent"))
@@ -10491,18 +10586,17 @@ class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
         self.assertNotIn("if (!show) continue", html)
         self.assertIn("move to r c", html)
 
-    def test_web_walk_here_sits_outside_the_legal_actions_collapsible(self):
+    def test_web_walk_here_sits_inside_the_legal_actions_collapsible(self):
         import web
         html = web.PAGE
-        self.assertIn('className = "tile-walk"', html)
         self.assertIn('id = "walk-here"', html)
-        self.assertIn("insertBefore(walkRow, legalWrap)", html)
-        self.assertIn("#tile-actions", html)
-        self.assertIn("flex-direction: column", html)
-        # Must not drop a bare Walk here button into the flex-wrap actions row,
-        # which is what parked it beside the Legal Actions heading.
+        self.assertIn("legalBody.insertBefore(walk, legalBody.firstChild)", html)
+        self.assertNotIn("insertBefore(walkRow, legalWrap)", html)
+        self.assertNotIn("stays reachable when that list is folded away", html)
+        self.assertIn("hides when that list is collapsed", html)
+        # Walk here must not be parked outside the Legal Actions body.
+        self.assertNotIn("box.appendChild(walkRow)", html)
         self.assertNotIn("box.appendChild(walk)", html)
-        self.assertIn("stays reachable when that list is folded away", html)
 
     def test_web_chest_pauses_refresh_and_binds_drag_once(self):
         import web
@@ -10633,9 +10727,10 @@ class AutopassTurns(unittest.TestCase):
         self.assertFalse(self.state["players"][P2]["ended_turn"])
         self.assertFalse(tile["watered"])
         self.assertEqual(autopass_of(self.state, P1)["turns_used"], 1)
-        self.assertIn("taking a break", " ".join(
+        log_text = " ".join(
             str(e.get("text") or "") for e in (self.state.get("log") or [])
-        ).lower())
+        ).lower()
+        self.assertIn("turn autopassed (on a break)", log_text)
 
     def test_autopass_stops_after_the_maximum_and_an_action_cancels_it(self):
         from datetime import datetime, timedelta, timezone
@@ -10728,6 +10823,54 @@ class AutopassTurns(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "move down", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertFalse(autopass_of(self.state, P1)["enabled"])
+
+    def test_away_note_persists_and_is_shown_on_autopass_and_look(self):
+        from datetime import datetime, timedelta, timezone
+        from pathlib import Path
+        import tempfile
+        from autopass import (
+            set_autopass_settings, set_away_note, away_note_of, mark_turn_started,
+            maybe_apply_autopass, normalize_away_note, MAX_AWAY_NOTE,
+        )
+        from engine import save_state, load_state, apply_new_day_turns
+        from describe import describe_state
+        from config import display_name
+        import web
+
+        self.assertEqual(normalize_away_note("  back Thursday  "), "back Thursday")
+        self.assertEqual(len(normalize_away_note("n" * (MAX_AWAY_NOTE + 20))), MAX_AWAY_NOTE)
+        set_away_note(self.state, P1, "back Thursday")
+        self.assertEqual(away_note_of(self.state, P1), "back Thursday")
+        apply_new_day_turns(self.state, self.rules)
+        self.assertEqual(away_note_of(self.state, P1), "back Thursday")
+        with tempfile.TemporaryDirectory(prefix="lantern-away-note-") as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(self.state, path)
+            loaded = load_state(self.crops, path)
+            self.assertEqual(away_note_of(loaded, P1), "back Thursday")
+
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=3, timeout_minutes=30)
+        mark_turn_started(self.state, now=start)
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=start + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(who, P1)
+        log_text = " ".join(str(e.get("text") or "") for e in (self.state.get("log") or []))
+        self.assertIn("turn autopassed (on a break)", log_text.lower())
+        self.assertIn("back Thursday", log_text)
+        look = describe_state(self.state, self.crops, viewer=P2)
+        self.assertIn(f"{display_name(P1)}'s away note: back Thursday", look)
+        payload = web.api_payload(self.state, self.crops, player=P2)
+        notes = payload.get("partner_away_notes") or []
+        self.assertTrue(any(n.get("note") == "back Thursday" for n in notes), notes)
+        self.assertNotIn("back Thursday", " ".join(n.get("note") or "" for n in (web.api_payload(self.state, self.crops, player=P1).get("partner_away_notes") or [])))
+        own = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(own.get("away_note"), "back Thursday")
+        html = web.PAGE
+        self.assertIn('id="settings-away-note"', html)
+        self.assertIn('id="partner-away-notes"', html)
 
 
 class ChestBuildingAndWindow(unittest.TestCase):
@@ -11031,30 +11174,73 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         self.assertEqual(before - int(self.state["players"][P1]["energy"]), 5)
         self.assertEqual(step_energy_for(self.state, P1, AREA_FARM, self.rules), 5)
 
-    def test_creation_table_is_free_to_build_at_r2c2_and_lists_legal_actions(self):
+    def test_creation_table_starts_built_at_r2c2_and_is_not_a_legal_build(self):
         from creation import table_is_built
-        from engine import energy_cost
+        from cabin import cabin_tile_kind
+        from engine import energy_cost, migrate_state
 
         self.assertEqual(energy_cost("build_chest", self.rules), 25)
-        self.assertFalse(table_is_built(self.state))
-        inside(self.state, P1, "kitchen")
-        ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
-        self.assertFalse(ok)
-        self.assertIn("row 2 col 2", msg.lower())
-        inside(self.state, P1, "table")
-        legal = legal_actions(self.state, self.crops, P1, self.rules)
-        self.assertIn("build table", legal)
-        self.assertIn("free", format_legal_action("build table", self.state, self.crops, P1, self.rules))
-        energy = int(self.state["players"][P1]["energy"])
-        ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
-        self.assertTrue(ok, msg)
         self.assertTrue(table_is_built(self.state))
-        self.assertEqual(self.state["players"][P1]["energy"], energy)
-        self.assertIn("Creation Table", msg)
+        self.assertEqual(cabin_tile_kind(2, 2, self.state), "table")
+        inside(self.state, P1, "table")
         legal = legal_actions(self.state, self.crops, P1, self.rules)
         self.assertNotIn("build table", legal)
         ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
         self.assertFalse(ok)
+        self.assertIn("already", msg.lower())
+        # Existing unbuilt saves are migrated as built.
+        older = fresh_state(self.crops, rules=self.rules)
+        older["table_built"] = False
+        self.assertTrue(migrate_state(older, self.rules))
+        self.assertTrue(table_is_built(older))
+        self.assertNotIn("build table", legal_actions(older, self.crops, P1, self.rules))
+
+    def test_crafting_menu_is_only_on_the_creation_table_and_uses_legal_craft_actions(self):
+        import web
+        from inventory import add_to_pack, pack_has
+        from cabin import CABIN_KITCHEN
+        from engine import discovered_recipe_ids
+
+        html = web.PAGE
+        self.assertIn('id="crafting-book"', html)
+        self.assertIn("function renderCraftingBook(", html)
+        self.assertIn("const show = !!(data && data.at_table);", html)
+        # Recipe book visibility is unchanged: chest or kitchen only.
+        self.assertIn("const show = !!(data.at_chest || data.at_kitchen);", html)
+
+        # Off the table (kitchen): recipe book present, crafting menu hidden.
+        inside(self.state, P1, "kitchen")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("at_kitchen"))
+        self.assertFalse(payload.get("at_table"))
+        self.assertTrue(payload.get("recipe_book") is not None)
+        craft = payload.get("crafting_book") or []
+        self.assertTrue(any(e.get("id") == "runestone" for e in craft))
+        self.assertFalse(any(e.get("craftable") for e in craft))
+
+        # On the table, without ore: listed but not craftable; recipe book stays off-tile.
+        inside(self.state, P1, "table")
+        self.state["players"][P1]["energy"] = 80
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload.get("at_table"))
+        self.assertFalse(payload.get("at_kitchen"))
+        entry = next(e for e in (payload.get("crafting_book") or []) if e.get("id") == "runestone")
+        self.assertEqual(entry["action"], "craft runestone")
+        self.assertFalse(entry["craftable"])
+        self.assertIn("0/", entry.get("ingredients_text") or "")
+
+        add_to_pack(self.state, P1, "runestone_ore", 1, self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        entry = next(e for e in (payload.get("crafting_book") or []) if e.get("id") == "runestone")
+        self.assertIn("craft runestone", payload.get("actions") or [])
+        self.assertTrue(entry["craftable"])
+        self.assertEqual(entry["action"], "craft runestone")
+        # Crafting via the panel command matches the CLI action.
+        ok, msg = do_action(self.state, self.crops, entry["action"], player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "runestone", 1, self.rules))
+        # Recipe book discovery is unaffected.
+        self.assertTrue(isinstance(discovered_recipe_ids(self.state, self.rules), list))
 
     def test_chest_build_now_costs_twenty_five_energy(self):
         from inventory import add_to_pack
@@ -11077,8 +11263,10 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         from inventory import add_to_pack, stack_count, pack_of, pack_has
 
         inside(self.state, P1, "table")
-        ok, msg = build_table(self.state, P1, self.rules)
-        self.assertTrue(ok, msg)
+        from creation import table_is_built
+        if not table_is_built(self.state):
+            ok, msg = build_table(self.state, P1, self.rules)
+            self.assertTrue(ok, msg)
         add_to_pack(self.state, P1, "runestone_ore", 2)
         energy = int(self.state["players"][P1]["energy"])
         legal = legal_actions(self.state, self.crops, P1, self.rules)
@@ -11111,9 +11299,9 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(before - int(self.state["players"][P1]["energy"]), 4)
 
-        # Nimble needs overall 10, aurora, table, 10 runestones, 100 energy.
+        # Nimble needs overall 10 out of 50, aurora, table, 10 runestones, 100 energy.
         grant_xp(self.state, P1, "mining", 2000, self.rules)
-        self.assertEqual(overall_level(self.state, P1, self.rules), 10)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 14)
         self.state["weather"] = "aurora"
         inside(self.state, P1, "table")
         self.assertTrue(build_table(self.state, P1, self.rules)[0] or True)
@@ -11135,14 +11323,15 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         self.assertEqual(step_energy_for(self.state, P1, AREA_CABIN, self.rules), 0)
 
     def test_enchants_need_an_aurora_night_and_pickaxe_yields_can_improve(self):
-        from creation import build_table, enchant_pickaxe
+        from creation import build_table, enchant_pickaxe, table_is_built
         from inventory import add_to_pack, TOOL_PICKAXE, stack_enchant
         from gear import held_tool_slot
         from xp import grant_xp, skill_level
         from mine import yield_with_upgrade
 
         inside(self.state, P1, "table")
-        self.assertTrue(build_table(self.state, P1, self.rules)[0])
+        if not table_is_built(self.state):
+            self.assertTrue(build_table(self.state, P1, self.rules)[0])
         add_to_pack(self.state, P1, TOOL_PICKAXE, 1)
         add_to_pack(self.state, P1, "runestone", 15)
         grant_xp(self.state, P1, "mining", 2000, self.rules)
@@ -11193,10 +11382,34 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         self.assertGreaterEqual(player_xp_map(self.state, P1)["mining"], 2000)
         self.assertEqual(level_for_xp(1999, self.rules), 9)
         self.assertEqual(level_for_xp(2000, self.rules), 10)
-        self.assertEqual(overall_level(self.state, P1, self.rules), 10)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 14)
         view = xp_view(self.state, P1, self.rules)
         self.assertTrue(view["skills"]["mining"]["capped"])
         self.assertEqual(view["level_cap"], 10)
+        self.assertEqual(view["overall_level"], 14)
+        self.assertEqual(view["overall_cap"], 50)
+
+    def test_overall_level_is_the_sum_of_skill_levels_capped_at_fifty(self):
+        from xp import (
+            grant_xp, overall_level, overall_cap, skill_level, xp_view, SKILLS,
+        )
+        from creation import enchant_info, ENCHANT_NIMBLE
+        import web
+
+        self.assertEqual(len(SKILLS), 5)
+        self.assertEqual(overall_cap(self.rules), 50)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 5)
+        view = xp_view(self.state, P1, self.rules)
+        self.assertEqual(view["overall_level"], 5)
+        self.assertEqual(view["overall_cap"], 50)
+        # One skill at 6 (550 XP) plus four at 1 is overall 10 — Nimble's requirement.
+        grant_xp(self.state, P1, "mining", 550, self.rules)
+        self.assertEqual(skill_level(self.state, P1, "mining", self.rules), 6)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 10)
+        self.assertEqual(int(enchant_info(ENCHANT_NIMBLE, self.rules).get("overall_level") or 0), 10)
+        html = web.PAGE
+        self.assertIn('textContent = "Overall level " + (xp.overall_level || 5) + "/" + cap', html)
+        self.assertIn("xp.overall_cap || 50", html)
 
     def test_aurora_is_rare_accurate_and_counts_as_clear(self):
         from engine import (
@@ -11498,3 +11711,125 @@ class DevCommands(unittest.TestCase):
         self.assertTrue(any("mining" in text.lower() and "2000" in text for text in dev_lines))
         legal = legal_actions(self.state, self.crops, P1, self.rules)
         self.assertFalse(any(str(act).startswith("dev") for act in legal))
+
+
+
+class DawnPreservesXpAndGear(unittest.TestCase):
+    """XP and worn gear must survive dawn, save/load, and area changes."""
+
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+
+    def test_xp_survives_dawn_save_reload_and_area_change(self):
+        from xp import grant_xp, player_xp_map, overall_level
+        from engine import apply_new_day_turns, save_state, load_state
+        from hills import set_player_place, AREA_MINE, AREA_HILLS, MINE_ENTRANCE
+        from inventory import world_item_count
+        from gear import gear_item, LEATHER_BOOTS, SLOT_BOOTS, unequip_to_pack
+
+        grant_xp(self.state, P1, "mining", 17, self.rules)
+        self.assertEqual(int(player_xp_map(self.state, P1)["mining"]), 17)
+        apply_new_day_turns(self.state, self.rules)
+        self.assertEqual(int(player_xp_map(self.state, P1)["mining"]), 17)
+        self.assertEqual(gear_item(self.state, P1, SLOT_BOOTS), LEATHER_BOOTS)
+
+        # Unequip, then dawn, then migrate: must not mint a second pair.
+        before = world_item_count(self.state, LEATHER_BOOTS, self.rules)
+        ok, msg = unequip_to_pack(self.state, P1, SLOT_BOOTS, self.rules)
+        self.assertTrue(ok, msg)
+        apply_new_day_turns(self.state, self.rules)
+        migrate_state(self.state, self.rules)
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), before)
+        self.assertEqual(int(player_xp_map(self.state, P1)["mining"]), 17)
+
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=1)
+        self.assertEqual(int(player_xp_map(self.state, P1)["mining"]), 17)
+        set_player_place(self.state, P1, AREA_HILLS, *MINE_ENTRANCE)
+        self.assertEqual(int(player_xp_map(self.state, P1)["mining"]), 17)
+
+        with tempfile.TemporaryDirectory(prefix="lantern-xp-roundtrip-") as tmp:
+            path = Path(tmp) / "state.json"
+            save_state(self.state, path)
+            loaded = load_state(self.crops, path)
+            self.assertEqual(int(player_xp_map(loaded, P1)["mining"]), 17)
+            self.assertEqual(world_item_count(loaded, LEATHER_BOOTS, self.rules), before)
+
+    def test_equip_unequip_and_transfer_conserve_item_counts(self):
+        from inventory import (
+            add_to_pack,
+            world_item_count,
+            transfer_inventory_slot,
+            pack_of,
+        )
+        from gear import (
+            equip_from_pack,
+            unequip_to_pack,
+            gear_item,
+            SLOT_BOOTS,
+            SLOT_CLOTHES,
+            LEATHER_BOOTS,
+        )
+
+        # One worn pair; add a hoodie to the pack if starting clothes are worn.
+        start_boots = world_item_count(self.state, LEATHER_BOOTS, self.rules)
+        self.assertGreaterEqual(start_boots, 1)
+        add_to_pack(self.state, P1, "green_hoodie", 1, self.rules)
+        hoodies = world_item_count(self.state, "green_hoodie", self.rules)
+
+        # Worn -> pack (unequip), then pack -> worn (equip), counts hold.
+        ok, msg = unequip_to_pack(self.state, P1, SLOT_BOOTS, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), start_boots)
+        pack = pack_of(self.state, P1, self.rules)
+        idx = next(i + 1 for i, s in enumerate(pack) if s and s.get("item") == LEATHER_BOOTS)
+        ok, msg = equip_from_pack(self.state, P1, idx, SLOT_BOOTS, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), start_boots)
+        self.assertEqual(gear_item(self.state, P1, SLOT_BOOTS), LEATHER_BOOTS)
+
+        # The click path: select worn boots, move to a pack slot, move back.
+        pack = pack_of(self.state, P1, self.rules)
+        empty = next(i + 1 for i, s in enumerate(pack) if not s)
+        ok, msg = transfer_inventory_slot(self.state, P1, "boots", 1, "pack", empty, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(gear_item(self.state, P1, SLOT_BOOTS))
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), start_boots)
+        ok, msg = transfer_inventory_slot(self.state, P1, "pack", empty, "boots", 1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(gear_item(self.state, P1, SLOT_BOOTS), LEATHER_BOOTS)
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), start_boots)
+
+        # Pack-to-pack reorder.
+        pack = pack_of(self.state, P1, self.rules)
+        src = next(i + 1 for i, s in enumerate(pack) if s and s.get("item") == "green_hoodie")
+        dest = next(i + 1 for i, s in enumerate(pack) if not s)
+        ok, msg = transfer_inventory_slot(self.state, P1, "pack", src, "pack", dest, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(world_item_count(self.state, "green_hoodie", self.rules), hoodies)
+        self.assertEqual(world_item_count(self.state, LEATHER_BOOTS, self.rules), start_boots)
+
+
+class ForagingXp(unittest.TestCase):
+    def test_foraging_a_wild_item_grants_three_xp(self):
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE, get_hills_tile, make_forage
+        from xp import player_xp_map, foraging_xp, overall_level, total_xp
+
+        crops = load_crops()
+        rules = load_rules()
+        self.assertEqual(foraging_xp(rules), 3)
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        state["players"][P1]["energy"] = 80
+        set_player_place(state, P1, AREA_HILLS, *HILLS_GATE)
+        tile = get_hills_tile(state, *HILLS_GATE)
+        tile["forage"] = make_forage("wild_onion", appeared_day=1)
+        tile["tree"] = None
+        before = int((player_xp_map(state, P1) or {}).get("foraging") or 0)
+        before_total = total_xp(state, P1)
+        ok, msg = do_action(state, crops, "forage", player=P1, rules=rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(int(player_xp_map(state, P1)["foraging"]), before + 3)
+        self.assertEqual(total_xp(state, P1), before_total + 3)

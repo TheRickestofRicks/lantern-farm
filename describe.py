@@ -531,6 +531,13 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
     if places:
         lines.append(", ".join(places) + ".")
     lines.extend(ready_status_lines(state))
+    from autopass import away_note_of
+    for name in known_players():
+        if viewer and name == normalize_player(viewer):
+            continue
+        note = away_note_of(state, name)
+        if note:
+            lines.append(f"{display_name(name)}'s away note: {note}")
     if current:
         lines.append(sleep_outlook(state, current) + ".")
     if viewer:

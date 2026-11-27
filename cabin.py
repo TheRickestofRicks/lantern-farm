@@ -62,10 +62,6 @@ def cabin_tile_kind(row: int, col: int, state: dict | None = None) -> str:
         from chest import chest_is_built
         if not chest_is_built(state):
             return "floor"
-    if kind == "table" and state is not None:
-        from creation import table_is_built
-        if not table_is_built(state):
-            return "floor"
     return kind
 
 

@@ -1262,6 +1262,9 @@ def forage(state: dict, player: str, rules: dict | None = None) -> tuple[bool, s
     else:
         msg = f"{who(player, 'forage', 'forages')} a {label} at {here} {phrase}."
     log_append(state, msg, player)
+    from xp import grant_xp, foraging_xp
+
+    grant_xp(state, player, "foraging", foraging_xp(rules))
     return True, msg
 
 

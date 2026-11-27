@@ -2162,3 +2162,106 @@ def till_hold_phrase(tile: dict, rules: dict | None = None) -> str:
         return " It will go untilled at nightfall if it stays empty."
     day_word = "day" if left == 1 else "days"
     return f" {left} {day_word} left until it reverts if left unwatered."
+
+
+
+def transfer_inventory_slot(
+    state: dict,
+    player: str,
+    src: str,
+    src_i,
+    dest: str,
+    dest_i,
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Move one stack between backpack slots and worn/held gear. Never copies.
+
+    Chest transfers stay on move_pack_chest_slot (they need you at the chest).
+    Pack-to-pack works from the inventory window anywhere on your turn.
+    """
+    from gear import (
+        GEAR_SLOTS,
+        SLOT_BOOTS,
+        SLOT_CLOTHES,
+        SLOT_HANDS,
+        gear_of,
+        is_boots,
+        is_clothes,
+        set_gear,
+    )
+
+    src = (src or "").strip().lower()
+    dest = (dest or "").strip().lower()
+    allowed = {"pack", *GEAR_SLOTS}
+    if src not in allowed or dest not in allowed:
+        return False, "Move a stack between the backpack and clothes, boots, or hands."
+    if src == "chest" or dest == "chest":
+        return False, "Use transfer with chest only at the chest."
+
+    pack = pack_of(state, player, rules)
+
+    def _pack_index(raw, label):
+        try:
+            idx = int(raw)
+        except (TypeError, ValueError):
+            return None, f"Use {label} slot numbers starting at 1."
+        if idx < 1 or idx > len(pack):
+            return None, "That backpack slot is missing."
+        return idx, None
+
+    def _copy(stack):
+        return dict(stack) if stack else None
+
+    def _read(store, index):
+        if store == "pack":
+            idx, err = _pack_index(index, "backpack")
+            if err:
+                return None, err, None
+            return _copy(pack[idx - 1]), None, idx
+        return _copy(gear_of(state, player, store)), None, 1
+
+    def _write(store, index, stack):
+        if store == "pack":
+            pack[index - 1] = stack
+        else:
+            set_gear(state, player, store, stack)
+
+    def _fits_dest(store, stack) -> str | None:
+        if not stack or not stack.get("item"):
+            return None
+        item = stack.get("item")
+        if store == SLOT_CLOTHES and not is_clothes(item):
+            return f"{item_label(item, state=state)} is not clothing."
+        if store == SLOT_BOOTS and not is_boots(item):
+            return f"{item_label(item, state=state)} are not boots."
+        if store == SLOT_HANDS and not is_tool(item):
+            return f"{item_label(item, state=state)} cannot be held in your hands."
+        return None
+
+    src_stack, err, src_idx = _read(src, src_i)
+    if err:
+        return False, err
+    if src == dest and (src == "pack") and str(src_i) == str(dest_i):
+        return True, "Moved."
+    if src == dest and src != "pack":
+        return True, "Moved."
+    if not src_stack or not src_stack.get("item"):
+        return False, "That slot is empty."
+
+    dest_stack, err, dest_idx = _read(dest, dest_i)
+    if err:
+        return False, err
+
+    fit = _fits_dest(dest, src_stack)
+    if fit:
+        return False, fit
+    if dest_stack and dest_stack.get("item"):
+        fit = _fits_dest(src, dest_stack)
+        if fit:
+            return False, fit
+
+    # Swap (or move onto an empty slot). Each stack is written once.
+    _write(dest, dest_idx, src_stack)
+    _write(src, src_idx, dest_stack)
+    sync_inventory_view(state, rules)
+    return True, "Moved."

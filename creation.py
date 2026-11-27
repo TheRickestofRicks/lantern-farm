@@ -299,7 +299,7 @@ def enchant_boots(
     from engine import log_append, display_name
     from inventory import item_label, stack_enchant, sync_inventory_view
     from gear import gear_of, SLOT_BOOTS, ENCHANT_NIMBLE as NIMBLE
-    from xp import overall_level
+    from xp import overall_level, overall_cap
 
     rules = _rules(rules)
     blocked = _check_table(state, player, rules)
@@ -308,9 +308,10 @@ def enchant_boots(
     info = enchant_info(ENCHANT_NIMBLE, rules) or {}
     need_level = int(info.get("overall_level") or 10)
     have = overall_level(state, player, rules)
+    cap = overall_cap(rules)
     if have < need_level:
         return False, (
-            f"Nimble needs overall level {need_level} (you are overall level {have})."
+            f"Nimble needs overall level {need_level} out of {cap} (you are overall level {have} out of {cap})."
         )
     boots = gear_of(state, player, SLOT_BOOTS)
     if not boots:
@@ -382,8 +383,6 @@ def legal_table_actions(state: dict, player: str, rules: dict | None = None) -> 
     energy = int(player_slot(state, player).get("energy") or 0)
     out: list[str] = []
     if not table_is_built(state):
-        if energy >= energy_cost("build_table", rules):
-            out.append("build table")
         return out
     rec = runestone_recipe(rules)
     if pack_has(state, player, RUNESTONE_ORE, rec["ore"], rules) and energy >= rec["energy"]:

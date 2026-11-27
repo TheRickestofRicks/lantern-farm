@@ -3,7 +3,7 @@
 The backpack stays four general slots. Each player also has clothes, boots,
 and hands. Leather boots are equipped on migrate so walking still costs 5.
 Hiking boots (honour store, 50G) cost 4 per step in the hills and the mine.
-A Nimble enchant (Creation Table, aurora night, overall level 10) subtracts
+A Nimble enchant (Creation Table, aurora night, overall level 10 out of 50) subtracts
 1 from a paid step; cabin walking stays free.
 """
 
@@ -216,8 +216,8 @@ def migrate_player_gear(state: dict, rules: dict | None = None) -> bool:
     from xp import empty_xp, SKILLS
 
     changed = False
-    if "table_built" not in state:
-        state["table_built"] = False
+    if not state.get("table_built"):
+        state["table_built"] = True
         changed = True
 
     names = list((state.get("players") or {}).keys()) or list(known_players())

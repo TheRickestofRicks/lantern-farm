@@ -585,8 +585,8 @@ PAGE = r"""<!DOCTYPE html>
       flex-wrap: wrap;
       gap: 0.4rem;
     }
-    /* This-tile actions stack above Legal Actions; do not wrap "Walk here"
-       out beside the collapsible heading. */
+    /* This-tile actions stack above Legal Actions. Walk here lives inside
+       the Legal Actions dropdown so it hides when that list is collapsed. */
     #tile-actions {
       flex-direction: column;
       flex-wrap: nowrap;
@@ -1181,6 +1181,9 @@ PAGE = r"""<!DOCTYPE html>
       gap: 0.6rem;
       margin: 0.6rem 0 1rem;
     }
+    #inventory-pack-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
     .inventory-slot {
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -1193,7 +1196,13 @@ PAGE = r"""<!DOCTYPE html>
       justify-content: center;
       gap: 0.25rem;
       cursor: pointer;
+      user-select: none;
+      touch-action: none;
     }
+    .inventory-slot.is-selected { outline: 2px solid var(--gold); }
+    .inventory-slot.is-target, .chest-cell.is-target, .pack-cell.is-target { border-color: var(--gold); box-shadow: inset 0 0 0 2px var(--gold); }
+    .inventory-slot.is-dragging { opacity: 0.4; }
+    .inventory-slot img { pointer-events: none; }
     .inventory-slot .slot-kind {
       color: var(--gold);
       font-size: 0.75rem;
@@ -1306,8 +1315,13 @@ PAGE = r"""<!DOCTYPE html>
         <summary class="recipe-book-head">Recipe book</summary>
         <div id="recipe-book-body"></div>
       </details>
+      <details class="recipe-book" id="crafting-book" hidden>
+        <summary class="recipe-book-head">Crafting</summary>
+        <div id="crafting-book-body"></div>
+      </details>
       <h2>Overview</h2>
       <p id="overview-desc" class="overview-desc">Looking around…</p>
+      <div id="partner-away-notes" class="overview-desc" hidden></div>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
       <div id="tile-ground" class="tile-ground" hidden>
@@ -1416,7 +1430,8 @@ PAGE = r"""<!DOCTYPE html>
       <div id="inventory-pack-grid" class="chest-grid"></div>
       <h3 class="shop-section-title">Skills</h3>
       <div id="inventory-skills" class="inventory-skills"></div>
-      <p class="chest-help">Clothes, boots, and hands are worn or held. The backpack still has four general slots. Click a backpack item and a slot to equip it, or click worn gear to put it away.</p>
+      <p class="chest-help" id="inventory-help">Clothes, boots, and hands are worn or held. The backpack is four slots in a row. Click to select, then click a destination to move; drag to reorder or swap, like the chest. A second click on the same item deselects it.</p>
+      <div id="inventory-toolbar"></div>
     </div>
   </div>
   <div id="table-modal" class="shop-modal" hidden>
@@ -1453,6 +1468,11 @@ PAGE = r"""<!DOCTYPE html>
           Taking a break from farming
         </label>
         <p class="settings-help">When this is on and your turn sits idle, the farm ends the day for you and passes the turn. No other action is taken on your behalf. After the maximum, it waits for you. Doing anything on the farm turns this off and counts as being back.</p>
+        <div class="settings-row">
+          <label for="settings-away-note">Away note</label>
+          <input type="text" id="settings-away-note" maxlength="280" placeholder="Why you're away, or when you'll be back" autocomplete="off">
+        </div>
+        <p class="settings-help">This note stays saved, is added to the Autopass log line, and is shown to the other player.</p>
         <fieldset id="settings-autopass-options">
           <legend>Autopass</legend>
           <div class="settings-row">
@@ -1524,11 +1544,13 @@ PAGE = r"""<!DOCTYPE html>
       }
       return ART_PACKS[0];
     }
-    function itemIconSrc(item, fallback) {
+    function itemIconSrc(item, fallbackOrExtra) {
       const pack = packById(artPackId);
       let key = String(item || "");
+      const extra = (fallbackOrExtra && typeof fallbackOrExtra === "object") ? fallbackOrExtra : {};
+      const fallback = (typeof fallbackOrExtra === "string") ? fallbackOrExtra : "";
       const src = lastData || {};
-      const tier = src.tool_tiers && src.tool_tiers[key];
+      const tier = extra.tier || (src.tool_tiers && src.tool_tiers[key]);
       if (tier && tier !== "basic") {
         const tierKey = key + "_" + tier;
         if (pack && pack.items && pack.items[tierKey]) key = tierKey;
@@ -2461,6 +2483,8 @@ PAGE = r"""<!DOCTYPE html>
         "</span>";
       renderBackpack(data);
       renderRecipeBook(data);
+      renderCraftingBook(data);
+      renderPartnerAwayNotes(data);
       const endBtn = $("end-turn");
       if (endBtn) {
         endBtn.disabled = !data.your_turn;
@@ -2739,24 +2763,19 @@ PAGE = r"""<!DOCTYPE html>
         });
         legalBody.appendChild(b);
       }
-      if (legalBody.childNodes.length) box.appendChild(legalWrap);
-      // Walk here is a This-tile action for the plot you clicked, not the
-      // standing-tile list. Keep it outside the Legal Actions collapsible
-      // (above it) so it stays reachable when that list is folded away.
+      // Every Walk here variant (free or paid) belongs inside Legal Actions
+      // so it hides when that list is collapsed.
       if (stand && (stand.r !== r || stand.c !== c)) {
         const walkCmd = "move to " + r + " " + c;
-        const walkRow = document.createElement("div");
-        walkRow.className = "tile-walk";
         const walk = document.createElement("button");
         walk.type = "button";
         walk.className = "btn";
         walk.id = "walk-here";
         walk.textContent = actionLabel(walkCmd, "Walk here");
         walk.addEventListener("click", function () { actCmd(walkCmd); });
-        walkRow.appendChild(walk);
-        if (legalWrap.parentNode === box) box.insertBefore(walkRow, legalWrap);
-        else box.appendChild(walkRow);
+        legalBody.insertBefore(walk, legalBody.firstChild);
       }
+      if (legalBody.childNodes.length) box.appendChild(legalWrap);
       if (plantPick && plantPick.kinds && plantPick.kinds.length) {
         renderPlantPicker(box, workR, workC, plantPick);
       }
@@ -2905,6 +2924,8 @@ PAGE = r"""<!DOCTYPE html>
       if (box) box.checked = enabled;
       if (maxBox) maxBox.value = String(maxTurns);
       if (timeBox) timeBox.value = String(timeout);
+      const noteBox = $("settings-away-note");
+      if (noteBox) noteBox.value = data.away_note || "";
       syncAutopassOptionsEnabled();
       if (status) {
         const used = Number(ap.turns_used || 0);
@@ -2917,12 +2938,14 @@ PAGE = r"""<!DOCTYPE html>
       const box = $("settings-autopass");
       const maxBox = $("settings-autopass-max");
       const timeBox = $("settings-autopass-timeout");
+      const noteBox = $("settings-away-note");
       return {
         autopass: {
           enabled: !!(box && box.checked),
           max_turns: maxBox ? maxBox.value : 3,
           timeout_minutes: timeBox ? timeBox.value : 30
-        }
+        },
+        away_note: noteBox ? noteBox.value : ""
       };
     }
     async function saveSettings(extra) {
@@ -3293,7 +3316,7 @@ PAGE = r"""<!DOCTYPE html>
       ghost.className = "chest-drag-ghost";
       ghost.setAttribute("aria-hidden", "true");
       const img = document.createElement("img");
-      img.src = itemIconSrc(slot.item);
+      img.src = itemIconSrc(slot.item, slot);
       img.alt = "";
       ghost.appendChild(img);
       const badge = document.createElement("span");
@@ -3369,7 +3392,7 @@ PAGE = r"""<!DOCTYPE html>
         cell.dataset.item = slot.item;
         cell.dataset.count = String(slot.count || 1);
         const img = document.createElement("img");
-        img.src = itemIconSrc(slot.item);
+        img.src = itemIconSrc(slot.item, slot);
         img.alt = "";
         cell.appendChild(img);
         const label = document.createElement("span");
@@ -3418,7 +3441,15 @@ PAGE = r"""<!DOCTYPE html>
           dragging.classList.add("is-dragging");
           showDragGhost(start.slot, ev);
         }
-        if (dragging) moveDragGhost(ev);
+        if (dragging) {
+          moveDragGhost(ev);
+          const over = document.elementFromPoint(ev.clientX, ev.clientY);
+          const cell = over && over.closest && over.closest(".chest-cell, .pack-cell, .inventory-slot");
+          document.querySelectorAll(".chest-cell.is-target, .pack-cell.is-target, .inventory-slot.is-target").forEach(function (el) {
+            if (el !== cell) el.classList.remove("is-target");
+          });
+          if (cell && cell !== dragging) cell.classList.add("is-target");
+        }
       });
       function endPointer(ev, cancelled) {
         if (!start) return;
@@ -3426,6 +3457,9 @@ PAGE = r"""<!DOCTYPE html>
         const wasDrag = !!dragging;
         start = null;
         dragging = null;
+        document.querySelectorAll(".chest-cell.is-target, .pack-cell.is-target, .inventory-slot.is-target").forEach(function (el) {
+          el.classList.remove("is-target");
+        });
         if (wasDrag) {
           src.classList.remove("is-dragging");
           hideDragGhost();
@@ -3689,7 +3723,7 @@ PAGE = r"""<!DOCTYPE html>
       const card = document.createElement("div");
       card.className = "shop-card";
       const img = document.createElement("img");
-      img.src = itemIconSrc(kind);
+      img.src = itemIconSrc(kind, info);
       img.alt = title;
       card.appendChild(img);
       const body = document.createElement("div");
@@ -3922,7 +3956,7 @@ PAGE = r"""<!DOCTYPE html>
       const row = document.createElement("div");
       row.className = "shop-card";
       const img = document.createElement("img");
-      img.src = itemIconSrc(slot.item);
+      img.src = itemIconSrc(slot.item, slot);
       img.alt = itemName(slot.item, count);
       row.appendChild(img);
       const body = document.createElement("div");
@@ -4113,6 +4147,86 @@ PAGE = r"""<!DOCTYPE html>
           btn.className = "btn";
           btn.textContent = "Craft";
           btn.addEventListener("click", function () { actCmd("craft " + entry.id); });
+          row.appendChild(btn);
+        }
+        el.appendChild(row);
+      });
+    }
+
+    function renderPartnerAwayNotes(data) {
+      const el = $("partner-away-notes");
+      if (!el) return;
+      const notes = data.partner_away_notes || [];
+      el.innerHTML = "";
+      if (!notes.length) {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = false;
+      notes.forEach(function (n) {
+        const p = document.createElement("p");
+        p.textContent = (n.name || "Partner") + "'s away note: " + (n.note || "");
+        el.appendChild(p);
+      });
+    }
+
+    function renderCraftingBook(data) {
+      const panel = $("crafting-book");
+      const el = $("crafting-book-body");
+      if (!el) return;
+      const show = !!(data && data.at_table);
+      if (panel) {
+        panel.hidden = !show;
+        if (!show) panel.open = false;
+      }
+      el.innerHTML = "";
+      if (!show) return;
+      const book = data.crafting_book || [];
+      if (!book.length) {
+        const empty = document.createElement("p");
+        empty.className = "shop-empty";
+        empty.textContent = "No crafting recipes yet.";
+        el.appendChild(empty);
+        return;
+      }
+      book.forEach(function (entry) {
+        const row = document.createElement("div");
+        row.className = "recipe-entry";
+        const head = document.createElement("div");
+        head.className = "recipe-entry-head";
+        const icon = document.createElement("img");
+        icon.src = itemIconSrc(entry.id);
+        icon.alt = entry.name || entry.id;
+        head.appendChild(icon);
+        const title = document.createElement("b");
+        title.textContent = entry.name || entry.id;
+        head.appendChild(title);
+        row.appendChild(head);
+        const meta = document.createElement("div");
+        meta.className = "recipe-meta";
+        const bits = [];
+        if (entry.ingredients_text) bits.push(entry.ingredients_text);
+        if (entry.energy) bits.push(entry.energy + " energy");
+        meta.textContent = bits.join(" · ");
+        row.appendChild(meta);
+        if (entry.missing) {
+          const need = document.createElement("div");
+          need.className = "recipe-meta";
+          need.textContent = "Missing from the backpack — take them from the chest first.";
+          row.appendChild(need);
+        }
+        if (entry.description) {
+          const desc = document.createElement("div");
+          desc.className = "recipe-meta";
+          desc.textContent = entry.description;
+          row.appendChild(desc);
+        }
+        if (entry.craftable && data.your_turn && entry.action) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn";
+          btn.textContent = "Craft";
+          btn.addEventListener("click", function () { actCmd(entry.action); });
           row.appendChild(btn);
         }
         el.appendChild(row);
@@ -4780,12 +4894,6 @@ PAGE = r"""<!DOCTYPE html>
     }
 
 
-    function itemIconSrc(item, extra) {
-      extra = extra || {};
-      const tier = extra.tier || "";
-      const key = (tier && tier !== "basic") ? (item + "_" + tier) : item;
-      return "/item/" + encodeURIComponent(key) + ".svg";
-    }
     function itemLabelFor(item, extra) {
       extra = extra || {};
       const names = (lastData && lastData.item_names) || {};
@@ -4797,15 +4905,19 @@ PAGE = r"""<!DOCTYPE html>
       if (extra.enchant === "nimble") name += " (Nimble)";
       return name;
     }
-    function renderInvSlot(slot, kind) {
+    function renderInvSlot(slot, store, index, label) {
       const wrap = document.createElement("div");
       wrap.className = "inventory-slot";
-      wrap.dataset.kind = kind;
+      wrap.dataset.store = store;
+      wrap.dataset.index = String(index);
+      wrap.dataset.kind = label || store;
       const tag = document.createElement("div");
       tag.className = "slot-kind";
-      tag.textContent = kind;
+      tag.textContent = label || store;
       wrap.appendChild(tag);
       if (slot && slot.item) {
+        wrap.dataset.item = slot.item;
+        wrap.dataset.count = String(slot.count || 1);
         const img = document.createElement("img");
         img.src = itemIconSrc(slot.item, slot);
         img.alt = itemLabelFor(slot.item, slot);
@@ -4826,6 +4938,9 @@ PAGE = r"""<!DOCTYPE html>
         lab.textContent = "empty";
         wrap.appendChild(lab);
       }
+      if (inventoryPending && inventoryPending.store === store && inventoryPending.index === index) {
+        wrap.classList.add("is-selected");
+      }
       return wrap;
     }
     function openInventory() {
@@ -4837,8 +4952,100 @@ PAGE = r"""<!DOCTYPE html>
     function closeInventory() {
       inventoryOpen = false;
       inventoryPending = null;
+      hideDragGhost();
       const modal = $("inventory-modal");
       if (modal) modal.hidden = true;
+    }
+    function onInventorySlotClick(store, index, slot, data) {
+      if (!data || !data.your_turn) {
+        showToast("Wait for your turn to change what you are wearing.", true);
+        return;
+      }
+      if (inventoryPending) {
+        if (inventoryPending.store === store && inventoryPending.index === index) {
+          inventoryPending = null;
+          renderInventory(lastData);
+          return;
+        }
+        actCmd("transfer " + inventoryPending.store + " " + inventoryPending.index + " " + store + " " + index);
+        inventoryPending = null;
+        return;
+      }
+      if (slot && slot.item) {
+        inventoryPending = {store: store, index: index};
+        showToast("Click a slot to move " + itemLabelFor(slot.item, slot) + " there, or click it again to cancel.");
+        renderInventory(lastData);
+      }
+    }
+    function bindInventoryDragOnce() {
+      const dialog = document.querySelector(".inventory-dialog");
+      if (!dialog || dialog.dataset.dragReady) return;
+      dialog.dataset.dragReady = "1";
+      let start = null;
+      let dragging = null;
+      function slotFromCell(cell) {
+        if (!cell || !cell.dataset.store) return null;
+        return {
+          item: cell.dataset.item,
+          count: Number(cell.dataset.count || 1),
+          store: cell.dataset.store,
+          index: cell.dataset.index
+        };
+      }
+      function clearTargets() {
+        dialog.querySelectorAll(".inventory-slot.is-target").forEach(function (el) {
+          el.classList.remove("is-target");
+        });
+      }
+      dialog.addEventListener("pointerdown", function (ev) {
+        if (ev.target && ev.target.closest && ev.target.closest("button, input, textarea, a")) return;
+        const live = lastData;
+        const cell = ev.target.closest && ev.target.closest(".inventory-slot");
+        if (!cell || !cell.dataset.item) return;
+        if (!live || !live.your_turn) return;
+        if (ev.button && ev.button !== 0) return;
+        start = { cell: cell, x: ev.clientX, y: ev.clientY, pointerId: ev.pointerId, slot: slotFromCell(cell) };
+        try { cell.setPointerCapture(ev.pointerId); } catch (err) {}
+      });
+      dialog.addEventListener("pointermove", function (ev) {
+        if (!start) return;
+        const dx = ev.clientX - start.x;
+        const dy = ev.clientY - start.y;
+        if (!dragging && (dx * dx + dy * dy) >= 36) {
+          dragging = start.cell;
+          dragging.classList.add("is-dragging");
+          showDragGhost(start.slot, ev);
+        }
+        if (dragging) {
+          moveDragGhost(ev);
+          const over = document.elementFromPoint(ev.clientX, ev.clientY);
+          const cell = over && over.closest && over.closest(".inventory-slot");
+          clearTargets();
+          if (cell && cell !== dragging) cell.classList.add("is-target");
+        }
+      });
+      function endPointer(ev, cancelled) {
+        if (!start) return;
+        const src = start.cell;
+        const wasDrag = !!dragging;
+        start = null;
+        dragging = null;
+        clearTargets();
+        if (wasDrag) {
+          src.classList.remove("is-dragging");
+          hideDragGhost();
+          if (cancelled) return;
+          const dest = document.elementFromPoint(ev.clientX, ev.clientY);
+          const cell = dest && dest.closest && dest.closest(".inventory-slot");
+          if (!cell || cell === src) return;
+          inventoryPending = null;
+          actCmd("transfer " + src.dataset.store + " " + src.dataset.index
+            + " " + cell.dataset.store + " " + cell.dataset.index);
+          return;
+        }
+      }
+      dialog.addEventListener("pointerup", function (ev) { endPointer(ev, false); });
+      dialog.addEventListener("pointercancel", function (ev) { endPointer(ev, true); });
     }
     function renderInventory(data) {
       if (!inventoryOpen) return;
@@ -4846,29 +5053,17 @@ PAGE = r"""<!DOCTYPE html>
       const xp = inv.xp || {};
       const levelEl = $("inventory-level");
       if (levelEl) {
-        const cap = xp.level_cap || 10;
-        const next = (xp.overall_next == null) ? "capped" : (xp.overall_next + " XP to next");
-        levelEl.textContent = "Overall level " + (xp.overall_level || 1) + " of " + cap +
-          " — " + (xp.total_xp || 0) + " total XP (" + next + ").";
+        const cap = xp.overall_cap || 50;
+        levelEl.textContent = "Overall level " + (xp.overall_level || 5) + "/" + cap +
+          " — " + (xp.total_xp || 0) + " total XP.";
       }
       const gear = $("inventory-gear");
       if (gear) {
         gear.innerHTML = "";
         ["clothes", "boots", "hands"].forEach(function (kind) {
-          const el = renderInvSlot(inv[kind], kind);
+          const el = renderInvSlot(inv[kind], kind, 1, kind);
           el.addEventListener("click", function () {
-            if (!data || !data.your_turn) {
-              showToast("Wait for your turn to change what you are wearing.", true);
-              return;
-            }
-            if (inventoryPending && inventoryPending.from === "pack") {
-              actCmd("equip pack " + inventoryPending.slot + " " + kind);
-              inventoryPending = null;
-              return;
-            }
-            if (inv[kind] && inv[kind].item) {
-              actCmd("unequip " + kind);
-            }
+            onInventorySlotClick(kind, 1, inv[kind], data);
           });
           gear.appendChild(el);
         });
@@ -4877,30 +5072,22 @@ PAGE = r"""<!DOCTYPE html>
       if (packGrid) {
         packGrid.innerHTML = "";
         packGrid.className = "chest-grid";
+        packGrid.style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
         const pack = inv.pack || [];
         pack.forEach(function (slot, i) {
-          const el = renderInvSlot(slot, "pack " + (i + 1));
-          if (inventoryPending && inventoryPending.from === "pack" && inventoryPending.slot === (i + 1)) {
-            el.style.outline = "2px solid var(--gold)";
-          }
+          const el = renderInvSlot(slot, "pack", i + 1, "pack " + (i + 1));
           el.addEventListener("click", function () {
-            if (!slot || !slot.item) {
-              inventoryPending = null;
-              renderInventory(lastData);
-              return;
-            }
-            inventoryPending = {from: "pack", slot: i + 1};
-            showToast("Click clothes, boots, or hands to move " + itemLabelFor(slot.item, slot) + " there.");
-            renderInventory(lastData);
+            onInventorySlotClick("pack", i + 1, slot, data);
           });
           packGrid.appendChild(el);
         });
       }
+      bindInventoryDragOnce();
       const skills = $("inventory-skills");
       if (skills) {
         skills.innerHTML = "";
         const rows = (xp.skills) || {};
-        const order = ["mining", "woodcutting", "farming", "combat"];
+        const order = ["mining", "woodcutting", "farming", "foraging", "combat"];
         order.forEach(function (name) {
           const rec = rows[name] || {level: 1, xp: 0, next: 0, into: 0};
           const row = document.createElement("div");
@@ -4966,7 +5153,10 @@ PAGE = r"""<!DOCTYPE html>
         box.appendChild(b);
       }
       if (!info.built) {
-        addBtn("build table", "Build table (free)");
+        const p = document.createElement("p");
+        p.className = "chest-help";
+        p.textContent = "The Creation Table sits in the middle of the cabin.";
+        box.appendChild(p);
         return;
       }
       if (legal.indexOf("craft runestone") >= 0) {
@@ -5346,6 +5536,8 @@ PAGE = r"""<!DOCTYPE html>
     if (autopassMax) autopassMax.addEventListener("change", function () { saveSettings(); });
     const autopassTimeout = $("settings-autopass-timeout");
     if (autopassTimeout) autopassTimeout.addEventListener("change", function () { saveSettings(); });
+    const awayNote = $("settings-away-note");
+    if (awayNote) awayNote.addEventListener("change", function () { saveSettings(); });
     const newSaveBtn = $("saves-new");
     if (newSaveBtn) newSaveBtn.addEventListener("click", function () { startNewFarm(); });
     const newSaveName = $("saves-new-name");
@@ -5581,6 +5773,66 @@ def _staple_catalog(rules: dict | None = None) -> dict:
     return out
 
 
+
+def _partner_away_notes(state: dict, viewer: str | None, rules: dict | None = None) -> list[dict]:
+    """The other players' away notes, for look and the web UI."""
+    from autopass import away_note_of
+    from engine import known_players, normalize_player, display_name
+
+    del rules
+    out = []
+    view = normalize_player(viewer) if viewer else None
+    for name in known_players():
+        if view and name == view:
+            continue
+        note = away_note_of(state, name)
+        if note:
+            out.append({"id": name, "name": display_name(name), "note": note})
+    return out
+
+
+def _crafting_book_payload(state: dict, crops: dict, rules: dict | None, player: str | None) -> list[dict]:
+    """Creation Table recipes for the sidebar Crafting menu.
+
+    Craftable state comes from the engine's legal actions so the panel
+    does not reimplement the craft rules.
+    """
+    from creation import runestone_recipe, RUNESTONE, RUNESTONE_ORE, table_is_built
+    from engine import (
+        pack_item_counts,
+        format_ingredient_have_need,
+        legal_actions,
+    )
+    from inventory import item_name
+    from cabin import player_at_cabin_tile
+
+    rules = rules or __import__("engine").load_rules()
+    rec = runestone_recipe(rules)
+    counts = pack_item_counts(state, player, rules)
+    have = int(counts.get(RUNESTONE_ORE, 0) or 0)
+    need = int(rec["ore"])
+    rows = [{
+        "item": RUNESTONE_ORE,
+        "need": need,
+        "have": have,
+        "label": item_name(RUNESTONE_ORE, need, crops, rules, state=state),
+    }]
+    action = "craft runestone"
+    legal = legal_actions(state, crops, player, rules) if player else []
+    at_table = bool(player and player_at_cabin_tile(state, player, "table") and table_is_built(state))
+    return [{
+        "id": RUNESTONE,
+        "name": item_name(RUNESTONE, 1, crops, rules, state=state).split(" ", 1)[-1],
+        "action": action,
+        "ingredients_text": format_ingredient_have_need(rows),
+        "ingredients": rows,
+        "energy": int(rec["energy"]),
+        "description": "Craft a runestone from runestone ore at the Creation Table.",
+        "missing": have < need,
+        "craftable": bool(at_table and action in legal),
+    }]
+
+
 def _recipe_book_payload(state: dict, crops: dict, rules: dict | None, player: str | None) -> list[dict]:
     from inventory import recipes, recipe_is_sellable
     from engine import (
@@ -5745,7 +5997,7 @@ def api_payload(
     message: str = "",
     player: str | None = None,
 ) -> dict:
-    from autopass import public_autopass, format_away_summary, autopass_of
+    from autopass import public_autopass, format_away_summary, autopass_of, away_note_of
 
     rules = load_rules()
     migrate_state(state, rules)
@@ -5867,6 +6119,7 @@ def api_payload(
         "staples": _staple_catalog(rules),
         "tools": _tool_shop_catalog(state, rules),
         "recipe_book": _recipe_book_payload(state, crops, rules, viewer),
+        "crafting_book": _crafting_book_payload(state, crops, rules, viewer),
         "discovered_recipes": discovered_recipe_ids(state, rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
@@ -5876,6 +6129,8 @@ def api_payload(
             if viewer and autopass_of(state, viewer).get("away_pending")
             else ""
         ),
+        "away_note": away_note_of(state, viewer) if viewer else "",
+        "partner_away_notes": _partner_away_notes(state, viewer, rules),
     }
 
 
@@ -6098,6 +6353,9 @@ class FarmHandler(BaseHTTPRequestHandler):
                     kwargs["timeout_minutes"] = raw_ap.get("timeout_minutes")
                 if kwargs:
                     set_autopass_settings(state, player, **kwargs)
+                if "away_note" in data:
+                    from autopass import set_away_note
+                    set_away_note(state, player, data.get("away_note"))
                 if data.get("acknowledge_away"):
                     acknowledge_away_summary(state, player)
                 payload = api_payload(state, crops, True, "", player=player)

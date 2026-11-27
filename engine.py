@@ -861,7 +861,7 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
 
 
 def player_slot(state: dict, player: str) -> dict:
-    from inventory import empty_pack, normalize_pack
+    from inventory import empty_pack
 
     players = state.setdefault("players", {})
     slot = players.setdefault(player, {})
@@ -870,10 +870,11 @@ def player_slot(state: dict, player: str) -> dict:
     slot.setdefault("row", CABIN_ROW)
     slot.setdefault("col", CABIN_COL)
     slot.setdefault("snacks_eaten", 0)
-    if "pack" not in slot:
+    # Do not rebuild the pack here. normalize_pack copies every stack, and
+    # equip/transfer held the previous list, so a copy could stay in the pack
+    # after the original was moved to a worn slot.
+    if "pack" not in slot or not isinstance(slot.get("pack"), list):
         slot["pack"] = empty_pack()
-    else:
-        slot["pack"] = normalize_pack(slot.get("pack"))
     return slot
 
 
@@ -2465,7 +2466,10 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
         else:
             wake = cap if slept else faint
         wake = max(0, int(wake) - int(homesick["penalty"].get(key) or 0))
-        slots[key] = {
+        # Start from last night's slot so XP, worn gear, and any later
+        # fields survive the dawn rebuild. Only the daily fields are reset.
+        slot = dict(prev)
+        slot.update({
             "energy": wake,
             "energy_max": wake if slept else cap,
             "ended_turn": False,
@@ -2477,12 +2481,19 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             "snacks_eaten": 0,
             "homesickness": int(homesick["stacks"].get(key) or 0),
             "pack": normalize_pack(prev.get("pack")) if prev.get("pack") is not None else empty_pack(),
-        }
+        })
+        for daily in ("ate_today", "ate_energy_today", "herbal_tea", "carry_home", "carry_reopened"):
+            slot.pop(daily, None)
         from autopass import normalize_autopass, AUTOPASS_KEY
         if prev.get(AUTOPASS_KEY) is not None:
-            slots[key][AUTOPASS_KEY] = normalize_autopass(prev.get(AUTOPASS_KEY))
+            slot[AUTOPASS_KEY] = normalize_autopass(prev.get(AUTOPASS_KEY))
+        elif AUTOPASS_KEY in slot:
+            slot.pop(AUTOPASS_KEY, None)
         if (not slept) and area == AREA_MINE and floor:
-            slots[key]["floor"] = int(floor)
+            slot["floor"] = int(floor)
+        elif "floor" in slot and area != AREA_MINE:
+            slot.pop("floor", None)
+        slots[key] = slot
     for key in known_players():
         if key not in slots:
             from inventory import empty_pack
@@ -2919,9 +2930,8 @@ def end_turn(
     here_floor = player_floor(state, player) if here_area == AREA_MINE else None
     here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
     if via == "autopass":
-        ready_line = (
-            f"{display_name(player)} is taking a break, so the farm ended the turn"
-        )
+        from autopass import autopass_log_line
+        ready_line = autopass_log_line(state, player)
     else:
         ready_line = player_ready_line(state, player) or f"{display_name(player)} is ready to end the day"
     if everyone_done:
@@ -6743,7 +6753,8 @@ def action_descriptor(
         if info.get("skill_level"):
             bits.append(f"mining {info['skill_level']}")
         if info.get("overall_level"):
-            bits.append(f"overall level {info['overall_level']}")
+            from xp import overall_cap
+            bits.append(f"overall level {info['overall_level']} out of {overall_cap(rules)}")
         bits.append(_energy_word(enchant_energy(kind, rules)))
         bits.append("aurora night")
         return ", ".join(bits)
@@ -7276,12 +7287,23 @@ def do_action(
         from chest import upgrade_chest
         ok, msg = upgrade_chest(state, actor, rules, crops)
     elif verb == "transfer":
-        # transfer pack 2 chest 5  /  transfer chest 5 pack 2
+        # transfer pack 2 chest 5  /  transfer pack 1 boots  /  transfer boots 1 pack 2
         from chest import move_pack_chest_slot
+        from inventory import transfer_inventory_slot
         words = [w.lower() for w in args]
-        if len(words) != 4 or words[0] not in {"pack", "chest"} or words[2] not in {"pack", "chest"}:
-            return False, "Usage: transfer pack <slot> chest <slot>   or: transfer chest <slot> pack <slot>"
-        ok, msg = move_pack_chest_slot(state, actor, words[0], words[1], words[2], words[3], rules)
+        stores = {"pack", "chest", "clothes", "boots", "hands"}
+        if len(words) != 4 or words[0] not in stores or words[2] not in stores:
+            return False, (
+                "Usage: transfer pack <slot> chest <slot>, "
+                "transfer pack <slot> pack <slot>, "
+                "or transfer pack <slot> boots|clothes|hands"
+            )
+        if "chest" in (words[0], words[2]):
+            ok, msg = move_pack_chest_slot(state, actor, words[0], words[1], words[2], words[3], rules)
+        else:
+            ok, msg = transfer_inventory_slot(
+                state, actor, words[0], words[1], words[2], words[3], rules
+            )
     elif verb == "reorder":
         if not args or args[0].lower() != "chest":
             return False, "Usage: reorder chest <item> <item> ..."

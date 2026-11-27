@@ -1890,8 +1890,117 @@ _TIER_COLORS = {
 }
 
 
+def _item_tile(item: str, fill: str, body: str) -> str:
+    """Rounded classic tile with a simple in-style drawing (no letter labels)."""
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img" data-item="{item}">'
+        f'<rect width="80" height="80" rx="14" fill="{fill}"/>'
+        f"{body}"
+        f"</svg>"
+    )
+
+
+def _icon_bread(fill: str, *, half: bool = False) -> str:
+    if half:
+        body = (
+            '<ellipse cx="36" cy="46" rx="22" ry="15" fill="#c48942"/>'
+            '<ellipse cx="36" cy="44" rx="20" ry="13" fill="#e2b36a"/>'
+            '<path d="M36 31C36 31 36 61 36 61C48 59 54 52 54 46C54 40 48 33 36 31Z" fill="#f3e0b8"/>'
+            '<path d="M40 36Q46 46 40 56" fill="none" stroke="#e2c48a" stroke-width="1.2"/>'
+        )
+        return _item_tile("bread_half", fill, body)
+    body = (
+        '<ellipse cx="40" cy="46" rx="24" ry="16" fill="#6b3a16"/>'
+        '<ellipse cx="40" cy="44" rx="22" ry="14" fill="#d49a4a"/>'
+        '<ellipse cx="40" cy="42" rx="18" ry="10" fill="#e8b96a"/>'
+        '<path d="M26 38Q30 34 34 38" fill="none" stroke="#8a5a28" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M36 36Q40 32 44 36" fill="none" stroke="#8a5a28" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M46 38Q50 34 54 38" fill="none" stroke="#8a5a28" stroke-width="1.6" stroke-linecap="round"/>'
+    )
+    return _item_tile("bread", fill, body)
+
+
+def _icon_butter(fill: str) -> str:
+    body = (
+        '<rect x="22" y="32" width="36" height="22" rx="5" fill="#e8c84a"/>'
+        '<rect x="22" y="32" width="36" height="8" rx="5" fill="#f7e08a"/>'
+        '<rect x="24" y="38" width="32" height="14" rx="3" fill="#f3d56a"/>'
+    )
+    return _item_tile("butter", fill, body)
+
+
+def _icon_milk(fill: str) -> str:
+    body = (
+        '<path d="M32 22h16l3 8v34a8 8 0 0 1-8 8h-6a8 8 0 0 1-8-8V30z" fill="#eef4f8" stroke="#4a5560" stroke-width="1.5"/>'
+        '<rect x="33" y="16" width="14" height="8" rx="2" fill="#c4a574"/>'
+        '<path d="M34 36h12v22a6 6 0 0 1-6 6 6 6 0 0 1-6-6z" fill="#f7fbfc" opacity="0.7"/>'
+    )
+    return _item_tile("milk", fill, body)
+
+
+def _icon_sugar(fill: str) -> str:
+    body = (
+        '<path d="M28 30 40 22 52 30 50 62 30 62Z" fill="#f4eee0" stroke="#6b4a2b" stroke-width="1.5"/>'
+        '<path d="M28 30 40 36 52 30" fill="none" stroke="#6b4a2b" stroke-width="1.5"/>'
+        '<circle cx="40" cy="48" r="3" fill="#ffffff"/>'
+    )
+    return _item_tile("sugar", fill, body)
+
+
+def _icon_herbal_tea(fill: str) -> str:
+    body = (
+        '<ellipse cx="38" cy="52" rx="18" ry="8" fill="#e8dcc8"/>'
+        '<path d="M20 44h36v12a18 8 0 0 1-36 0z" fill="#efe4d0"/>'
+        '<ellipse cx="38" cy="44" rx="18" ry="7" fill="#c4a574"/>'
+        '<ellipse cx="38" cy="44" rx="14" ry="5" fill="#3d5c2e"/>'
+        '<path d="M56 40q12 2 12 12 0 8-8 8" fill="none" stroke="#efe4d0" stroke-width="3" stroke-linecap="round"/>'
+        '<path d="M32 28q2-8 0-12" fill="none" stroke="#d7e8b0" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M40 26q2-8 0-12" fill="none" stroke="#d7e8b0" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M48 28q2-8 0-12" fill="none" stroke="#d7e8b0" stroke-width="1.6" stroke-linecap="round"/>'
+    )
+    return _item_tile("herbal_tea", fill, body)
+
+
+def _icon_runestone(fill: str) -> str:
+    body = (
+        '<ellipse cx="40" cy="58" rx="18" ry="6" fill="#1a1c20" opacity="0.35"/>'
+        '<ellipse cx="40" cy="40" rx="20" ry="24" fill="#4a5560"/>'
+        '<ellipse cx="38" cy="36" rx="15" ry="18" fill="#6a7a8a"/>'
+        '<polygon points="40,20 50,34 40,44 30,34" fill="#2a3038"/>'
+        '<polygon points="40,24 46,34 40,40 34,34" fill="#d4e4f0"/>'
+        '<rect x="37" y="44" width="6" height="16" fill="#2a3038"/>'
+        '<rect x="38.5" y="45" width="3" height="14" fill="#b8cce0"/>'
+        '<rect x="32" y="59" width="16" height="4" rx="1" fill="#2a3038"/>'
+        '<rect x="33.5" y="60" width="13" height="2" fill="#b8cce0"/>'
+    )
+    return _item_tile("runestone", fill, body)
+
+
+def _icon_bread_and_butter(fill: str) -> str:
+    # Classic SVG only. Storybook uses the existing items/bread_and_butter.png.
+    body = (
+        '<ellipse cx="40" cy="48" rx="24" ry="16" fill="#c48942"/>'
+        '<ellipse cx="40" cy="46" rx="21" ry="13" fill="#f3e0b8"/>'
+        '<rect x="28" y="40" width="24" height="10" rx="4" fill="#f3d56a"/>'
+        '<rect x="28" y="40" width="24" height="4" rx="4" fill="#f7e08a"/>'
+    )
+    return _item_tile("bread_and_butter", fill, body)
+
+
+_STAPLE_ICONS = {
+    "bread": _icon_bread,
+    "bread_half": lambda fill: _icon_bread(fill, half=True),
+    "butter": _icon_butter,
+    "milk": _icon_milk,
+    "sugar": _icon_sugar,
+    "herbal_tea": _icon_herbal_tea,
+    "bread_and_butter": _icon_bread_and_butter,
+    "runestone": _icon_runestone,
+}
+
+
 def svg_for_item(item: str) -> str:
-    """A small placeholder icon for a tool, food, or bag."""
+    """A small icon for a tool, food, or bag. Staples and the finished runestone have simple drawings; others are lettered placeholders."""
     item = (item or "").strip().lower()
     tier = None
     base = item
@@ -1913,6 +2022,9 @@ def svg_for_item(item: str) -> str:
             label, fill, ink = ("CRWN" if item.endswith("_crown") else "SEED"), "#3d6b38", "#d7e8b0"
         else:
             label, fill, ink = (item[:4].upper() or "ITEM"), fill, ink
+    drawn = _STAPLE_ICONS.get(item)
+    if drawn:
+        return drawn(fill)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img">'
         f'<rect width="80" height="80" rx="14" fill="{fill}"/>'

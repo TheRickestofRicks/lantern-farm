@@ -212,7 +212,8 @@
     "vine_out_northwest": "overlays/vine_out_northwest.png",
     "vine_out_northeast": "overlays/vine_out_northeast.png",
     "vine_out_southwest": "overlays/vine_out_southwest.png",
-    "vine_out_southeast": "overlays/vine_out_southeast.png"
+    "vine_out_southeast": "overlays/vine_out_southeast.png",
+    "cabin_table": "overlays/cabin_table.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",
@@ -318,6 +319,7 @@
     "herbal_tea": "items/herbal_tea.png",
     "quartz": "items/quartz.png",
     "runestone_ore": "items/runestone_ore.png",
+    "runestone": "items/runestone.png",
     "goo": "items/goo.png",
     "sleeping_bag": "items/sleeping_bag.png"
   },

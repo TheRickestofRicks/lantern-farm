@@ -19,6 +19,8 @@ MAX_TIMEOUT_MINUTES = 24 * 60
 
 TURN_STARTED_AT = "turn_started_at"
 AUTOPASS_KEY = "autopass"
+AWAY_NOTE_KEY = "away_note"
+MAX_AWAY_NOTE = 280
 
 
 def _aware(value: datetime | None = None) -> datetime:
@@ -48,6 +50,53 @@ def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
     except (TypeError, ValueError):
         return default
     return max(lo, min(hi, value))
+
+
+
+def normalize_away_note(raw) -> str:
+    """Plain free text: trimmed, length-capped, never an unexpected structure."""
+    if raw is None:
+        return ""
+    text = " ".join(str(raw).split())
+    if len(text) > MAX_AWAY_NOTE:
+        text = text[:MAX_AWAY_NOTE].rstrip()
+    return text
+
+
+def away_note_of(state: dict, player: str | None) -> str:
+    from engine import normalize_player, player_slot
+
+    name = normalize_player(player)
+    if not name:
+        return ""
+    slot = player_slot(state, name)
+    return normalize_away_note(slot.get(AWAY_NOTE_KEY))
+
+
+def set_away_note(state: dict, player: str | None, raw) -> str:
+    from engine import normalize_player, player_slot
+
+    name = normalize_player(player)
+    if not name:
+        return ""
+    note = normalize_away_note(raw)
+    slot = player_slot(state, name)
+    if note:
+        slot[AWAY_NOTE_KEY] = note
+    else:
+        slot.pop(AWAY_NOTE_KEY, None)
+    return note
+
+
+def autopass_log_line(state: dict, player: str | None) -> str:
+    """Visible log line when a turn is ended by Autopass."""
+    from engine import display_name
+
+    line = f"{display_name(player)}'s turn autopassed (on a break)"
+    note = away_note_of(state, player)
+    if note:
+        line += f": {note}"
+    return line
 
 
 def default_autopass() -> dict:
