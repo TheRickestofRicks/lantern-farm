@@ -5767,8 +5767,11 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertFalse(cleared.get("rock"))
         self.assertEqual(cleared.get("ladder"), "open")
         self.assertIn("ladder", msg.lower())
-        self.assertIn("stone", msg.lower())
-        self.assertTrue(pack_has(self.state, P1, "stone", 1, self.rules))
+        from inventory import pack_of, stack_count
+        got_stone = pack_has(self.state, P1, "stone", 1, self.rules)
+        got_quartz = pack_has(self.state, P1, "quartz", 1, self.rules)
+        self.assertTrue(got_stone or got_quartz, msg)
+        self.assertTrue("stone" in msg.lower() or "quartz" in msg.lower(), msg)
         self.assertEqual(self.state["players"][P1]["energy"], 90)
         self.assertIn("climb down", legal_actions(self.state, self.crops, P1, self.rules))
         ok, msg = do_action(self.state, self.crops, "climb down", player=P1, rules=self.rules)
@@ -5778,7 +5781,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 80)
         self.assertIn("floor 2", msg.lower())
 
-    def test_ores_follow_depth_bands_and_safe_floors_have_rest_and_elevator(self):
+    def test_ores_follow_depth_bands_and_safe_floors_have_rest(self):
         from mine import get_floor, iter_mine_tiles, ore_chances, is_safe_floor
         self._enter()
         for floor in range(1, 5):
@@ -5787,7 +5790,7 @@ class MinePhaseTwo(unittest.TestCase):
             self.assertEqual(iron, 0)
             self.assertEqual(gold, 0)
             kinds = {tile.get("rock") for _r, _c, tile in iter_mine_tiles(self.state, floor, self.rules) if tile.get("rock")}
-            self.assertTrue(kinds <= {"stone", "copper_ore"})
+            self.assertTrue(kinds <= {"stone", "copper_ore", "runestone_ore"})
         copper, iron, gold = ore_chances(12)
         self.assertGreater(iron, copper)
         self.assertGreater(gold, 0)
@@ -5798,20 +5801,17 @@ class MinePhaseTwo(unittest.TestCase):
         rocks = [tile for _r, _c, tile in iter_mine_tiles(self.state, 5, self.rules) if tile.get("rock")]
         self.assertFalse(rocks)
         self.assertTrue(is_safe_floor(5, self.rules))
-        features = {(bool(t.get("lantern")), bool(t.get("elevator")), t.get("ladder"), bool(t.get("exit")))
-                    for _r, _c, t in iter_mine_tiles(self.state, 5, self.rules)}
         self.assertTrue(any(t.get("lantern") for _r, _c, t in iter_mine_tiles(self.state, 5, self.rules)))
-        self.assertTrue(any(t.get("elevator") for _r, _c, t in iter_mine_tiles(self.state, 5, self.rules)))
+        self.assertFalse(any(t.get("elevator") for _r, _c, t in iter_mine_tiles(self.state, 5, self.rules)))
         self.assertTrue(any(t.get("ladder") == "open" for _r, _c, t in iter_mine_tiles(self.state, 5, self.rules)))
         self.assertFalse(any(t.get("ladder") == "open" for _r, _c, t in iter_mine_tiles(self.state, 25, self.rules)))
 
-    def test_lantern_rest_is_once_per_day_and_elevator_reaches_checkpoints(self):
-        from hills import set_player_place, AREA_MINE, player_area, AREA_HILLS, MINE_ENTRANCE
-        from mine import iter_mine_tiles, player_floor, get_floor
+    def test_lantern_rest_is_once_per_day(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import iter_mine_tiles, get_floor
         self._enter()
         get_floor(self.state, 5, self.rules)
         lantern = next(( (r, c) for r, c, t in iter_mine_tiles(self.state, 5, self.rules) if t.get("lantern") ))
-        lift = next(( (r, c) for r, c, t in iter_mine_tiles(self.state, 5, self.rules) if t.get("elevator") ))
         set_player_place(self.state, P1, AREA_MINE, *lantern, floor=5)
         self.state["players"][P1]["energy"] = 20
         ok, msg = do_action(self.state, self.crops, "rest", player=P1, rules=self.rules)
@@ -5820,26 +5820,21 @@ class MinePhaseTwo(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "rest", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("already rested", msg.lower())
-        set_player_place(self.state, P1, AREA_MINE, *lift, floor=5)
-        self.state["players"][P1]["energy"] = 50
         actions = legal_actions(self.state, self.crops, P1, self.rules)
-        self.assertIn("elevator entrance", actions)
-        self.assertIn("elevator", actions)
+        self.assertNotIn("elevator", actions)
+        self.assertNotIn("elevator entrance", actions)
         ok, msg = do_action(self.state, self.crops, "elevator entrance", player=P1, rules=self.rules)
-        self.assertTrue(ok, msg)
-        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
-        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
-        self.assertEqual(self.state["players"][P1]["energy"], 45)
+        self.assertFalse(ok)
+        self.assertIn("no elevator", msg.lower())
 
-    def test_pass_out_in_the_mine_wakes_at_the_last_elevator_or_entrance(self):
+    def test_pass_out_in_the_mine_wakes_at_the_hills_entrance(self):
         from hills import set_player_place, AREA_MINE, player_area, AREA_HILLS, MINE_ENTRANCE
-        from mine import iter_mine_tiles, player_floor, get_floor, mark_checkpoint
+        from mine import get_floor, mark_checkpoint
         from engine import days_per_season
         self._enter()
         get_floor(self.state, 5, self.rules)
         mark_checkpoint(self.state, 5)
-        lift = next(( (r, c) for r, c, t in iter_mine_tiles(self.state, 5, self.rules) if t.get("elevator") ))
-        set_player_place(self.state, P1, AREA_MINE, *lift, floor=5)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=5)
         self.assertIn("You'll pass out in the mine — 50 energy tomorrow", sleep_outlook(self.state, P1, self.rules))
         stand(self.state, P2, CABIN_ROW, CABIN_COL)
         self.state["current_player"] = P2
@@ -5848,19 +5843,18 @@ class MinePhaseTwo(unittest.TestCase):
         self.state["current_player"] = P1
         ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(player_area(self.state, P1), AREA_MINE)
-        self.assertEqual(player_floor(self.state, P1), 5)
-        self.assertEqual(player_where(self.state, P1), lift)
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
+        self.assertIsNone(self.state["players"][P1].get("floor"))
         self.assertEqual(self.state["players"][P1]["energy"], 50)
         self.assertIn("passed out in the mine", msg.lower())
 
-        # Season change at dawn sends them to the hills entrance instead.
+        # Season change at dawn also wakes them at the hills entrance.
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self._enter()
         get_floor(self.state, 5, self.rules)
         mark_checkpoint(self.state, 5)
-        lift = next(( (r, c) for r, c, t in iter_mine_tiles(self.state, 5, self.rules) if t.get("elevator") ))
-        set_player_place(self.state, P1, AREA_MINE, *lift, floor=5)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=5)
         self.state["day"] = days_per_season(self.crops)
         self.state["season"] = "spring"
         stand(self.state, P2, CABIN_ROW, CABIN_COL)
@@ -6031,19 +6025,19 @@ class MinePhaseTwo(unittest.TestCase):
 
         self._enter()
         found = next(
-            ((r, c) for r, c, tile in iter_mine_tiles(self.state, 1, self.rules) if tile.get("rock") == "stone"),
+            ((r, c) for r, c, tile in iter_mine_tiles(self.state, 6, self.rules) if tile.get("rock") == "stone"),
             None,
         )
         self.assertIsNotNone(found)
         r, c = found
-        set_player_place(self.state, P1, AREA_MINE, r, c, floor=1)
+        set_player_place(self.state, P1, AREA_MINE, r, c, floor=6)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("stone", msg.lower())
         self.assertTrue(pack_has(self.state, P1, "stone", 1, self.rules))
         self.assertEqual(self.state["players"][P1]["energy"], 90)
-        self.assertFalse(get_mine_tile(self.state, 1, r, c, self.rules).get("rock"))
+        self.assertFalse(get_mine_tile(self.state, 6, r, c, self.rules).get("rock"))
 
         # Fill the stone stack to its cap too, or a second piece would still fit.
         add_to_pack(self.state, P1, "stone", 7, self.rules)
@@ -6052,20 +6046,20 @@ class MinePhaseTwo(unittest.TestCase):
         found2 = next(
             (
                 (rr, cc)
-                for rr, cc, tile in iter_mine_tiles(self.state, 1, self.rules)
+                for rr, cc, tile in iter_mine_tiles(self.state, 6, self.rules)
                 if tile.get("rock") == "stone" and (rr, cc) != found
             ),
             None,
         )
         self.assertIsNotNone(found2)
         r, c = found2
-        set_player_place(self.state, P1, AREA_MINE, r, c, floor=1)
+        set_player_place(self.state, P1, AREA_MINE, r, c, floor=6)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("room", msg.lower())
         self.assertEqual(self.state["players"][P1]["energy"], 100)
-        self.assertTrue(get_mine_tile(self.state, 1, r, c, self.rules).get("rock"))
+        self.assertTrue(get_mine_tile(self.state, 6, r, c, self.rules).get("rock"))
 
         at_town(self.state, P1, "stall")
         gold = int(self.state["gold"] or 0)
@@ -6083,14 +6077,14 @@ class MinePhaseTwo(unittest.TestCase):
         set_tool_tier(self.state, TOOL_PICKAXE, "iron")
         self.assertEqual(tool_action_cost(self.state, P1, "mine", self.rules), 6)
         target = neigh = None
-        for r, c, tile in iter_mine_tiles(self.state, 1, self.rules):
+        for r, c, tile in iter_mine_tiles(self.state, 6, self.rules):
             if tile.get("exit") or tile.get("elevator") or tile.get("lantern"):
                 continue
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 rr, cc = r + dr, c + dc
                 if not (1 <= rr <= 3 and 1 <= cc <= 3):
                     continue
-                other = get_mine_tile(self.state, 1, rr, cc, self.rules)
+                other = get_mine_tile(self.state, 6, rr, cc, self.rules)
                 if other.get("exit") or other.get("elevator") or other.get("lantern"):
                     continue
                 target, neigh = (r, c), (rr, cc)
@@ -6100,28 +6094,28 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertIsNotNone(target)
         tr, tc = target
         nr, nc = neigh
-        get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "stone", "ladder": None})
-        get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
-        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
+        get_mine_tile(self.state, 6, tr, tc, self.rules).update({"rock": "stone", "ladder": None})
+        get_mine_tile(self.state, 6, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
+        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=6)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 1, msg)
-        self.assertTrue(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
+        self.assertTrue(get_mine_tile(self.state, 6, nr, nc, self.rules).get("rock"))
         self.assertEqual(self.state["players"][P1]["energy"], 94)
 
         set_tool_tier(self.state, TOOL_PICKAXE, "gold")
         self.assertEqual(tool_action_cost(self.state, P1, "mine", self.rules), 4)
-        get_mine_tile(self.state, 1, tr, tc, self.rules).update({"rock": "gold_ore", "ladder": None})
-        get_mine_tile(self.state, 1, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
-        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=1)
+        get_mine_tile(self.state, 6, tr, tc, self.rules).update({"rock": "gold_ore", "ladder": None})
+        get_mine_tile(self.state, 6, nr, nc, self.rules).update({"rock": "stone", "ladder": None})
+        set_player_place(self.state, P1, AREA_MINE, tr, tc, floor=6)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "gold_ore", 1, self.rules), msg)
         self.assertFalse(pack_has(self.state, P1, "gold_ore", 2, self.rules), msg)
         self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 1, msg)
-        self.assertTrue(get_mine_tile(self.state, 1, nr, nc, self.rules).get("rock"))
+        self.assertTrue(get_mine_tile(self.state, 6, nr, nc, self.rules).get("rock"))
         self.assertNotIn("neighbour", msg.lower())
         self.assertNotIn("neighbor", msg.lower())
         self.assertEqual(self.state["players"][P1]["energy"], 96)
@@ -6794,6 +6788,314 @@ class HillsHotkeysWeb(unittest.TestCase):
 
 
 
+
+class MinePhaseThree(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+
+    def _give_pickaxe(self, player=None):
+        player = player or P1
+        give_item(self.state, "pickaxe", 1, player=player, where="pack")
+
+    def _enter(self, player=None):
+        from hills import set_player_place, AREA_HILLS, MINE_ENTRANCE
+        player = player or P1
+        self._give_pickaxe(player)
+        self.state["mine_entrance_found"] = True
+        set_player_place(self.state, player, AREA_HILLS, *MINE_ENTRANCE)
+        self.state["players"][player]["energy"] = 100
+        self.state["gold"] = 80
+        self.state["current_player"] = player
+        ok, msg = do_action(self.state, self.crops, "enter mine", player=player, rules=self.rules)
+        self.assertTrue(ok, msg)
+        return msg
+
+    def test_quartz_drops_from_plain_stone_on_floors_1_to_4(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import mine_hash, quartz_chance, get_mine_tile, _season_key
+        from inventory import pack_has, item_sell_price
+        from town import stall_sell_price
+        self._enter()
+        self.assertEqual(item_sell_price("quartz", self.crops, self.rules), 6)
+        self.assertEqual(stall_sell_price("quartz", self.crops, self.rules), 6)
+        chance = quartz_chance(self.rules)
+        self.assertEqual(chance, 15)
+        season, year = _season_key(self.state)
+        seed = int(self.state.get("weather_seed") or 0)
+        hit = miss = None
+        for floor in (1, 2, 3, 4):
+            for r in range(1, 4):
+                for c in range(1, 4):
+                    roll = mine_hash(seed, season, year, floor, r, c, 5502) % 100
+                    if hit is None and roll < chance:
+                        hit = (floor, r, c)
+                    if miss is None and roll >= chance:
+                        miss = (floor, r, c)
+        self.assertIsNotNone(hit)
+        self.assertIsNotNone(miss)
+        for expect_q, loc in ((True, hit), (False, miss)):
+            floor, r, c = loc
+            get_mine_tile(self.state, floor, r, c, self.rules).update({"rock": "stone", "ladder": None, "drop": None})
+            # empty the pack of quartz/stone from a previous pass
+            from inventory import pack_of
+            pack = pack_of(self.state, P1, self.rules)
+            for slot in pack:
+                if slot and slot.get("item") in {"stone", "quartz"}:
+                    slot.clear() if hasattr(slot, "clear") else None
+            # simpler: fresh pack with only the pickaxe
+            self.state["players"][P1]["pack"] = [{"item": "pickaxe", "count": 1}]
+            set_player_place(self.state, P1, AREA_MINE, r, c, floor=floor)
+            self.state["players"][P1]["energy"] = 100
+            self.state["current_player"] = P1
+            ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+            self.assertTrue(ok, msg)
+            if expect_q:
+                self.assertTrue(pack_has(self.state, P1, "quartz", 1, self.rules), msg)
+                self.assertIn("quartz", msg.lower())
+            else:
+                self.assertTrue(pack_has(self.state, P1, "stone", 1, self.rules), msg)
+                self.assertIn("stone", msg.lower())
+                self.assertFalse(pack_has(self.state, P1, "quartz", 1, self.rules), msg)
+        # ore rocks on 1-4 do not drop quartz; floor 6 stone does not either
+        floor, r, c = 1, 2, 2
+        get_mine_tile(self.state, floor, r, c, self.rules).update({"rock": "copper_ore", "ladder": None})
+        self.state["players"][P1]["pack"] = [{"item": "pickaxe", "count": 1}]
+        set_player_place(self.state, P1, AREA_MINE, r, c, floor=floor)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "copper_ore", 1, self.rules), msg)
+        self.assertFalse(pack_has(self.state, P1, "quartz", 1, self.rules), msg)
+
+    def test_runestone_is_rare_early_and_more_frequent_deeper(self):
+        from mine import iter_mine_tiles, runestone_chance, generate_floor
+        from inventory import item_sell_price
+        from town import stall_sell_price
+        from sprites import sprite_key, parse_sprite_key, svg_for_key
+        from packs import layers_for_key, load_manifest
+        self._enter()
+        self.assertEqual(runestone_chance(2, self.rules), 3)
+        self.assertEqual(runestone_chance(8, self.rules), 6)
+        self.assertEqual(runestone_chance(12, self.rules), 9)
+        self.assertEqual(runestone_chance(18, self.rules), 12)
+        self.assertEqual(runestone_chance(22, self.rules), 16)
+        self.assertEqual(item_sell_price("runestone_ore", self.crops, self.rules), 15)
+        self.assertEqual(stall_sell_price("runestone_ore", self.crops, self.rules), 15)
+        # Count runestone rocks over many seeds; deeper band should be richer.
+        early = deep = 0
+        rocks_early = rocks_deep = 0
+        for seed in range(40):
+            state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+            for floor, bucket in ((2, "early"), (22, "deep")):
+                data = generate_floor(state, floor, self.rules)
+                for row in data["tiles"]:
+                    for tile in row:
+                        if not tile.get("rock"):
+                            continue
+                        if bucket == "early":
+                            rocks_early += 1
+                            if tile.get("rock") == "runestone_ore":
+                                early += 1
+                        else:
+                            rocks_deep += 1
+                            if tile.get("rock") == "runestone_ore":
+                                deep += 1
+        self.assertGreater(rocks_early, 0)
+        self.assertGreater(rocks_deep, 0)
+        self.assertGreater(early / rocks_early, 0)
+        self.assertGreater(deep / rocks_deep, early / rocks_early)
+        # Safe floors have no runestone rocks or slimes.
+        from mine import get_floor
+        for floor in (5, 10, 15, 20, 25):
+            data = get_floor(self.state, floor, self.rules)
+            self.assertIsNone(data.get("slime"))
+            for row in data["tiles"]:
+                for tile in row:
+                    self.assertFalse(tile.get("rock"))
+                    self.assertFalse(tile.get("slime"))
+        key = sprite_key({"type": "mine_floor", "rock": "runestone_ore"})
+        self.assertEqual(key, "mine_floor_rock_runestone")
+        info = parse_sprite_key(key)
+        self.assertEqual(info.get("rock"), "runestone_ore")
+        self.assertTrue(svg_for_key(key))
+        self.assertIsNone(layers_for_key(key, load_manifest("storybook")))
+
+    def test_grey_slimes_spawn_from_floor_6_never_on_safe_floors(self):
+        from mine import get_floor, slime_spawn_chance, generate_floor, slime_in_reach
+        from hills import set_player_place, AREA_MINE
+        self._enter()
+        self.assertEqual(slime_spawn_chance(4, self.rules), 0)
+        self.assertEqual(slime_spawn_chance(5, self.rules), 0)
+        self.assertEqual(slime_spawn_chance(6, self.rules), 33)
+        self.assertEqual(slime_spawn_chance(12, self.rules), 50)
+        self.assertEqual(slime_spawn_chance(18, self.rules), 67)
+        self.assertEqual(slime_spawn_chance(22, self.rules), 80)
+        for floor in range(1, 6):
+            data = get_floor(self.state, floor, self.rules)
+            self.assertIsNone(data.get("slime"))
+        hits = 0
+        total = 0
+        for seed in range(60):
+            state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
+            for floor in (6, 7, 8, 9):
+                data = generate_floor(state, floor, self.rules)
+                total += 1
+                if data.get("slime"):
+                    hits += 1
+                    slime = data["slime"]
+                    self.assertEqual(slime.get("kind"), "grey")
+                    self.assertEqual(int(slime.get("hp")), 20)
+                    # not on the arrival tile
+                    arrival = next(
+                        ( (r, c) for r, row in enumerate(data["tiles"], 1)
+                          for c, tile in enumerate(row, 1) if tile.get("exit") ),
+                    )
+                    self.assertNotEqual((slime["row"], slime["col"]), arrival)
+        self.assertGreater(total, 0)
+        rate = hits / total
+        self.assertGreater(rate, 0.15)
+        self.assertLess(rate, 0.55)
+
+    def test_strike_and_flee_and_goo_and_zero_hp(self):
+        from hills import set_player_place, AREA_MINE, player_area, AREA_HILLS, MINE_ENTRANCE, player_hp
+        from mine import get_floor, _sync_slime_tile
+        from inventory import pack_has, item_sell_price
+        from town import stall_sell_price
+        from sprites import sprite_key, parse_sprite_key
+        self._enter()
+        self.assertEqual(item_sell_price("goo", self.crops, self.rules), 8)
+        self.assertEqual(stall_sell_price("goo", self.crops, self.rules), 8)
+        data = get_floor(self.state, 6, self.rules)
+        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        _sync_slime_tile(data)
+        # Not in reach from a far corner if 2,2 is adjacent... on 3x3, (1,1) is diagonal (manhattan 2).
+        set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=6)
+        self.state["players"][P1]["energy"] = 100
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertNotIn("strike", actions)
+        self.assertNotIn("flee", actions)
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        # Stand next to it (cardinal).
+        set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("strike", actions)
+        self.assertIn("flee", actions)
+        key = sprite_key(data["tiles"][1][1], floor=6)
+        self.assertIn("slime_grey", key)
+        self.assertEqual(parse_sprite_key(key).get("slime"), "grey")
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(data["slime"]["hp"], 10)
+        hp, cap = player_hp(self.state, P1, self.rules)
+        self.assertEqual(hp, 92)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        self.assertIn("10 HP left", msg)
+        # Second strike defeats it and drops goo.
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(data.get("slime"))
+        self.assertTrue(pack_has(self.state, P1, "goo", 1, self.rules), msg)
+        self.assertIn("goo", msg.lower())
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 92)  # no counter on the killing blow
+        self.assertNotIn("strike", legal_actions(self.state, self.crops, P1, self.rules))
+
+        # Flee to the shaft, then flee up. Fresh slime on floor 6.
+        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        _sync_slime_tile(data)
+        from mine import arrival_tile
+        exit_r, exit_c = arrival_tile(self.state, 6, self.rules)
+        # If the exit is the slime tile, move the slime aside.
+        if (exit_r, exit_c) == (2, 2):
+            data["slime"]["row"], data["slime"]["col"] = 3, 3
+            _sync_slime_tile(data)
+            set_player_place(self.state, P1, AREA_MINE, 3, 2, floor=6)
+        else:
+            set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        ok, msg = do_action(self.state, self.crops, "flee", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_where(self.state, P1), (exit_r, exit_c))
+        self.assertIn("shaft", msg.lower())
+        # 0 HP from a strike wakes at the hills entrance with 25 energy and full HP.
+        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        _sync_slime_tile(data)
+        set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        self.state["players"][P1]["hp"] = 8
+        self.state["players"][P1]["energy"] = 50
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
+        self.assertEqual(self.state["players"][P1]["energy"], 25)
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
+        self.assertIn("mine entrance", msg.lower())
+
+    def test_migrate_strips_elevators_and_goo_is_sellable(self):
+        from mine import get_floor, migrate_mine, wake_place_after_mine_passout
+        from hills import AREA_HILLS, MINE_ENTRANCE
+        from town import stall_sell_price
+        self._enter()
+        data = get_floor(self.state, 5, self.rules)
+        data["tiles"][0][0]["elevator"] = True
+        self.state["mine"]["checkpoints"] = [5]
+        changed = migrate_mine(self.state, self.rules)
+        self.assertTrue(changed)
+        self.assertFalse(any(
+            tile.get("elevator")
+            for row in get_floor(self.state, 5, self.rules)["tiles"]
+            for tile in row
+        ))
+        place = wake_place_after_mine_passout(self.state, self.rules)
+        self.assertEqual(place, (AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1], None))
+        self.assertEqual(stall_sell_price("goo", self.crops, self.rules), 8)
+        self.assertEqual(stall_sell_price("quartz", self.crops, self.rules), 6)
+        self.assertEqual(stall_sell_price("runestone_ore", self.crops, self.rules), 15)
+
+    def test_web_shows_strike_and_flee_only_when_slime_is_in_reach(self):
+        import web
+        from hills import set_player_place, AREA_MINE
+        from mine import get_floor, _sync_slime_tile
+        self._enter()
+        data = get_floor(self.state, 6, self.rules)
+        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        _sync_slime_tile(data)
+        set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=6)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertNotIn("strike", payload.get("actions") or [])
+        set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertIn("strike", payload.get("actions") or [])
+        self.assertIn("flee", payload.get("actions") or [])
+        html = web.render_page(viewer=P1)
+        # Reuse the mine jsdom runner in inside mode.
+        import shutil, subprocess, tempfile, os, json
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "mine-ui.test.js"
+        with tempfile.TemporaryDirectory(prefix="lantern-slime-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            env = os.environ.copy()
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            env["MINE_UI_MODE"] = "inside"
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp, env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            data_js = json.loads(proc.stdout)
+        joined = " ".join(data_js["tileButtons"]).lower()
+        self.assertIn("strike", joined)
+        self.assertIn("flee", joined)
+        self.assertRegex(data_js["keysText"], r"\bK\b")
+        self.assertRegex(data_js["keysText"], r"\bF\b")
+
+
 class MineActionsWeb(unittest.TestCase):
     def _run(self, payload, html, mode="entrance"):
         import shutil
@@ -6912,8 +7214,10 @@ class MineActionsWeb(unittest.TestCase):
         tile["lantern"] = True
         tile["elevator"] = True
         legal = legal_actions(state, crops, P1, rules)
-        for act in ("mine", "climb down", "climb up", "leave mine", "rest", "elevator", "elevator entrance"):
+        for act in ("mine", "climb down", "climb up", "leave mine", "rest"):
             self.assertIn(act, legal, act)
+        self.assertNotIn("elevator", legal)
+        self.assertNotIn("elevator entrance", legal)
         payload = web.api_payload(state, crops, player=P1)
         html = web.render_page(viewer=P1)
         data = self._run(payload, html, mode="inside")
@@ -6923,7 +7227,7 @@ class MineActionsWeb(unittest.TestCase):
         self.assertIn("climb up", joined)
         self.assertIn("leave mine", joined)
         self.assertIn("rest", joined)
-        self.assertIn("elevator", joined)
+        self.assertNotIn("elevator", joined)
         self.assertRegex(data["keysText"], r"\bM\b")
         self.assertRegex(data["keysText"], r"\bR\b")
 
@@ -7916,23 +8220,18 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertGreaterEqual(self.state["players"][P1]["energy"], 100)
         self.assertTrue(is_player_in_cabin(self.state, P1))
 
-    def test_mine_rescue_uses_the_elevator_when_it_is_cheaper(self):
+    def test_mine_rescue_from_floor_5_uses_the_climb_path(self):
         from engine import carry_home_path
-        from mine import mine_of
         self._place_in_mine(P1, 2, 2, 5, energy=0)
         self.state["players"][P1]["ended_turn"] = True
         self._place_in_mine(P2, 2, 2, 5, energy=100)
         self.state["current_player"] = P2
-        mine_of(self.state).setdefault("checkpoints", [])
-        if 5 not in mine_of(self.state)["checkpoints"]:
-            mine_of(self.state)["checkpoints"].append(5)
         _places, cost = carry_home_path(self.state, P2, self.rules)
-        # Elevator (5) doubled + 3 walk-home steps doubled (30) = 40,
-        # cheaper than five climb-ups doubled (50) plus the walk (30) = 80.
-        self.assertEqual(cost, 40)
+        # Five climb-ups doubled (50) plus three walk-home steps doubled (30) = 80.
+        self.assertEqual(cost, 80)
         ok, msg = do_action(self.state, self.crops, f"carry {N1} to bed", player=P2, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(self.state["players"][P2]["energy"], 60)
+        self.assertEqual(self.state["players"][P2]["energy"], 20)
         self.assertTrue(is_player_in_cabin(self.state, P1))
 
     def test_mine_rescue_refuses_without_enough_energy_and_nobody_moves(self):

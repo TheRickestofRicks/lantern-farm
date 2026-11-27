@@ -1160,7 +1160,18 @@ PAGE = r"""<!DOCTYPE html>
     function parseMineSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
       let rock = null, ladder = false, shaft = false, lantern = false, elevator = false, ladderUp = false;
-      const ores = [["copper", "_rock_copper"], ["iron", "_rock_iron"], ["gold", "_rock_gold"]];
+      let slime = null, drop = null;
+      const dropAt = key.lastIndexOf("_drop_");
+      if (dropAt !== -1) {
+        drop = key.slice(dropAt + 6) || null;
+        key = key.slice(0, dropAt);
+      }
+      const slimeAt = key.lastIndexOf("_slime_");
+      if (slimeAt !== -1) {
+        slime = key.slice(slimeAt + 7) || "grey";
+        key = key.slice(0, slimeAt);
+      }
+      const ores = [["copper", "_rock_copper"], ["iron", "_rock_iron"], ["gold", "_rock_gold"], ["runestone", "_rock_runestone"]];
       for (let i = 0; i < ores.length; i++) {
         const suffix = ores[i][1];
         if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
@@ -1204,6 +1215,8 @@ PAGE = r"""<!DOCTYPE html>
         shaft: shaft,
         lantern: lantern,
         elevator: elevator,
+        slime: slime,
+        drop: drop,
         mine: true
       };
     }
@@ -1444,6 +1457,7 @@ PAGE = r"""<!DOCTYPE html>
           if (parsed.rock === "copper_ore") rkey = "mine_rock_copper";
           else if (parsed.rock === "iron_ore") rkey = "mine_rock_iron";
           else if (parsed.rock === "gold_ore") rkey = "mine_rock_gold";
+          else if (parsed.rock === "runestone_ore") rkey = "mine_rock_runestone";
           if (!addOverlay(rkey)) return null;
         } else {
           if (parsed.ladder === "open" && !addOverlay("mine_ladder")) return null;
@@ -1455,6 +1469,8 @@ PAGE = r"""<!DOCTYPE html>
           if (parsed.lantern && !addOverlay("mine_lantern")) return null;
           if (parsed.elevator && !addOverlay("mine_elevator")) return null;
         }
+        if (parsed.drop && !addOverlay("mine_drop_" + parsed.drop)) return null;
+        if (parsed.slime && !addOverlay("mine_slime_" + (parsed.slime || "grey"))) return null;
         return layers;
       }
       if (parsed.fertilizer) {
@@ -1811,12 +1827,14 @@ PAGE = r"""<!DOCTYPE html>
         const bits = [];
         if (tile.rock) {
           const rk = String(tile.rock).replace(/_ore$/, "").replace(/_/g, " ");
-          bits.push(rk === "stone" || rk === "rock" ? "a rock" : ("a " + rk + " rock"));
+          if (rk === "runestone") bits.push("a smooth, rounded runestone rock");
+          else bits.push(rk === "stone" || rk === "rock" ? "a rock" : ("a " + rk + " rock"));
         }
         if (tile.ladder === "open") bits.push("a ladder leading down");
         if (tile.exit) bits.push("the shaft back up");
         if (tile.lantern) bits.push("a rest lantern");
-        if (tile.elevator) bits.push("the elevator");
+        if (tile.slime) bits.push("a " + String(tile.slime).replace(/_/g, " ") + " slime");
+        if (tile.drop) bits.push(String(tile.drop).replace(/_/g, " ") + " on the ground");
         return tileName(r, c) + " — " + (bits.length ? bits.join(", ") : "bare stone floor") + ".";
       }
       if (tile.type === "grass" || tile.type === "hillside") {
@@ -2159,8 +2177,8 @@ PAGE = r"""<!DOCTYPE html>
         "fuel fireplace",
         "mine",
         "rest",
-        "elevator",
-        "elevator entrance"
+        "strike",
+        "flee"
       ];
       const plantPrefix = "plant " + workR + " " + workC + " ";
       const fertPrefix = "fertilize " + workR + " " + workC;
@@ -2183,11 +2201,13 @@ PAGE = r"""<!DOCTYPE html>
         if (act === "enter cabin" || act === "leave cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace" || act === "fuel stove") return "E";
         if (act === "mine") return "M";
         if (act === "rest") return "R";
+        if (act === "strike") return "K";
+        if (act === "flee") return "F";
         return "";
       }
       function isTileAction(act) {
         if (prefix.indexOf(act) !== -1) return true;
-        if (/^elevator \d+$/.test(act)) return true;
+        if (act.indexOf("take ") === 0 && data.area === "mine") return true;
         if (act.indexOf(plantPrefix) === 0) return true;
         if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) return true;
         if (act.indexOf("forge ") === 0) return true;
@@ -2204,8 +2224,6 @@ PAGE = r"""<!DOCTYPE html>
           } else {
             label = actionLabel(act, act.split(" ")[0]);
           }
-        } else if (/^elevator \d+$/.test(act)) {
-          label = actionLabel(act, act);
         } else if (act.indexOf(plantPrefix) === 0) {
           label = actionLabel(act, "plant " + act.slice(plantPrefix.length));
         } else if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
@@ -3545,7 +3563,9 @@ PAGE = r"""<!DOCTYPE html>
       } else if (area === "mine") {
         work = ' &middot; <kbd>E</kbd> climb'
           + ' &middot; <kbd>M</kbd> mine'
-          + ' &middot; <kbd>R</kbd> rest';
+          + ' &middot; <kbd>R</kbd> rest'
+          + ' &middot; <kbd>K</kbd> strike'
+          + ' &middot; <kbd>F</kbd> flee';
       } else if (area === "cabin") {
         work = ' &middot; <kbd>E</kbd> leave or interact';
       } else if (area === "town") {
@@ -3975,7 +3995,22 @@ PAGE = r"""<!DOCTYPE html>
         endConfirm = false;
         unearthConfirm = false;
         plantPick = null;
+        if (!needTurn()) return;
+        if (firstLegalCommand(["flee"])) {
+          actCmd("flee");
+          return;
+        }
         keyFertilize();
+        return;
+      }
+      if (letter === "k") {
+        ev.preventDefault();
+        endConfirm = false;
+        unearthConfirm = false;
+        plantPick = null;
+        if (!needTurn()) return;
+        if (firstLegalCommand(["strike"])) actCmd("strike");
+        else farmActionToast("strike", lastData);
         return;
       }
       if (letter === "m") {

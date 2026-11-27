@@ -129,6 +129,24 @@ MATERIALS = {
         "sell_price": 20,
         "description": "A chunk of gold ore, from the deepest mine floors.",
     },
+    "quartz": {
+        "name": "quartz",
+        "name_plural": "quartz",
+        "sell_price": 6,
+        "description": "A clear shard of quartz, sometimes found in ordinary stone on the upper mine floors.",
+    },
+    "runestone_ore": {
+        "name": "runestone ore",
+        "name_plural": "runestone ore",
+        "sell_price": 15,
+        "description": "A smooth, rounded runestone, rare in the upper mine and more common deeper. It will feed rune magic later.",
+    },
+    "goo": {
+        "name": "goo",
+        "name_plural": "goo",
+        "sell_price": 8,
+        "description": "A sticky dollop of grey slime goo. The stall will buy it; a recipe can wait.",
+    },
 }
 
 FORAGE_ITEMS = {
@@ -350,6 +368,12 @@ ITEM_ALIASES = {
     "iron_ore": "iron_ore",
     "gold ore": "gold_ore",
     "gold_ore": "gold_ore",
+    "quartz": "quartz",
+    "runestone": "runestone_ore",
+    "runestone ore": "runestone_ore",
+    "runestone_ore": "runestone_ore",
+    "goo": "goo",
+    "slime goo": "goo",
     "firewood": "wood",
     "wild_onion": "wild_onion",
     "wild onion": "wild_onion",

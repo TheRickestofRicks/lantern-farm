@@ -4,6 +4,12 @@
 
 Rick and Lumen’s first official-project day on Lantern Farm. A full day of engine, art, and cabin work landed on `main`.
 
+### Mine Phase 3
+
+- Grey slimes appear from floor 6 down, never on safe floors. They have 20 HP and deal 8 damage. `strike` and `flee` cost 5 energy and are only available when you stand on or next to a slime. A strike deals 10 damage; the slime hits back unless that blow defeats it. Defeated slimes drop goo, which the stall buys for 8G (no recipe yet). At 0 HP you still wake at the hills mine entrance with 25 energy and full HP. (`this change`)
+- Quartz can drop from plain stone rocks on floors 1–4 (15% chance) and sells for 6G. Runestone ore rocks are smooth and rounded: rare on floors 1–4 (3%) and more common deeper (6% / 9% / 12% / 16%). The stall buys runestone ore for 15G. Stand-in Classic SVG sprites are in; a full art pass comes later. (`this change`)
+- The elevator is gone. Climb the ladders to travel the mine. `go cabin` from inside is still refused until you climb out to the hills entrance. Ending a turn in the mine now wakes at the hills entrance with 50 energy (pack kept), including when the season changes. Carrying someone out of the mine no longer uses a lift shortcut. Older saves lose elevator tiles on load. (`this change`)
+
 ### Cabin
 
 - The cabin is now enterable. From the farm cabin tile, E steps into a 3×3 interior (bed, chest, fireplace, kitchen, door). Walking inside costs no energy; being anywhere inside still counts as sleeping in the cabin. Leave through the door, back onto the farm cabin tile. (`b7361e8`, `33592d5`)
@@ -19,7 +25,7 @@ Rick and Lumen’s first official-project day on Lantern Farm. A full day of eng
 
 - Pass turn is a same-day hand-off with an optional note; it does not end your day. The line is short: “Rick passes the turn to Lumen.” If you pass while away from the cabin, you are silently marked as waiting (the wait is not announced in the log or status). The other player can carry you to bed from the same tile. There is no separate “pass turn home” action. The note field clears after a pass, the same as after end turn. (`9a1675c`, `49aa396`, this change)
 - Carry to bed (formerly “walk X home”) takes both of you to the cabin bed at the same double-movement cost as walking to the cabin door. The log is a short tuck-in line. The old “walk X home” wording still works. (`9a1675c`, this change)
-- Ending the turn away from the cabin is a silent request to be carried, the same as passing while away — not only the old carry flag. Carry to bed also works in the mine: stand on the same tile, and it brings them up through the floors (climbing, or the elevator when that stop is reached and cheaper) and home to the cabin bed at double the usual travel cost. They sleep in the cabin, not as a pass-out. If you don't have the energy, the refusal names the cost. (`this change`)
+- Ending the turn away from the cabin is a silent request to be carried, the same as passing while away — not only the old carry flag. Carry to bed also works in the mine: stand on the same tile, and it brings them up the ladders and home to the cabin bed at double the usual travel cost. They sleep in the cabin, not as a pass-out. If you don't have the energy, the refusal names the cost. (`this change`)
 - End turn is a ready-for-bed vote: it marks you ready and hands the turn over. The day turns only when both players are ready. Passing the turn back clears the recipient’s ready flag so they can act again. Ready state is shown in the web HUD and in CLI look. (`this change`)
 - Enter in the note box always ends the turn (and sends a note if you typed one). The Pass turn button passes immediately, including any note already in the box. End turn is also Shift+E, then Enter. (`b7361e8`, this change)
 - Dawn and the green web banner are concise. After a day turns, you see a short status (day, season, weather, ready crops, weeds, wake energy, whose turn) rather than the long dawn paragraph. Full detail stays in the log. The banner refreshes when the turn changes (polling or the notify hook), so it shows what the other player just did — their note, a ready-for-bed line, and “Your turn” — not your own stale last action. Waiting to be carried is never announced there. (`this change`)

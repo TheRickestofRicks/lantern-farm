@@ -18,7 +18,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 - Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating.
 - Mine depth beyond the first floors.
 - Sleeping bag: sleep inside the mine, wake with 50 energy on the same tile without being booted out. It takes a backpack slot (bulky).
-- Slimes: mine enemies that use HP; fleeing or fainting boots you out of the mine (the sleeping bag avoids the boot on a planned sleep).
+- More slime types deeper in the mine (grey slimes from floor 6 are in).
 - Fireplace fuel-storage upgrade, so wood can be kept by the fireplace instead of carried from the chest for each load.
 - Propane stove, a shop-bought stove that cooks without chopping wood; fuel is purchased from the shop.
 - Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
@@ -29,11 +29,10 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, `docs/granular-growth.md`):
 
-- Phase 3 of the hills and mine plan: slimes and combat.
-- Whether saplings can later be planted on the hills, or the woods stay wild.
+- Converting the hills into an orchard, so saplings can be planted there later.
 - Tulips.
 - Yearly wet/dry season variants, with hints so the year-to-year change is readable.
 - Coffee (+40 energy now, with a sleep penalty). Herbal tea is already in the shop.
 - Open questions from granular growth: mixed jam berries, fertilizer prices after a season of play, and the pack stack cap.
 - Winter market stall or special order board that occasionally buys a cooked meal.
-- Rune system: rare runestone rocks in the mine can be carved and imbued (ore + a runestone) to (1) enchant tools (Bounty = +1 yield, Shatter = splash), (2) waystones — attune a cleared tile (rocks and items removed) with transcribed runes and teleport back to it for a small energy cost, intended to replace the elevator, and (3) a homeward rune at high levels (teleport home). The current elevator stays until that lands.
+- Rune system: runestone ore from the mine can be carved and imbued (ore + a runestone) to (1) enchant tools (Bounty = +1 yield, Shatter = splash), (2) waystones — attune a cleared tile (rocks and items removed) with transcribed runes and teleport back to it for a small energy cost, replacing the removed elevator, and (3) a homeward rune at high levels (teleport home).

@@ -1,6 +1,7 @@
-"""Mine floors, ores, the pickaxe, and the forge for Lantern Farm.
+"""Mine floors, ores, the pickaxe, the forge, slimes, and mine finds.
 
-Phase 2 of docs/plan-hills-and-mine.md. Slimes stay Phase 3.
+Phase 3 of docs/plan-hills-and-mine.md: grey slimes, quartz, runestone,
+and elevator removal.
 """
 
 from __future__ import annotations
@@ -48,8 +49,30 @@ ORE_LABELS = {
     "copper_ore": "copper ore",
     "iron_ore": "iron ore",
     "gold_ore": "gold ore",
+    "runestone_ore": "runestone ore",
     "stone": "stone",
+    "quartz": "quartz",
 }
+
+# Runestone takes a slice of the plain-stone remainder, out of 100.
+RUNESTONE_BANDS = (
+    (1, 4, 3),
+    (6, 9, 6),
+    (11, 14, 9),
+    (16, 19, 12),
+    (21, 24, 16),
+)
+DEFAULT_QUARTZ_CHANCE = 15
+SLIME_KIND = "grey"
+DEFAULT_SLIME_HP = 20
+DEFAULT_SLIME_DAMAGE = 8
+DEFAULT_STRIKE_DAMAGE = 10
+SLIME_SPAWN = (
+    (6, 9, 33),
+    (11, 14, 50),
+    (16, 19, 67),
+    (21, 24, 80),
+)
 
 
 def mine_rules(rules: dict | None = None) -> dict:
@@ -187,9 +210,76 @@ def ore_chances(floor: int) -> tuple[int, int, int]:
     return 0, 0, 0
 
 
-def ore_kind_for(floor: int, row: int, col: int, seed: int, season: str, year: int) -> str | None:
+def runestone_chance(floor: int, rules: dict | None = None) -> int:
+    """Percent chance a rock is runestone ore (taken from the stone remainder)."""
+    cfg = mine_rules(rules).get("runestone") if mine_rules(rules) else None
+    bands = None
+    if isinstance(cfg, dict) and isinstance(cfg.get("bands"), (list, tuple)):
+        bands = cfg.get("bands")
+    rows = bands or RUNESTONE_BANDS
+    f = int(floor)
+    for row in rows:
+        try:
+            lo, hi, chance = int(row[0]), int(row[1]), int(row[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if lo <= f <= hi:
+            return max(0, chance)
+    return 0
+
+
+def quartz_chance(rules: dict | None = None) -> int:
+    try:
+        return max(0, min(100, int(mine_rules(rules).get("quartz_chance", DEFAULT_QUARTZ_CHANCE))))
+    except (TypeError, ValueError):
+        return DEFAULT_QUARTZ_CHANCE
+
+
+def slime_cfg(rules: dict | None = None) -> dict:
+    raw = mine_rules(rules).get("slime")
+    return raw if isinstance(raw, dict) else {}
+
+
+def slime_hp_amount(rules: dict | None = None) -> int:
+    try:
+        return max(1, int(slime_cfg(rules).get("hp") or DEFAULT_SLIME_HP))
+    except (TypeError, ValueError):
+        return DEFAULT_SLIME_HP
+
+
+def slime_damage_amount(rules: dict | None = None) -> int:
+    try:
+        return max(0, int(slime_cfg(rules).get("damage") or DEFAULT_SLIME_DAMAGE))
+    except (TypeError, ValueError):
+        return DEFAULT_SLIME_DAMAGE
+
+
+def strike_damage_amount(rules: dict | None = None) -> int:
+    try:
+        return max(1, int(slime_cfg(rules).get("strike_damage") or DEFAULT_STRIKE_DAMAGE))
+    except (TypeError, ValueError):
+        return DEFAULT_STRIKE_DAMAGE
+
+
+def slime_spawn_chance(floor: int, rules: dict | None = None) -> int:
+    if is_safe_floor(floor, rules) or int(floor) < 6:
+        return 0
+    rows = slime_cfg(rules).get("spawn") or SLIME_SPAWN
+    f = int(floor)
+    for row in rows:
+        try:
+            lo, hi, chance = int(row[0]), int(row[1]), int(row[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if lo <= f <= hi:
+            return max(0, min(100, chance))
+    return 0
+
+
+def ore_kind_for(floor: int, row: int, col: int, seed: int, season: str, year: int, rules: dict | None = None) -> str | None:
     """Kind of ore in a rock, or None for plain stone."""
     copper, iron, gold = ore_chances(floor)
+    rune = runestone_chance(floor, rules)
     roll = mine_hash(seed, season, year, floor, row, col, 4401) % 100
     if roll < copper:
         return "copper_ore"
@@ -197,6 +287,8 @@ def ore_kind_for(floor: int, row: int, col: int, seed: int, season: str, year: i
         return "iron_ore"
     if roll < copper + iron + gold:
         return "gold_ore"
+    if roll < copper + iron + gold + rune:
+        return "runestone_ore"
     return None
 
 
@@ -230,10 +322,7 @@ def generate_floor(state: dict, floor: int, rules: dict | None = None) -> dict:
         remaining = [cell for cell in cells if cell != arrival]
         lantern = _pick_cell(remaining, seed, season, year, floor, 22)
         remaining = [cell for cell in remaining if cell != lantern]
-        lift = _pick_cell(remaining, seed, season, year, floor, 33)
-        remaining = [cell for cell in remaining if cell != lift]
         tiles[lantern[0] - 1][lantern[1] - 1]["lantern"] = True
-        tiles[lift[0] - 1][lift[1] - 1]["elevator"] = True
         if floor < max_floor(rules) and remaining:
             down = _pick_cell(remaining, seed, season, year, floor, 44)
             tiles[down[0] - 1][down[1] - 1]["ladder"] = "open"
@@ -246,12 +335,15 @@ def generate_floor(state: dict, floor: int, rules: dict | None = None) -> dict:
             if (r, c) == arrival:
                 continue
             tile = tiles[r - 1][c - 1]
-            ore = ore_kind_for(floor, r, c, seed, season, year)
+            ore = ore_kind_for(floor, r, c, seed, season, year, rules)
             tile["rock"] = ore or "stone"
             if (r, c) == hidden:
                 tile["rock"] = "stone"
                 tile["ladder"] = "hidden"
-    return {"tiles": tiles, "floor": floor}
+    data = {"tiles": tiles, "floor": floor, "slime": None}
+    data["slime"] = _roll_slime(state, floor, arrival, rules, seed, season, year)
+    _sync_slime_tile(data)
+    return data
 
 
 def ensure_mine(state: dict, rules: dict | None = None, crops: dict | None = None) -> bool:
@@ -307,6 +399,8 @@ def get_floor(state: dict, floor: int, rules: dict | None = None) -> dict:
     data = floors.get(key)
     if not isinstance(data, dict) or not isinstance(data.get("tiles"), list):
         data = generate_floor(state, floor, rules)
+        floors[key] = data
+    if _refresh_floor_phase3(state, int(floor), data, rules):
         floors[key] = data
     return data
 
@@ -559,7 +653,7 @@ def leave_mine(state: dict, player: str, rules: dict | None = None) -> tuple[boo
         return False, "You are not in the mine."
     floor = player_floor(state, player) or 1
     if floor != 1:
-        return False, "Climb up to floor 1, or take the elevator to the entrance, then leave."
+        return False, "Climb up to floor 1, then leave."
     return climb_up(state, player, rules)
 
 
@@ -583,10 +677,19 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
             "Buy one from the shop after finding the mine entrance."
         )
     got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
-    what = "the stone" if rock == "stone" else "the ore"
-    if not pack_space_for(state, player, rock, got, rules):
+    item = rock
+    if rock == "stone" and 1 <= int(floor) <= 4:
+        season, year = _season_key(state)
+        seed = int(state.get("weather_seed") or 0)
+        roll = mine_hash(seed, season, year, floor, row, col, 5502) % 100
+        if roll < quartz_chance(rules):
+            item = "quartz"
+    what = "the stone" if rock == "stone" and item != "quartz" else (
+        "the quartz" if item == "quartz" else "the ore"
+    )
+    if not pack_space_for(state, player, item, got, rules):
         return False, f"No room in the backpack for {what}. Drop something at the cabin first."
-    leftover = add_to_pack(state, player, rock, got, rules)
+    leftover = add_to_pack(state, player, item, got, rules)
     if leftover:
         return False, f"No room in the backpack for {what}. Drop something at the cabin first."
     sync_inventory_view(state, rules)
@@ -594,7 +697,7 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
     revealed = tile.get("ladder") == "hidden"
     if revealed:
         tile["ladder"] = "open"
-    bits = [f"and packs {item_name(rock, got)}."]
+    bits = [f"and packs {item_name(item, got)}."]
     if revealed:
         bits[-1] = bits[-1][:-1] + ", uncovering a ladder down."
     msg = (
@@ -669,61 +772,9 @@ def rest_at_lantern(state: dict, player: str, rules: dict | None = None) -> tupl
     return True, msg
 
 
-def parse_elevator_dest(raw: str | None, rules: dict | None = None) -> str | int | None:
-    text = (raw or "").strip().lower().replace("_", " ")
-    if not text or text in {"entrance", "out", "hills", "mouth"}:
-        return "entrance"
-    try:
-        floor = int(text)
-    except (TypeError, ValueError):
-        return None
-    if floor in safe_floors(rules) or floor == 1:
-        return floor
-    return None
-
-
 def take_elevator(state: dict, player: str, dest, rules: dict | None = None) -> tuple[bool, str]:
-    from engine import player_where, display_name, log_append
-    from hills import set_player_place as place_on
-
-    if player_area(state, player) != AREA_MINE:
-        return False, "The elevator is in the mine, on every fifth floor."
-    floor = player_floor(state, player) or 1
-    row, col = player_where(state, player)
-    tile = get_mine_tile(state, floor, row, col, rules)
-    if not tile.get("elevator"):
-        return False, "Stand on the elevator to ride it."
-    mark_checkpoint(state, floor)
-    target = parse_elevator_dest("" if dest is None else str(dest), rules)
-    if target is None:
-        return False, "Usage: elevator   or: elevator 5 / 10 / 15 / 20 / 25 / entrance"
-    mine = mine_of(state)
-    checkpoints = list(mine.get("checkpoints") or [])
-    if target == "entrance":
-        place_on(state, player, AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1])
-        msg = f"{display_name(player)} rides the elevator up to the mine entrance in the hills."
-        log_append(state, msg, player)
-        return True, msg
-    dest_floor = int(target)
-    if dest_floor not in checkpoints and dest_floor != floor:
-        reached = ", ".join(str(n) for n in checkpoints) or "none yet"
-        return False, (
-            f"That elevator stop has not been reached this season. "
-            f"Checkpoints: {reached}."
-        )
-    dest_row, dest_col = arrival_tile(state, dest_floor, rules)
-    for r, c, other in iter_mine_tiles(state, dest_floor, rules):
-        if other.get("elevator"):
-            dest_row, dest_col = r, c
-            break
-    set_player_place(state, player, AREA_MINE, dest_row, dest_col, floor=dest_floor)
-    mark_checkpoint(state, dest_floor)
-    msg = (
-        f"{display_name(player)} rides the elevator to floor {dest_floor} "
-        f"({describe_place(AREA_MINE, dest_row, dest_col, floor=dest_floor)})."
-    )
-    log_append(state, msg, player)
-    return True, msg
+    """The elevator was removed in Phase 3. Climb the ladders instead."""
+    return False, "There is no elevator. Climb the ladders to travel the mine."
 
 
 def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules: dict | None = None) -> tuple[bool, str]:
@@ -792,18 +843,7 @@ def wake_place_after_mine_passout(
     season_changed: bool = False,
 ) -> tuple[str, int, int, int | None]:
     """Where a player who passed out in the mine wakes (pack kept, 50 energy)."""
-    if season_changed:
-        return AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1], None
-    floor = last_checkpoint(state, rules)
-    if not floor:
-        return AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1], None
-    # Prefer the elevator tile on that floor.
-    row, col = arrival_tile(state, floor, rules)
-    for r, c, tile in iter_mine_tiles(state, floor, rules):
-        if tile.get("elevator"):
-            row, col = r, c
-            break
-    return AREA_MINE, row, col, floor
+    return AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1], None
 
 
 def mine_summary(state: dict, rules: dict | None = None) -> str:
@@ -816,8 +856,7 @@ def mine_summary(state: dict, rules: dict | None = None) -> str:
     deepest = int(mine.get("deepest") or 0)
     points = mine.get("checkpoints") or []
     if deepest:
-        stops = ", ".join(f"floor {n}" for n in points) if points else "none yet"
-        return f"The mine is open. Deepest this season: floor {deepest}. Elevator stops: {stops}."
+        return f"The mine is open. Deepest this season: floor {deepest}."
     return "The mine is open. No one has gone deeper than the entrance this season."
 
 
@@ -832,6 +871,8 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
         rock = tile["rock"]
         if rock == "stone":
             bits.append("a rock")
+        elif rock == "runestone_ore":
+            bits.append("a smooth, rounded runestone rock")
         else:
             bits.append(f"a rock with {ORE_LABELS.get(rock, rock)}")
         if tile.get("ladder") == "hidden":
@@ -842,8 +883,12 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
         bits.append("the shaft back up" if floor > 1 else "the way out of the mine")
     if tile.get("lantern"):
         bits.append("a lantern you can rest by")
-    if tile.get("elevator"):
-        bits.append("an elevator")
+    slime = slime_at(state, floor, row, col, rules)
+    if slime:
+        kind = slime.get("kind") or SLIME_KIND
+        bits.append(f"a {kind} slime")
+    if tile.get("drop"):
+        bits.append(f"{ORE_LABELS.get(tile['drop'], tile['drop'])} on the ground")
     body = ", ".join(bits) + "." if bits else "clear stone floor."
     typ = "a safe chamber" if tile.get("type") == "mine_safe" else "a mine tunnel"
     who_here = players_at(state, row, col, area=AREA_MINE)
@@ -857,15 +902,22 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
 
 def map_cell_lines(tile: dict) -> tuple[str, str]:
     """Two short mini-map lines. Labels fit 10 chars."""
+    if tile.get("slime"):
+        return "slime", str(tile.get("slime") or "grey")[:10]
     if tile.get("rock"):
         rock = tile.get("rock")
-        top = {"copper_ore": "copper", "iron_ore": "iron", "gold_ore": "gold"}.get(rock, "rock")
+        top = {
+            "copper_ore": "copper",
+            "iron_ore": "iron",
+            "gold_ore": "gold",
+            "runestone_ore": "rune",
+        }.get(rock, "rock")
         bot = "rock"
         return top, bot
+    if tile.get("drop"):
+        return str(tile.get("drop") or "loot")[:10], "drop"
     if tile.get("ladder") == "open":
         return "ladder", "down"
-    if tile.get("elevator"):
-        return "elevator", "lift"
     if tile.get("lantern"):
         return "lantern", "rest"
     if tile.get("exit"):
@@ -883,4 +935,261 @@ def migrate_mine(state: dict, rules: dict | None = None) -> bool:
     if "tool_tiers" not in state or not isinstance(state.get("tool_tiers"), dict):
         state["tool_tiers"] = {}
         changed = True
+    mine = mine_of(state)
+    floors = mine.get("floors")
+    if isinstance(floors, dict):
+        for key, data in list(floors.items()):
+            try:
+                floor = int(key)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(data, dict) and _refresh_floor_phase3(state, floor, data, rules):
+                floors[key] = data
+                changed = True
     return changed
+
+
+def _roll_slime(state: dict, floor: int, arrival: tuple[int, int], rules: dict | None,
+                seed: int, season: str, year: int):
+    """Place one grey slime on a non-safe floor, or None."""
+    chance = slime_spawn_chance(floor, rules)
+    if chance <= 0:
+        return None
+    roll = mine_hash(seed, season, year, floor, 6601) % 100
+    if roll >= chance:
+        return None
+    cells = [
+        (r, c)
+        for r in range(1, MINE_ROWS + 1)
+        for c in range(1, MINE_COLS + 1)
+        if (r, c) != arrival
+    ]
+    if not cells:
+        return None
+    row, col = _pick_cell(cells, seed, season, year, floor, 6602)
+    return {
+        "kind": slime_cfg(rules).get("kind") or SLIME_KIND,
+        "hp": slime_hp_amount(rules),
+        "row": row,
+        "col": col,
+    }
+
+
+def _clear_slime_tiles(data: dict) -> None:
+    tiles = data.get("tiles") if isinstance(data, dict) else None
+    if not isinstance(tiles, list):
+        return
+    for row in tiles:
+        if not isinstance(row, list):
+            continue
+        for tile in row:
+            if isinstance(tile, dict) and "slime" in tile:
+                tile["slime"] = None
+
+
+def _sync_slime_tile(data: dict) -> None:
+    _clear_slime_tiles(data)
+    slime = data.get("slime") if isinstance(data, dict) else None
+    if not isinstance(slime, dict):
+        return
+    try:
+        row, col = int(slime["row"]), int(slime["col"])
+        hp = int(slime.get("hp") or 0)
+    except (TypeError, ValueError, KeyError):
+        return
+    if hp <= 0:
+        data["slime"] = None
+        return
+    tiles = data.get("tiles") or []
+    if 1 <= row <= len(tiles) and 1 <= col <= len(tiles[row - 1]):
+        tile = tiles[row - 1][col - 1]
+        if isinstance(tile, dict):
+            tile["slime"] = slime.get("kind") or SLIME_KIND
+
+
+def _strip_elevators(data: dict) -> bool:
+    changed = False
+    tiles = data.get("tiles") if isinstance(data, dict) else None
+    if not isinstance(tiles, list):
+        return False
+    for row in tiles:
+        if not isinstance(row, list):
+            continue
+        for tile in row:
+            if isinstance(tile, dict) and tile.get("elevator"):
+                tile["elevator"] = False
+                changed = True
+    return changed
+
+
+def _refresh_floor_phase3(state: dict, floor: int, data: dict, rules: dict | None = None) -> bool:
+    """Strip elevators and fill in slimes on already-generated floors. Idempotent."""
+    changed = _strip_elevators(data)
+    if "slime" not in data:
+        season, year = _season_key(state)
+        seed = int(state.get("weather_seed") or 0)
+        arrival = (1, 1)
+        for r, row in enumerate(data.get("tiles") or [], 1):
+            if not isinstance(row, list):
+                continue
+            for c, tile in enumerate(row, 1):
+                if isinstance(tile, dict) and tile.get("exit"):
+                    arrival = (r, c)
+        data["slime"] = _roll_slime(state, floor, arrival, rules, seed, season, year)
+        changed = True
+    _sync_slime_tile(data)
+    return changed
+
+
+def slime_at(state: dict, floor: int, row: int, col: int, rules: dict | None = None) -> dict | None:
+    data = get_floor(state, floor, rules)
+    slime = data.get("slime")
+    if not isinstance(slime, dict):
+        return None
+    try:
+        if int(slime.get("hp") or 0) <= 0:
+            return None
+        if int(slime["row"]) == int(row) and int(slime["col"]) == int(col):
+            return slime
+    except (TypeError, ValueError, KeyError):
+        return None
+    return None
+
+
+def slime_in_reach(state: dict, player: str, rules: dict | None = None) -> dict | None:
+    """A living slime on the player's tile or a cardinal neighbour."""
+    from engine import player_where
+
+    if player_area(state, player) != AREA_MINE:
+        return None
+    floor = player_floor(state, player) or 1
+    data = get_floor(state, floor, rules)
+    slime = data.get("slime")
+    if not isinstance(slime, dict) or int(slime.get("hp") or 0) <= 0:
+        return None
+    row, col = player_where(state, player)
+    try:
+        sr, sc = int(slime["row"]), int(slime["col"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if abs(row - sr) + abs(col - sc) <= 1:
+        return slime
+    return None
+
+
+def _give_or_drop(state: dict, player: str, floor: int, row: int, col: int,
+                  item: str, n: int, rules: dict | None) -> str:
+    from inventory import pack_space_for, add_to_pack, sync_inventory_view, item_name
+
+    if pack_space_for(state, player, item, n, rules):
+        leftover = add_to_pack(state, player, item, n, rules)
+        if not leftover:
+            sync_inventory_view(state, rules)
+            return f" and packs {item_name(item, n)}"
+    tile = get_mine_tile(state, floor, row, col, rules)
+    tile["drop"] = item
+    return f", leaving {item_name(item, n)} on the ground"
+
+
+def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    from engine import player_where, display_name, log_append, who
+    from hills import hurt_hp, player_hp, faint_from_hp
+
+    slime = slime_in_reach(state, player, rules)
+    if not slime:
+        return False, "There is no slime in reach to strike. Stand on or next to it."
+    floor = player_floor(state, player) or 1
+    row, col = player_where(state, player)
+    data = get_floor(state, floor, rules)
+    dealt = strike_damage_amount(rules)
+    slime["hp"] = max(0, int(slime.get("hp") or 0) - dealt)
+    kind = slime.get("kind") or SLIME_KIND
+    if slime["hp"] <= 0:
+        sr, sc = int(slime["row"]), int(slime["col"])
+        data["slime"] = None
+        _sync_slime_tile(data)
+        loot = _give_or_drop(state, player, floor, sr, sc, "goo", 1, rules)
+        msg = (
+            f"{who(player, 'strike', 'strikes')} the {kind} slime and defeats it{loot}."
+        )
+        log_append(state, msg, player)
+        return True, msg
+    lost = hurt_hp(state, player, slime_damage_amount(rules), rules)
+    hp, cap = player_hp(state, player, rules)
+    msg = (
+        f"{who(player, 'strike', 'strikes')} the {kind} slime ({dealt} damage, "
+        f"{slime['hp']} HP left) and takes {lost} HP ({hp}/{cap})."
+    )
+    if hp <= 0:
+        faint = faint_from_hp(state, player, rules)
+        msg = f"{msg} {faint}"
+        log_append(state, msg, player)
+        return True, msg
+    log_append(state, msg, player)
+    return True, msg
+
+
+def flee_slime(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    from engine import player_where, display_name, log_append
+
+    slime = slime_in_reach(state, player, rules)
+    if not slime:
+        return False, "There is no slime in reach to flee from."
+    floor = player_floor(state, player) or 1
+    row, col = player_where(state, player)
+    exit_row, exit_col = arrival_tile(state, floor, rules)
+    if (row, col) != (exit_row, exit_col):
+        set_player_place(state, player, AREA_MINE, exit_row, exit_col, floor=floor)
+        msg = (
+            f"{display_name(player)} flees to the shaft on floor {floor} "
+            f"({describe_place(AREA_MINE, exit_row, exit_col, floor=floor)})."
+        )
+        log_append(state, msg, player)
+        return True, msg
+    ok, climb_msg = climb_up(state, player, rules)
+    if not ok:
+        return False, climb_msg
+    msg = f"{display_name(player)} flees up the shaft. {climb_msg}"
+    # climb_up already logged its own line; add a short flee note.
+    return True, msg
+
+
+def try_take_mine_drop(state: dict, player: str, args: list, rules: dict | None = None):
+    """If the player is standing on a mine drop, take it. Returns (handled, ok, msg)."""
+    from engine import player_where, display_name
+    from inventory import (
+        pack_space_for,
+        add_to_pack,
+        sync_inventory_view,
+        item_name,
+        normalize_item,
+        parse_item_and_count,
+    )
+
+    if player_area(state, player) != AREA_MINE:
+        return False, False, ""
+    floor = player_floor(state, player) or 1
+    row, col = player_where(state, player)
+    tile = get_mine_tile(state, floor, row, col, rules)
+    drop = tile.get("drop")
+    if not drop:
+        return False, False, ""
+    want = None
+    if args:
+        item, count, err = parse_item_and_count(args)
+        if err:
+            return True, False, err
+        want = normalize_item(item) or item
+        if want and want != drop:
+            return False, False, ""
+    if not pack_space_for(state, player, drop, 1, rules):
+        return True, False, f"No room in the backpack for {item_name(drop, 1)}."
+    leftover = add_to_pack(state, player, drop, 1, rules)
+    if leftover:
+        return True, False, f"No room in the backpack for {item_name(drop, 1)}."
+    tile["drop"] = None
+    sync_inventory_view(state, rules)
+    msg = f"{display_name(player)} picks up {item_name(drop, 1)}."
+    from engine import log_append
+    log_append(state, msg, player)
+    return True, True, msg

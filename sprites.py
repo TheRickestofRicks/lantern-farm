@@ -63,7 +63,7 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
         key = "mine_safe" if typ == "mine_safe" else "mine_floor"
         rock = tile.get("rock")
         if rock:
-            if rock in {"copper_ore", "iron_ore", "gold_ore"}:
+            if rock in {"copper_ore", "iron_ore", "gold_ore", "runestone_ore"}:
                 key += "_rock_" + rock.replace("_ore", "")
             else:
                 key += "_rock"
@@ -81,8 +81,10 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
                     key += "_shaft"
             if tile.get("lantern"):
                 key += "_lantern"
-            if tile.get("elevator"):
-                key += "_elevator"
+        if tile.get("slime"):
+            key += "_slime_" + str(tile.get("slime") or "grey").replace(" ", "_")
+        if tile.get("drop"):
+            key += "_drop_" + str(tile.get("drop"))
         return key
     if typ in {"cabin_floor", "cabin_bed", "cabin_chest", "cabin_fireplace", "cabin_door", "cabin_kitchen"}:
         kind = typ[len("cabin_"):]
@@ -1121,7 +1123,21 @@ def _parse_mine_sprite_key(key: str) -> dict | None:
     raw = key or ""
     rock = None
     ladder = shaft = lantern = elevator = False
-    for ore, suffix in (("copper", "_rock_copper"), ("iron", "_rock_iron"), ("gold", "_rock_gold")):
+    slime = drop = None
+    at = raw.rfind("_drop_")
+    if at != -1:
+        drop = raw[at + len("_drop_"):] or None
+        raw = raw[:at]
+    at = raw.rfind("_slime_")
+    if at != -1:
+        slime = raw[at + len("_slime_"):] or "grey"
+        raw = raw[:at]
+    for ore, suffix in (
+        ("copper", "_rock_copper"),
+        ("iron", "_rock_iron"),
+        ("gold", "_rock_gold"),
+        ("runestone", "_rock_runestone"),
+    ):
         if raw.endswith(suffix):
             rock = ore + "_ore"
             raw = raw[: -len(suffix)]
@@ -1157,6 +1173,8 @@ def _parse_mine_sprite_key(key: str) -> dict | None:
         "shaft": shaft,
         "lantern": lantern,
         "elevator": elevator,
+        "slime": slime,
+        "drop": drop,
         "mine": True,
     }
 
@@ -1179,6 +1197,13 @@ def _rock_overlay(kind: str | None) -> str:
         '<ellipse cx="70" cy="100" rx="16" ry="12" fill="#6e675c"/>'
         '<ellipse cx="92" cy="102" rx="14" ry="11" fill="#4a443c"/>'
     )
+    if kind == "runestone_ore":
+        return (
+            '<ellipse cx="80" cy="108" rx="26" ry="16" fill="#3a4654"/>'
+            '<ellipse cx="80" cy="100" rx="22" ry="20" fill="#6a7a8c"/>'
+            '<ellipse cx="80" cy="98" rx="16" ry="14" fill="#8aa0b4"/>'
+            '<ellipse cx="72" cy="92" rx="6" ry="4" fill="#d0e0ec" opacity="0.7"/>'
+        )
     if kind == "copper_ore":
         body += '<circle cx="72" cy="100" r="4" fill="#b87333"/><circle cx="90" cy="108" r="3" fill="#c9843a"/>'
     elif kind == "iron_ore":
@@ -1246,6 +1271,29 @@ def _elevator_overlay() -> str:
     )
 
 
+def _slime_overlay(kind: str | None = None) -> str:
+    # Simple grey blob; later slime types can tint this.
+    body = (
+        '<ellipse cx="80" cy="118" rx="28" ry="8" fill="#2a2a2a" opacity="0.25"/>'
+        '<ellipse cx="80" cy="100" rx="30" ry="22" fill="#6a6a6e"/>'
+        '<ellipse cx="80" cy="94" rx="24" ry="16" fill="#8a8a90"/>'
+        '<circle cx="70" cy="94" r="4" fill="#2a2a30"/>'
+        '<circle cx="90" cy="94" r="4" fill="#2a2a30"/>'
+        '<circle cx="69" cy="93" r="1.4" fill="#e8e8ec"/>'
+        '<circle cx="89" cy="93" r="1.4" fill="#e8e8ec"/>'
+    )
+    return body
+
+
+def _drop_overlay(item: str | None) -> str:
+    if item == "goo":
+        return (
+            '<ellipse cx="118" cy="126" rx="14" ry="7" fill="#5a5a60"/>'
+            '<ellipse cx="116" cy="124" rx="8" ry="4" fill="#8a8a90"/>'
+        )
+    return ""
+
+
 def svg_mine_tile(info: dict) -> str:
     layers = [_mine_ground(safe=info.get("type") == "mine_safe" or info.get("kind") == "mine_safe")]
     if info.get("rock"):
@@ -1260,6 +1308,12 @@ def svg_mine_tile(info: dict) -> str:
         layers.append(_lantern_overlay())
     if info.get("elevator"):
         layers.append(_elevator_overlay())
+    if info.get("drop"):
+        drop = _drop_overlay(info.get("drop"))
+        if drop:
+            layers.append(drop)
+    if info.get("slime"):
+        layers.append(_slime_overlay(info.get("slime")))
     return _svg("\n".join(layers))
 
 
@@ -1612,6 +1666,9 @@ _ITEM_LABELS = {
     "copper_ore": "COPPER",
     "iron_ore": "IRON",
     "gold_ore": "GOLD",
+    "quartz": "QUARTZ",
+    "runestone_ore": "RUNE",
+    "goo": "GOO",
     "wild_onion": "ONION",
     "wild_berry": "BERRY",
     "wild_mushroom": "SHROOM",
@@ -1653,6 +1710,9 @@ _ITEM_COLORS = {
     "copper_ore": ("#8a4a1a", "#e2b07a"),
     "iron_ore": ("#4a5560", "#c0c8d0"),
     "gold_ore": ("#c9a227", "#fff4c8"),
+    "quartz": ("#8aa0b4", "#f2f7fb"),
+    "runestone_ore": ("#3a4654", "#8aa0b4"),
+    "goo": ("#4a4a50", "#8a8a90"),
     "wild_onion": ("#3d6b38", "#d7e8b0"),
     "wild_berry": ("#8b1e2d", "#f2d4a3"),
     "wild_mushroom": ("#5a3a22", "#e2c48a"),

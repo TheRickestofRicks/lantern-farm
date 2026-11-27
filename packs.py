@@ -227,6 +227,8 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
                 okey = "mine_rock_iron"
             elif rock == "gold_ore":
                 okey = "mine_rock_gold"
+            elif rock == "runestone_ore":
+                okey = "mine_rock_runestone"
             else:
                 okey = "mine_rock"
             if not add_ov(okey):
@@ -243,6 +245,14 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
             if parsed.get("lantern") and not add_ov("mine_lantern"):
                 return None
             if parsed.get("elevator") and not add_ov("mine_elevator"):
+                return None
+        if parsed.get("drop"):
+            dkey = "mine_drop_" + str(parsed.get("drop"))
+            if not add_ov(dkey):
+                return None
+        if parsed.get("slime"):
+            skey = "mine_slime_" + str(parsed.get("slime") or "grey")
+            if not add_ov(skey):
                 return None
         return layers
     fert = parsed.get("fertilizer")

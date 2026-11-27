@@ -610,6 +610,18 @@ def heal_hp(state: dict, player: str, amount: int, rules: dict | None = None) ->
     return gained
 
 
+def hurt_hp(state: dict, player: str, amount: int, rules: dict | None = None) -> int:
+    """Deal HP damage, floored at 0. Returns the amount actually lost."""
+    from engine import player_slot
+
+    slot = player_slot(state, player)
+    hp, cap = player_hp(state, player, rules)
+    lost = max(0, min(int(amount), hp))
+    slot["hp"] = hp - lost
+    slot["hp_max"] = cap
+    return lost
+
+
 def path_places(src_area: str, src: tuple[int, int], dest_area: str, dest: tuple[int, int]) -> list[tuple[str, int, int]]:
     """Shortest path of places, including one area crossing at the cabin gate."""
     from engine import path_steps, CABIN_ROW, CABIN_COL
@@ -924,7 +936,7 @@ def exit_summary(area: str) -> str:
     if area == AREA_HILLS:
         return "Walk south from the bottom-right hill (row 3 col 3) to return to the cabin. The mine entrance is at row 1 col 2."
     if area == AREA_MINE:
-        return "Climb up the shaft, or ride the elevator to the entrance, then walk home from the hills."
+        return "Climb up the shaft to the entrance, then walk home from the hills."
     if area == AREA_CABIN:
         return "Leave through the door at bottom-left (row 3 col 1) to step back onto the farm cabin tile."
     if area == AREA_TOWN:

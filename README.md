@@ -41,13 +41,14 @@ plants can be `forage`d (5 energy) in season. Find the boarded mine
 entrance on the north-centre hill (row 1 col 2); the shop then sells a
 pickaxe (40G, one in the world). `enter mine` with the pickaxe in your
 pack pries the boards. Floors 1–25 re-roll each season. Break rocks
-for copper, iron, and gold ore as you go deeper (the ladder down is
-hidden under a rock). Every fifth floor has a lantern (`rest` once a
-day) and an elevator checkpoint. The forge at the cabin upgrades the
+for copper, iron, gold, and runestone ore as you go deeper (the ladder
+down is hidden under a rock). Plain stone on floors 1–4 can drop
+quartz. Every fifth floor has a lantern (`rest` once a day). Grey
+slimes appear from floor 6 on, never on safe floors; `strike` or
+`flee` when you are on or next to one. The forge in town upgrades the
 hoe, watering can, axe, and pickaxe with 5 ore of the next tier.
-`go cabin` does not work from inside the mine — climb or take the
-elevator out first. Ending a turn in the mine wakes at the last
-elevator (or the entrance if the season just changed) with 50 energy;
+`go cabin` does not work from inside the mine — climb out first.
+Ending a turn in the mine wakes at the hills entrance with 50 energy;
 0 HP still wakes at the hills entrance with 25 energy.
 
 `look` always names the area you are in, summarises the other areas,
@@ -60,9 +61,9 @@ panel, and the top bar uses weather, energy, and HP icons.
 Two players, configured in `config.local.json`. After a night in the cabin you
 wake with **100 energy**. Till, plant, and water cost **10** each (5 once
 the tool is copper or better); each step (including a diagonal) costs
-**5**. Crafting at the kitchen and forging at the cabin cost **5**.
+**5**. Crafting at the kitchen and forging at the town forge cost **5**.
 Entering the mine costs **5**, climbing down **10**, climbing up **5**,
-and the elevator **5**. Harvest, buy, sell, take, drop, and eat are free.
+and strike or flee **5**. Harvest, buy, sell, take, drop, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 

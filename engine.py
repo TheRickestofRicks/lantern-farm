@@ -2495,47 +2495,15 @@ def _apply_end_note(state: dict, player: str, note: str | None) -> str:
 
 
 
-def _reachable_elevator_floors(state: dict, floor: int, rules: dict | None = None) -> set[int]:
-    """Elevator stops that a rescue can route through from this floor."""
-    from mine import is_safe_floor, mine_of
-
-    floors: set[int] = set()
-    if is_safe_floor(int(floor), rules):
-        floors.add(int(floor))
-    mine = mine_of(state)
-    for raw in mine.get("checkpoints") or []:
-        try:
-            stop = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if is_safe_floor(stop, rules):
-            floors.add(stop)
-    return floors
-
-
 def _mine_exit_to_hills_energy(state: dict, floor: int, rules: dict | None = None) -> int:
     """Single-rate energy to reach the hills entrance from this mine floor.
 
-    Climbing up once per floor (including leaving from floor 1) is the baseline.
-    If a reached elevator stop is cheaper — ride from this floor, or climb
-    toward a nearer stop and ride — use that instead.
+    Climbing up once per floor, including leaving from floor 1.
     """
     rules = rules or load_rules()
     floor = max(1, int(floor))
     climb = energy_cost("climb_up", rules)
-    down = energy_cost("climb_down", rules)
-    lift = energy_cost("elevator", rules)
-    best = climb * floor
-    for stop in _reachable_elevator_floors(state, floor, rules):
-        if stop == floor:
-            cost = lift
-        elif stop < floor:
-            cost = climb * (floor - stop) + lift
-        else:
-            cost = down * (stop - floor) + lift
-        if cost < best:
-            best = cost
-    return best
+    return climb * floor
 
 
 def carry_home_path(
@@ -4578,7 +4546,7 @@ def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     from hills import AREA_MINE
     if area == AREA_MINE:
         return False, (
-            "Leave the mine first. Climb up or take the elevator to the entrance, then walk home."
+            "Leave the mine first. Climb up to the entrance, then walk home."
         )
     if is_cabin_place(area, *src):
         return True, f"{display_name(player)} is already {describe_area_where(area, *src)}."
@@ -4616,7 +4584,7 @@ def go_town(state: dict, player: str, rules: dict | None = None) -> tuple[bool, 
     area = player_area(state, player)
     if area == AREA_MINE:
         return False, (
-            "Leave the mine first. Climb up or take the elevator to the entrance, then walk to town."
+            "Leave the mine first. Climb up to the entrance, then walk to town."
         )
     if area == AREA_CABIN:
         return False, (
@@ -5563,13 +5531,17 @@ def legal_actions(
                 actions.append("leave mine")
         if tile.get("lantern"):
             actions.append("rest")
-        if tile.get("elevator") and energy >= energy_cost("elevator", rules):
-            actions.append("elevator")
-            from mine import mine_of
-            for stop in (mine_of(state).get("checkpoints") or []):
-                if int(stop) != int(floor):
-                    actions.append(f"elevator {int(stop)}")
-            actions.append("elevator entrance")
+        from mine import slime_in_reach
+        if actor and slime_in_reach(state, actor, rules):
+            if energy >= energy_cost("strike", rules):
+                actions.append("strike")
+            if energy >= energy_cost("flee", rules):
+                actions.append("flee")
+        if tile.get("drop"):
+            from inventory import pack_space_for
+            drop = tile.get("drop")
+            if not actor or pack_space_for(state, actor, drop, 1, rules):
+                actions.append(f"take {drop}")
     else:
         tile = get_tile(state, r, c)
         tile_type = tile.get("type")
@@ -6364,7 +6336,10 @@ def do_action(
         elif not args:
             return False, f"Usage: {verb} <item> [count|all]   example: {verb} hoe 1"
         elif verb == "take":
-            ok, msg = take_item(state, args, None, actor, rules, crops)
+            from mine import try_take_mine_drop
+            handled, ok, msg = try_take_mine_drop(state, actor, args, rules)
+            if not handled:
+                ok, msg = take_item(state, args, None, actor, rules, crops)
         else:
             ok, msg = drop_item(state, args, None, actor, rules, crops)
         if ok and cost:
@@ -6453,6 +6428,10 @@ def do_action(
         cost_verb = "climb_up"
     elif verb in {"mine", "break"}:
         cost_verb = "mine"
+    elif verb in {"strike", "hit", "attack"}:
+        cost_verb = "strike"
+    elif verb == "flee":
+        cost_verb = "flee"
     if cost_verb in {"enter_cabin", "leave_cabin"}:
         cost = 0
     elif cost_verb in {"till", "water", "chop", "mine"}:
@@ -6562,11 +6541,13 @@ def do_action(
         ok, msg = rest_at_lantern(state, actor, rules)
     elif verb == "elevator":
         from mine import take_elevator
-        dest = " ".join(args) if args else "entrance"
-        # Bare "elevator" rides to the entrance by default? Better require dest or default entrance.
-        if not args:
-            dest = "entrance"
-        ok, msg = take_elevator(state, actor, dest, rules)
+        ok, msg = take_elevator(state, actor, " ".join(args), rules)
+    elif verb in {"strike", "hit", "attack"}:
+        from mine import strike_slime
+        ok, msg = strike_slime(state, actor, rules)
+    elif verb == "flee":
+        from mine import flee_slime
+        ok, msg = flee_slime(state, actor, rules)
     elif verb == "forge":
         from mine import forge_tool
         if not args:
@@ -6596,12 +6577,15 @@ def do_action(
         return (
             False,
             "Unknown action. Try look, move, go cabin, go town, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
-            "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
+            "strike, flee, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
             "eat, buy, sell, sell now, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
         )
 
     if ok and cost:
-        player_slot(state, actor)["energy"] = energy - cost
+        slot = player_slot(state, actor)
+        # Leave energy alone if the action already changed it (for example a 0 HP faint).
+        if int(slot.get("energy") or 0) == energy:
+            slot["energy"] = energy - cost
     return ok, msg
 
 
