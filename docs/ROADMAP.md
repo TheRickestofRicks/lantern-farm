@@ -81,7 +81,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: cooking revamp (Rick, 2026-11-27)
 - Cooking moves into its own window instead of the sidebar.
 - Recipe search inside that window.
-- A pantry you can build for 10 wood, to store ingredients near the kitchen.
+- Pantry: a kitchen upgrade built for 10 wood that adds storage to the kitchen. Cooking pulls ingredients from the pantry automatically, so they don't have to be in the backpack.
 
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
