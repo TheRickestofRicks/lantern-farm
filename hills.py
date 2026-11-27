@@ -34,6 +34,7 @@ DEFAULT_LOG_FORAGE_DAYS = 3
 STUMP_LOG_SALT = 0x10C
 STUMP_LOG_CHANCE = 3  # 1 in 3 stumps become a mushroom log
 CHOP_WOOD = 2
+UNEARTH_STUMP_WOOD = 1  # plain stumps only; mushroom logs give no wood
 FORAGE_CAP = 2
 FORAGE_MIN = 0
 FORAGE_MAX = 2
@@ -1138,7 +1139,7 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
             if stage == "stump":
                 return False, (
                     "That's a stump. Leave it to send up a sapling or become a mushroom log, "
-                    "or unearth it with a shovel."
+                    "or unearth it with a shovel for 1 wood."
                 )
             if stage == "mushroom_log":
                 return False, (
@@ -1219,8 +1220,19 @@ def unearth_hills(
     tile["forage"] = None
     msg = (
         f"{who(player, 'unearth', 'unearths')} the {label}{extra} at {here}, "
-        "returning the ground to plain grass."
+        "returning the ground to plain grass"
     )
+    if stage == "stump":
+        from inventory import give_or_drop_at_player
+        packed, dropped, phrase = give_or_drop_at_player(
+            state, player, "wood", UNEARTH_STUMP_WOOD, rules
+        )
+        if dropped and not packed:
+            msg = f"{msg}. {phrase}"
+        else:
+            msg = f"{msg} {phrase}."
+    else:
+        msg = f"{msg}."
     log_append(state, msg, player)
     return True, msg
 

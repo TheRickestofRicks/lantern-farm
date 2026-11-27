@@ -5090,28 +5090,30 @@ class HillsPhaseOne(unittest.TestCase):
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("unearth 3 2", actions)
         line = format_legal_action("unearth 3 2", self.state, self.crops, P1, self.rules)
-        self.assertEqual(line, "unearth (removes the stump, 20 energy)")
+        self.assertEqual(line, "unearth (removes the stump, 20 energy, +1 wood)")
         self.assertEqual(unearth_energy_cost(self.state, P1, self.rules, 3, 2), 20)
         self.assertEqual(energy_cost("unearth", self.rules), 5)
         ok, msg = do_action(
             self.state, self.crops,
-            "unearth (removes the stump, 20 energy)",
+            "unearth (removes the stump, 20 energy, +1 wood)",
             player=P1, rules=self.rules,
         )
         self.assertTrue(ok, msg)
         self.assertIn("stump", msg)
         self.assertIn("plain grass", msg)
+        self.assertIn("wood", msg.lower())
         self.assertIsNone(get_hills_tile(self.state, 3, 2).get("tree"))
         self.assertIsNone(get_hills_tile(self.state, 3, 2).get("forage"))
         self.assertEqual(self.state["players"][P1]["energy"], 80)
         self.assertTrue(pack_has(self.state, P1, TOOL_SHOVEL, 1, self.rules))
+        self.assertTrue(pack_has(self.state, P1, "wood", 1, self.rules))
         ok, msg = do_action(self.state, self.crops, "unearth", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertEqual(msg, "There's nothing to unearth here in the hills.")
 
     def test_unearth_hills_mushroom_log_clears_oysters_too(self):
         from hills import set_player_place, AREA_HILLS, make_tree, make_forage, get_hills_tile
-        from inventory import add_to_pack, TOOL_SHOVEL
+        from inventory import add_to_pack, TOOL_SHOVEL, pack_has
         tile = get_hills_tile(self.state, 2, 2)
         tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
         tile["forage"] = make_forage("oyster_mushroom", 1)
@@ -5126,6 +5128,23 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertIsNone(get_hills_tile(self.state, 2, 2).get("tree"))
         self.assertIsNone(get_hills_tile(self.state, 2, 2).get("forage"))
         self.assertEqual(self.state["players"][P1]["energy"], 20)
+        self.assertFalse(pack_has(self.state, P1, "wood", 1, self.rules))
+
+    def test_unearth_hills_stump_gives_one_wood(self):
+        from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
+        from inventory import add_to_pack, TOOL_SHOVEL, pack_has, stack_count
+        tile = get_hills_tile(self.state, 3, 1)
+        tile["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        set_player_place(self.state, P1, AREA_HILLS, 3, 1)
+        self.state["players"][P1]["energy"] = 50
+        add_to_pack(self.state, P1, TOOL_SHOVEL, 1, self.rules)
+        before = stack_count(self.state["players"][P1]["pack"], "wood")
+        ok, msg = do_action(self.state, self.crops, "unearth", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("wood", msg.lower())
+        self.assertTrue(pack_has(self.state, P1, "wood", before + 1, self.rules))
+        self.assertIsNone(get_hills_tile(self.state, 3, 1).get("tree"))
 
     def test_mushroom_log_expires_after_one_in_game_year(self):
         from hills import (

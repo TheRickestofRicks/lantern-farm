@@ -3,6 +3,7 @@
 ## 2026-11-27
 
 - The Chest button (and Build chest, before one is built) only appears while you stand on the cabin chest tile (row 1 col 2). It is hidden everywhere else, including other tiles inside the cabin.
+- Unearthing a plain tree stump in the hills now gives 1 wood. Mushroom logs still give none.
 - Experience amounts now live in a single `xp` table in `rules.json` so they are easy to tune. The numbers are pending a final okay and are not granted during play yet. Mining differs by rock (stone 2, copper ore 5, iron 8, gold 12, runestone ore 15, plus 5 when a gem such as quartz drops). Woodcutting is 5 per tree. Farming is 1 per plant and 4 per harvest; watering gives 0. Combat is 10 per slime.
 - Mushroom logs last one in-game year (four seasons of 15 days, 60 days total) from the day they appear, then the tile goes back to empty grass. Existing logs are stamped with today's date so they get a full year from now.
 

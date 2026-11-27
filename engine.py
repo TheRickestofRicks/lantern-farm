@@ -6476,6 +6476,8 @@ def action_descriptor(
                 tile = get_hills_tile(state, r, c)
                 stage = ((tile or {}).get("tree") or {}).get("stage")
                 name = "stump" if stage == "stump" else "mushroom log"
+                if stage == "stump":
+                    return f"removes the stump, {_energy_word(cost)}, +1 wood"
                 return f"removes the {name}, {_energy_word(cost)}"
             tile = get_tile(state, r, c)
             crop = (tile or {}).get("crop") or {}
