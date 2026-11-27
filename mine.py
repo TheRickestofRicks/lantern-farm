@@ -67,11 +67,11 @@ SLIME_KIND = "grey"
 DEFAULT_SLIME_HP = 20
 DEFAULT_SLIME_DAMAGE = 8
 DEFAULT_STRIKE_DAMAGE = 10
-SLIME_SPAWN = (
-    (6, 9, 33),
-    (11, 14, 50),
-    (16, 19, 67),
-    (21, 24, 80),
+SLIME_COUNTS = (
+    (6, 9, 0, 1),
+    (11, 14, 0, 2),
+    (16, 19, 1, 2),
+    (21, 24, 1, 3),
 )
 
 
@@ -261,19 +261,22 @@ def strike_damage_amount(rules: dict | None = None) -> int:
         return DEFAULT_STRIKE_DAMAGE
 
 
-def slime_spawn_chance(floor: int, rules: dict | None = None) -> int:
+def slime_count_range(floor: int, rules: dict | None = None) -> tuple[int, int]:
+    """Inclusive (min, max) slime count for this floor. (0, 0) if none spawn."""
     if is_safe_floor(floor, rules) or int(floor) < 6:
-        return 0
-    rows = slime_cfg(rules).get("spawn") or SLIME_SPAWN
+        return (0, 0)
+    rows = slime_cfg(rules).get("counts") or SLIME_COUNTS
     f = int(floor)
     for row in rows:
         try:
-            lo, hi, chance = int(row[0]), int(row[1]), int(row[2])
+            lo, hi, mn, mx = int(row[0]), int(row[1]), int(row[2]), int(row[3])
         except (TypeError, ValueError, IndexError):
             continue
         if lo <= f <= hi:
-            return max(0, min(100, chance))
-    return 0
+            mn = max(0, mn)
+            mx = max(mn, mx)
+            return (mn, mx)
+    return (0, 0)
 
 
 def ore_kind_for(floor: int, row: int, col: int, seed: int, season: str, year: int, rules: dict | None = None) -> str | None:
@@ -340,9 +343,9 @@ def generate_floor(state: dict, floor: int, rules: dict | None = None) -> dict:
             if (r, c) == hidden:
                 tile["rock"] = "stone"
                 tile["ladder"] = "hidden"
-    data = {"tiles": tiles, "floor": floor, "slime": None}
-    data["slime"] = _roll_slime(state, floor, arrival, rules, seed, season, year)
-    _sync_slime_tile(data)
+    data = {"tiles": tiles, "floor": floor, "slimes": []}
+    data["slimes"] = _roll_slimes(state, floor, arrival, rules, seed, season, year)
+    _sync_slime_tiles(data)
     return data
 
 
@@ -949,30 +952,77 @@ def migrate_mine(state: dict, rules: dict | None = None) -> bool:
     return changed
 
 
-def _roll_slime(state: dict, floor: int, arrival: tuple[int, int], rules: dict | None,
-                seed: int, season: str, year: int):
-    """Place one grey slime on a non-safe floor, or None."""
-    chance = slime_spawn_chance(floor, rules)
-    if chance <= 0:
-        return None
-    roll = mine_hash(seed, season, year, floor, 6601) % 100
-    if roll >= chance:
-        return None
+def _roll_slimes(state: dict, floor: int, arrival: tuple[int, int], rules: dict | None,
+                 seed: int, season: str, year: int) -> list:
+    """Place zero or more grey slimes on a non-safe floor, never on the arrival tile."""
+    lo, hi = slime_count_range(floor, rules)
+    if hi <= 0:
+        return []
+    n = lo + mine_hash(seed, season, year, floor, 6601) % (hi - lo + 1)
     cells = [
         (r, c)
         for r in range(1, MINE_ROWS + 1)
         for c in range(1, MINE_COLS + 1)
         if (r, c) != arrival
     ]
-    if not cells:
-        return None
-    row, col = _pick_cell(cells, seed, season, year, floor, 6602)
-    return {
-        "kind": slime_cfg(rules).get("kind") or SLIME_KIND,
-        "hp": slime_hp_amount(rules),
-        "row": row,
-        "col": col,
-    }
+    slimes = []
+    available = list(cells)
+    kind = slime_cfg(rules).get("kind") or SLIME_KIND
+    hp = slime_hp_amount(rules)
+    for i in range(n):
+        if not available:
+            break
+        row, col = _pick_cell(available, seed, season, year, floor, 6602 + i)
+        available = [cell for cell in available if cell != (row, col)]
+        slimes.append({
+            "kind": kind,
+            "hp": hp,
+            "row": row,
+            "col": col,
+        })
+    return slimes
+
+
+def _migrate_slime_key(data: dict) -> bool:
+    """Convert a leftover single-slime save (`slime`) into `slimes`. Idempotent."""
+    if not isinstance(data, dict):
+        return False
+    if isinstance(data.get("slimes"), list):
+        if "slime" in data:
+            del data["slime"]
+            return True
+        return False
+    if "slime" not in data:
+        return False
+    old = data.get("slime")
+    if isinstance(old, dict) and int(old.get("hp") or 0) > 0:
+        data["slimes"] = [old]
+    elif isinstance(old, list):
+        data["slimes"] = [s for s in old if isinstance(s, dict) and int(s.get("hp") or 0) > 0]
+    else:
+        data["slimes"] = []
+    del data["slime"]
+    return True
+
+
+def _living_slimes(data: dict) -> list:
+    """Living slime dicts on this floor, after migrating any old single-slime key."""
+    _migrate_slime_key(data)
+    slimes = data.get("slimes") if isinstance(data, dict) else None
+    if not isinstance(slimes, list):
+        return []
+    living = []
+    for slime in slimes:
+        if not isinstance(slime, dict):
+            continue
+        try:
+            if int(slime.get("hp") or 0) > 0:
+                living.append(slime)
+        except (TypeError, ValueError):
+            continue
+    if living != slimes:
+        data["slimes"] = living
+    return living
 
 
 def _clear_slime_tiles(data: dict) -> None:
@@ -987,24 +1037,23 @@ def _clear_slime_tiles(data: dict) -> None:
                 tile["slime"] = None
 
 
-def _sync_slime_tile(data: dict) -> None:
+def _sync_slime_tiles(data: dict) -> None:
     _clear_slime_tiles(data)
-    slime = data.get("slime") if isinstance(data, dict) else None
-    if not isinstance(slime, dict):
-        return
-    try:
-        row, col = int(slime["row"]), int(slime["col"])
-        hp = int(slime.get("hp") or 0)
-    except (TypeError, ValueError, KeyError):
-        return
-    if hp <= 0:
-        data["slime"] = None
-        return
     tiles = data.get("tiles") or []
-    if 1 <= row <= len(tiles) and 1 <= col <= len(tiles[row - 1]):
-        tile = tiles[row - 1][col - 1]
-        if isinstance(tile, dict):
-            tile["slime"] = slime.get("kind") or SLIME_KIND
+    for slime in _living_slimes(data):
+        try:
+            row, col = int(slime["row"]), int(slime["col"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if 1 <= row <= len(tiles) and 1 <= col <= len(tiles[row - 1]):
+            tile = tiles[row - 1][col - 1]
+            if isinstance(tile, dict):
+                tile["slime"] = slime.get("kind") or SLIME_KIND
+
+
+def _sync_slime_tile(data: dict) -> None:
+    """Alias kept for older call sites and tests."""
+    _sync_slime_tiles(data)
 
 
 def _strip_elevators(data: dict) -> bool:
@@ -1025,7 +1074,9 @@ def _strip_elevators(data: dict) -> bool:
 def _refresh_floor_phase3(state: dict, floor: int, data: dict, rules: dict | None = None) -> bool:
     """Strip elevators and fill in slimes on already-generated floors. Idempotent."""
     changed = _strip_elevators(data)
-    if "slime" not in data:
+    if _migrate_slime_key(data):
+        changed = True
+    if "slimes" not in data:
         season, year = _season_key(state)
         seed = int(state.get("weather_seed") or 0)
         arrival = (1, 1)
@@ -1035,46 +1086,36 @@ def _refresh_floor_phase3(state: dict, floor: int, data: dict, rules: dict | Non
             for c, tile in enumerate(row, 1):
                 if isinstance(tile, dict) and tile.get("exit"):
                     arrival = (r, c)
-        data["slime"] = _roll_slime(state, floor, arrival, rules, seed, season, year)
+        data["slimes"] = _roll_slimes(state, floor, arrival, rules, seed, season, year)
         changed = True
-    _sync_slime_tile(data)
+    _sync_slime_tiles(data)
     return changed
 
 
 def slime_at(state: dict, floor: int, row: int, col: int, rules: dict | None = None) -> dict | None:
     data = get_floor(state, floor, rules)
-    slime = data.get("slime")
-    if not isinstance(slime, dict):
-        return None
     try:
-        if int(slime.get("hp") or 0) <= 0:
-            return None
-        if int(slime["row"]) == int(row) and int(slime["col"]) == int(col):
-            return slime
-    except (TypeError, ValueError, KeyError):
+        row, col = int(row), int(col)
+    except (TypeError, ValueError):
         return None
+    for slime in _living_slimes(data):
+        try:
+            if int(slime["row"]) == row and int(slime["col"]) == col:
+                return slime
+        except (TypeError, ValueError, KeyError):
+            continue
     return None
 
 
 def slime_in_reach(state: dict, player: str, rules: dict | None = None) -> dict | None:
-    """A living slime on the player's tile or a cardinal neighbour."""
+    """A living slime on the same tile as the player."""
     from engine import player_where
 
     if player_area(state, player) != AREA_MINE:
         return None
     floor = player_floor(state, player) or 1
-    data = get_floor(state, floor, rules)
-    slime = data.get("slime")
-    if not isinstance(slime, dict) or int(slime.get("hp") or 0) <= 0:
-        return None
     row, col = player_where(state, player)
-    try:
-        sr, sc = int(slime["row"]), int(slime["col"])
-    except (TypeError, ValueError, KeyError):
-        return None
-    if abs(row - sr) + abs(col - sc) <= 1:
-        return slime
-    return None
+    return slime_at(state, floor, row, col, rules)
 
 
 def _give_or_drop(state: dict, player: str, floor: int, row: int, col: int,
@@ -1097,7 +1138,7 @@ def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[b
 
     slime = slime_in_reach(state, player, rules)
     if not slime:
-        return False, "There is no slime in reach to strike. Stand on or next to it."
+        return False, "There is no slime here to strike. Stand on the slime."
     floor = player_floor(state, player) or 1
     row, col = player_where(state, player)
     data = get_floor(state, floor, rules)
@@ -1106,8 +1147,9 @@ def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[b
     kind = slime.get("kind") or SLIME_KIND
     if slime["hp"] <= 0:
         sr, sc = int(slime["row"]), int(slime["col"])
-        data["slime"] = None
-        _sync_slime_tile(data)
+        slimes = data.get("slimes") if isinstance(data.get("slimes"), list) else []
+        data["slimes"] = [s for s in slimes if s is not slime and int(s.get("hp") or 0) > 0]
+        _sync_slime_tiles(data)
         loot = _give_or_drop(state, player, floor, sr, sc, "goo", 1, rules)
         msg = (
             f"{who(player, 'strike', 'strikes')} the {kind} slime and defeats it{loot}."
@@ -1134,7 +1176,7 @@ def flee_slime(state: dict, player: str, rules: dict | None = None) -> tuple[boo
 
     slime = slime_in_reach(state, player, rules)
     if not slime:
-        return False, "There is no slime in reach to flee from."
+        return False, "There is no slime here to flee from. Stand on the slime."
     floor = player_floor(state, player) or 1
     row, col = player_where(state, player)
     exit_row, exit_col = arrival_tile(state, floor, rules)

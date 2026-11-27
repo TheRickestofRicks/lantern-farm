@@ -6910,7 +6910,8 @@ class MinePhaseThree(unittest.TestCase):
         from mine import get_floor
         for floor in (5, 10, 15, 20, 25):
             data = get_floor(self.state, floor, self.rules)
-            self.assertIsNone(data.get("slime"))
+            self.assertEqual(data.get("slimes") or [], [])
+            self.assertNotIn("slime", data)
             for row in data["tiles"]:
                 for tile in row:
                     self.assertFalse(tile.get("rock"))
@@ -6923,40 +6924,48 @@ class MinePhaseThree(unittest.TestCase):
         self.assertIsNone(layers_for_key(key, load_manifest("storybook")))
 
     def test_grey_slimes_spawn_from_floor_6_never_on_safe_floors(self):
-        from mine import get_floor, slime_spawn_chance, generate_floor, slime_in_reach
-        from hills import set_player_place, AREA_MINE
+        from mine import get_floor, slime_count_range, generate_floor, arrival_tile
         self._enter()
-        self.assertEqual(slime_spawn_chance(4, self.rules), 0)
-        self.assertEqual(slime_spawn_chance(5, self.rules), 0)
-        self.assertEqual(slime_spawn_chance(6, self.rules), 33)
-        self.assertEqual(slime_spawn_chance(12, self.rules), 50)
-        self.assertEqual(slime_spawn_chance(18, self.rules), 67)
-        self.assertEqual(slime_spawn_chance(22, self.rules), 80)
+        self.assertEqual(slime_count_range(4, self.rules), (0, 0))
+        self.assertEqual(slime_count_range(5, self.rules), (0, 0))
+        self.assertEqual(slime_count_range(6, self.rules), (0, 1))
+        self.assertEqual(slime_count_range(12, self.rules), (0, 2))
+        self.assertEqual(slime_count_range(18, self.rules), (1, 2))
+        self.assertEqual(slime_count_range(22, self.rules), (1, 3))
         for floor in range(1, 6):
             data = get_floor(self.state, floor, self.rules)
-            self.assertIsNone(data.get("slime"))
-        hits = 0
-        total = 0
+            self.assertEqual(data.get("slimes") or [], [])
+            self.assertNotIn("slime", data)
+        seen = {(6, 9): set(), (11, 14): set(), (16, 19): set(), (21, 24): set()}
         for seed in range(60):
             state = fresh_state(self.crops, weather_seed=seed, rules=self.rules)
-            for floor in (6, 7, 8, 9):
-                data = generate_floor(state, floor, self.rules)
-                total += 1
-                if data.get("slime"):
-                    hits += 1
-                    slime = data["slime"]
-                    self.assertEqual(slime.get("kind"), "grey")
-                    self.assertEqual(int(slime.get("hp")), 20)
-                    # not on the arrival tile
+            for lo, hi in seen:
+                floors = list(range(lo, hi + 1))
+                mn, mx = slime_count_range(floors[0], self.rules)
+                for floor in floors:
+                    data = generate_floor(state, floor, self.rules)
+                    slimes = list(data.get("slimes") or [])
+                    self.assertNotIn("slime", data)
+                    self.assertTrue(mn <= len(slimes) <= mx, (floor, seed, len(slimes), mn, mx))
+                    seen[(lo, hi)].add(len(slimes))
+                    tiles = set()
                     arrival = next(
-                        ( (r, c) for r, row in enumerate(data["tiles"], 1)
-                          for c, tile in enumerate(row, 1) if tile.get("exit") ),
+                        ((r, c) for r, row in enumerate(data["tiles"], 1)
+                         for c, tile in enumerate(row, 1) if tile.get("exit")),
                     )
-                    self.assertNotEqual((slime["row"], slime["col"]), arrival)
-        self.assertGreater(total, 0)
-        rate = hits / total
-        self.assertGreater(rate, 0.15)
-        self.assertLess(rate, 0.55)
+                    self.assertEqual(arrival, arrival_tile(state, floor, self.rules))
+                    for slime in slimes:
+                        self.assertEqual(slime.get("kind"), "grey")
+                        self.assertEqual(int(slime.get("hp")), 20)
+                        pos = (int(slime["row"]), int(slime["col"]))
+                        self.assertNotEqual(pos, arrival)
+                        self.assertNotIn(pos, tiles)
+                        tiles.add(pos)
+                        self.assertEqual(data["tiles"][pos[0] - 1][pos[1] - 1].get("slime"), "grey")
+        self.assertEqual(seen[(6, 9)], {0, 1})
+        self.assertEqual(seen[(11, 14)], {0, 1, 2})
+        self.assertEqual(seen[(16, 19)], {1, 2})
+        self.assertEqual(seen[(21, 24)], {1, 2, 3})
 
     def test_strike_and_flee_and_goo_and_zero_hp(self):
         from hills import set_player_place, AREA_MINE, player_area, AREA_HILLS, MINE_ENTRANCE, player_hp
@@ -6968,9 +6977,11 @@ class MinePhaseThree(unittest.TestCase):
         self.assertEqual(item_sell_price("goo", self.crops, self.rules), 8)
         self.assertEqual(stall_sell_price("goo", self.crops, self.rules), 8)
         data = get_floor(self.state, 6, self.rules)
-        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
+        if "slime" in data:
+            del data["slime"]
         _sync_slime_tile(data)
-        # Not in reach from a far corner if 2,2 is adjacent... on 3x3, (1,1) is diagonal (manhattan 2).
+        # Not in reach from a diagonal tile, or from a cardinal neighbour — only the same tile.
         set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=6)
         self.state["players"][P1]["energy"] = 100
         actions = legal_actions(self.state, self.crops, P1, self.rules)
@@ -6978,8 +6989,15 @@ class MinePhaseThree(unittest.TestCase):
         self.assertNotIn("flee", actions)
         ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
         self.assertFalse(ok)
-        # Stand next to it (cardinal).
         set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertNotIn("strike", actions)
+        self.assertNotIn("flee", actions)
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("Stand on the slime", msg)
+        # Stand on the slime's tile.
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         actions = legal_actions(self.state, self.crops, P1, self.rules)
         self.assertIn("strike", actions)
         self.assertIn("flee", actions)
@@ -6988,7 +7006,7 @@ class MinePhaseThree(unittest.TestCase):
         self.assertEqual(parse_sprite_key(key).get("slime"), "grey")
         ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(data["slime"]["hp"], 10)
+        self.assertEqual(data["slimes"][0]["hp"], 10)
         hp, cap = player_hp(self.state, P1, self.rules)
         self.assertEqual(hp, 92)
         self.assertEqual(self.state["players"][P1]["energy"], 95)
@@ -6996,32 +7014,32 @@ class MinePhaseThree(unittest.TestCase):
         # Second strike defeats it and drops goo.
         ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertIsNone(data.get("slime"))
+        self.assertEqual(data.get("slimes") or [], [])
         self.assertTrue(pack_has(self.state, P1, "goo", 1, self.rules), msg)
         self.assertIn("goo", msg.lower())
         self.assertEqual(player_hp(self.state, P1, self.rules)[0], 92)  # no counter on the killing blow
         self.assertNotIn("strike", legal_actions(self.state, self.crops, P1, self.rules))
 
-        # Flee to the shaft, then flee up. Fresh slime on floor 6.
-        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        # Flee to the shaft. Fresh slime on floor 6; must stand on it.
+        data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
         _sync_slime_tile(data)
         from mine import arrival_tile
         exit_r, exit_c = arrival_tile(self.state, 6, self.rules)
         # If the exit is the slime tile, move the slime aside.
         if (exit_r, exit_c) == (2, 2):
-            data["slime"]["row"], data["slime"]["col"] = 3, 3
+            data["slimes"][0]["row"], data["slimes"][0]["col"] = 3, 3
             _sync_slime_tile(data)
-            set_player_place(self.state, P1, AREA_MINE, 3, 2, floor=6)
+            set_player_place(self.state, P1, AREA_MINE, 3, 3, floor=6)
         else:
-            set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+            set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         ok, msg = do_action(self.state, self.crops, "flee", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(player_where(self.state, P1), (exit_r, exit_c))
         self.assertIn("shaft", msg.lower())
         # 0 HP from a strike wakes at the hills entrance with 25 energy and full HP.
-        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
         _sync_slime_tile(data)
-        set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         self.state["players"][P1]["hp"] = 8
         self.state["players"][P1]["energy"] = 50
         ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
@@ -7032,7 +7050,88 @@ class MinePhaseThree(unittest.TestCase):
         self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
         self.assertIn("mine entrance", msg.lower())
 
+    def test_multiple_slimes_have_independent_hp_and_goo(self):
+        from hills import set_player_place, AREA_MINE, player_hp
+        from mine import get_floor, _sync_slime_tile
+        from inventory import pack_has
+        self._enter()
+        data = get_floor(self.state, 16, self.rules)
+        data["slimes"] = [
+            {"kind": "grey", "hp": 20, "row": 1, "col": 1},
+            {"kind": "grey", "hp": 20, "row": 3, "col": 3},
+        ]
+        if "slime" in data:
+            del data["slime"]
+        _sync_slime_tile(data)
+        self.assertEqual(data["tiles"][0][0].get("slime"), "grey")
+        self.assertEqual(data["tiles"][2][2].get("slime"), "grey")
+        set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=16)
+        self.state["players"][P1]["energy"] = 100
+        self.state["players"][P1]["hp"] = 100
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(data["slimes"][0]["hp"], 10)
+        self.assertEqual(data["slimes"][1]["hp"], 20)
+        self.assertEqual((data["slimes"][1]["row"], data["slimes"][1]["col"]), (3, 3))
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(data["slimes"]), 1)
+        self.assertEqual((data["slimes"][0]["row"], data["slimes"][0]["col"]), (3, 3))
+        self.assertEqual(data["slimes"][0]["hp"], 20)
+        self.assertFalse(data["tiles"][0][0].get("slime"))
+        self.assertEqual(data["tiles"][2][2].get("slime"), "grey")
+        self.assertTrue(pack_has(self.state, P1, "goo", 1, self.rules))
+        self.assertFalse(pack_has(self.state, P1, "goo", 2, self.rules))
+        self.assertNotIn("strike", legal_actions(self.state, self.crops, P1, self.rules))
+        set_player_place(self.state, P1, AREA_MINE, 3, 3, floor=16)
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(data["slimes"][0]["hp"], 10)
+        ok, msg = do_action(self.state, self.crops, "strike", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(data.get("slimes") or [], [])
+        self.assertTrue(pack_has(self.state, P1, "goo", 2, self.rules))
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 84)
+
+    def test_migrate_single_slime_save_to_list(self):
+        from mine import get_floor, migrate_mine
+        self._enter()
+        data = get_floor(self.state, 6, self.rules)
+        data.pop("slimes", None)
+        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        changed = migrate_mine(self.state, self.rules)
+        self.assertTrue(changed)
+        self.assertNotIn("slime", data)
+        self.assertEqual(len(data["slimes"]), 1)
+        self.assertEqual(data["slimes"][0]["row"], 2)
+        self.assertEqual(data["slimes"][0]["col"], 2)
+        self.assertEqual(data["tiles"][1][1].get("slime"), "grey")
+        # A rolled-empty old save stays empty and is not re-rolled.
+        other = get_floor(self.state, 7, self.rules)
+        other.pop("slimes", None)
+        other["slime"] = None
+        for row in other["tiles"]:
+            for tile in row:
+                if isinstance(tile, dict):
+                    tile["slime"] = None
+        changed = migrate_mine(self.state, self.rules)
+        self.assertTrue(changed)
+        self.assertEqual(other.get("slimes"), [])
+        self.assertNotIn("slime", other)
+        # Missing both keys rolls the new multi-slime counts once, then stays put.
+        third = get_floor(self.state, 16, self.rules)
+        third.pop("slimes", None)
+        third.pop("slime", None)
+        changed = migrate_mine(self.state, self.rules)
+        self.assertTrue(changed)
+        self.assertIn("slimes", third)
+        rolled = [dict(s) for s in third["slimes"]]
+        self.assertTrue(1 <= len(rolled) <= 2)
+        changed = migrate_mine(self.state, self.rules)
+        self.assertEqual([dict(s) for s in third["slimes"]], rolled)
+
     def test_migrate_strips_elevators_and_goo_is_sellable(self):
+
         from mine import get_floor, migrate_mine, wake_place_after_mine_passout
         from hills import AREA_HILLS, MINE_ENTRANCE
         from town import stall_sell_price
@@ -7059,12 +7158,18 @@ class MinePhaseThree(unittest.TestCase):
         from mine import get_floor, _sync_slime_tile
         self._enter()
         data = get_floor(self.state, 6, self.rules)
-        data["slime"] = {"kind": "grey", "hp": 20, "row": 2, "col": 2}
+        data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
+        if "slime" in data:
+            del data["slime"]
         _sync_slime_tile(data)
         set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=6)
         payload = web.api_payload(self.state, self.crops, player=P1)
         self.assertNotIn("strike", payload.get("actions") or [])
         set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=6)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertNotIn("strike", payload.get("actions") or [])
+        self.assertNotIn("flee", payload.get("actions") or [])
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         payload = web.api_payload(self.state, self.crops, player=P1)
         self.assertIn("strike", payload.get("actions") or [])
         self.assertIn("flee", payload.get("actions") or [])

@@ -200,17 +200,22 @@ This is the next mine pass. It adds grey slimes, quartz, and
 runestone ore, and it removes the elevator.
 
 **Grey slimes** are the first slime type. They appear from floor 6
-on, never on safe floors (5, 10, 15, 20, 25). More slime types come
-later, deeper. They deal HP damage. `strike` and `flee` work as
-previously sketched. Max HP stays **100**. Snacks heal HP (the same
+on, never on safe floors (5, 10, 15, 20, 25). A non-safe floor can
+have several slimes on different tiles, never on the arrival/shaft
+tile. More slime types come later, deeper. They deal HP damage.
+`strike` and `flee` are only available when you stand on the same
+tile as a slime (not a neighbouring tile). Strike targets the slime
+on your tile. Max HP stays **100**. Snacks heal HP (the same
 amount they restore energy). 0 HP still wakes at the hills mine
 entrance with 25 energy (and full HP). Grey slimes drop **goo**,
-which goes into one recipe.
+which goes into one recipe. Each slime has its own HP and drops its
+own goo when defeated.
 
-Suggestions, not settled (see Open questions): grey slimes have
-**20 HP** and deal **8** damage; a floor from 6 on (except safe
-floors) has about a 1-in-3 chance of a slime on 6–9, more often
-deeper; `strike` and `flee` cost **5** energy each.
+Current numbers (see Open questions if we retune): grey slimes have
+**20 HP** and deal **8** damage; slime counts per floor, rolled from
+the seasonal seed, are **0–1** on 6–9, **0–2** on 11–14, **1–2** on
+16–19, and **1–3** on 21–24; `strike` and `flee` cost **5** energy
+each.
 
 **Quartz** drops randomly from plain stone rocks (not ore rocks) on
 floors **1–4**. The item is `quartz`. Suggestions, not settled: a
@@ -510,11 +515,14 @@ Elsewhere note. First Farm is never loaded or written by this work.
   execute; `go cabin` is refused from the mine; migration does not
   touch farm tiles, gold, packs, energy, or whose turn it is. First
   Farm is never loaded or written. Phase 3 tests: grey slimes from
-  floor 6, never on safe floors; quartz drops from plain stone on
-  floors 1–4; runestone ore rocks are rare early and more frequent
-  deeper; no elevator actions or tiles; ending a turn in the mine
-  wakes at the hills entrance; `go cabin` stays refused until you
-  climb out.
+  floor 6, never on safe floors, with depth-band counts and never on
+  the arrival tile; `strike` / `flee` only when you stand on the same
+  tile as a slime; multiple slimes on a floor keep their own HP and
+  goo; older single-slime saves migrate to a list; quartz drops from
+  plain stone on floors 1–4; runestone ore rocks are rare early and
+  more frequent deeper; no elevator actions or tiles; ending a turn
+  in the mine wakes at the hills entrance; `go cabin` stays refused
+  until you climb out.
 
 
 ## Build order
@@ -566,8 +574,9 @@ Each phase should be its own playable stretch, not one giant commit.
    steps, waystone and homeward-rune details, and any other uses?
 8. What is quartz used for besides selling (crafting, decoration,
    rune work)?
-9. Grey slime numbers: HP, damage, spawn rate, and the energy cost
-   of `strike` / `flee`. Suggestions are in Phase 3, not settled.
+9. Grey slime numbers: HP, damage, counts per floor, and the energy
+   cost of `strike` / `flee`. Current values are in Phase 3, still
+   open to retune.
 10. Later slime types: which colours, and from which floors?
 11. What is the one goo recipe?
 

@@ -44,8 +44,9 @@ pack pries the boards. Floors 1–25 re-roll each season. Break rocks
 for copper, iron, gold, and runestone ore as you go deeper (the ladder
 down is hidden under a rock). Plain stone on floors 1–4 can drop
 quartz. Every fifth floor has a lantern (`rest` once a day). Grey
-slimes appear from floor 6 on, never on safe floors; `strike` or
-`flee` when you are on or next to one. The forge in town upgrades the
+slimes appear from floor 6 on, never on safe floors; a floor can have
+several. `strike` or `flee` when you stand on the same tile as one.
+The forge in town upgrades the
 hoe, watering can, axe, and pickaxe with 5 ore of the next tier.
 `go cabin` does not work from inside the mine — climb out first.
 Ending a turn in the mine wakes at the hills entrance with 50 energy;
