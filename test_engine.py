@@ -10362,6 +10362,53 @@ class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
         self.assertNotIn("if (!show) continue", html)
         self.assertIn("move to r c", html)
 
+    def test_web_walk_here_sits_outside_the_legal_actions_collapsible(self):
+        import web
+        html = web.PAGE
+        self.assertIn('className = "tile-walk"', html)
+        self.assertIn('id = "walk-here"', html)
+        self.assertIn("insertBefore(walkRow, legalWrap)", html)
+        self.assertIn("#tile-actions", html)
+        self.assertIn("flex-direction: column", html)
+        # Must not drop a bare Walk here button into the flex-wrap actions row,
+        # which is what parked it beside the Legal Actions heading.
+        self.assertNotIn("box.appendChild(walk)", html)
+        self.assertIn("stays reachable when that list is folded away", html)
+
+    def test_web_chest_pauses_refresh_and_binds_drag_once(self):
+        import web
+        html = web.PAGE
+        self.assertIn("let chestBusy = false;", html)
+        self.assertIn("if (authStopped || chestBusy) return;", html)
+        self.assertIn("function bindChestDragOnce()", html)
+        self.assertIn('dialog.dataset.dragReady = "1"', html)
+        self.assertNotIn("enableSlotDrag(", html)
+        self.assertIn("function showDragGhost(", html)
+        self.assertIn("chest-drag-ghost", html)
+        self.assertIn("chest-drag-badge", html)
+        self.assertIn("function hideDragGhost(", html)
+        self.assertIn("cancelChestInteraction", html)
+
+    def test_web_chest_click_menu_take_and_put(self):
+        import web
+        html = web.PAGE
+        self.assertIn("function showChestItemMenu(", html)
+        self.assertIn("chest-item-menu", html)
+        self.assertIn('addBtn("Take 1", "take chest " + index + " 1")', html)
+        self.assertIn('addBtn("Take stack", "take chest " + index + " stack")', html)
+        self.assertIn('addBtn("Put 1", "put pack " + index + " 1")', html)
+        self.assertIn('addBtn("Put stack", "put pack " + index + " stack")', html)
+        self.assertIn('cancelChestInteraction()', html)
+
+    def test_web_chest_header_uses_tiered_banding_art(self):
+        import web
+        html = web.PAGE
+        self.assertIn("chest-title-icon", html)
+        self.assertIn("function chestOverlaySrc(", html)
+        self.assertIn('"cabin_chest_" + tier', html)
+        self.assertIn("/overlays/", html)
+
+
     def test_web_ui_has_legal_actions_collapsible_and_ground_drop_buttons(self):
         import web
         html = web.render_page(viewer=P1)
@@ -10639,3 +10686,135 @@ class ChestBuildingAndWindow(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "transfer chest 2 pack 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(pack_of(self.state, P1)[0]["item"], "wood")
+
+    def test_transfer_chest_stack_to_pack_leaves_the_rest(self):
+        from chest import install_built_chest, chest_slots
+        from inventory import pack_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        chest = chest_slots(self.state, self.rules)
+        chest[0] = {"item": "stone", "count": 16}
+        ok, msg = do_action(self.state, self.crops, "transfer chest 1 pack 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        pack = pack_of(self.state, P1)
+        self.assertEqual(pack[0]["item"], "stone")
+        self.assertEqual(pack[0]["count"], 8)
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 8)
+
+    def test_transfer_pack_merges_into_chest_up_to_sixteen(self):
+        from chest import install_built_chest, chest_slots
+        from inventory import add_to_pack, pack_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        chest = chest_slots(self.state, self.rules)
+        chest[0] = {"item": "wood", "count": 14}
+        add_to_pack(self.state, P1, "wood", 5)
+        ok, msg = do_action(self.state, self.crops, "transfer pack 1 chest 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 16)
+        self.assertEqual(pack_of(self.state, P1)[0]["count"], 3)
+
+    def test_transfer_within_chest_merges_up_to_sixteen(self):
+        from chest import install_built_chest, chest_slots
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        chest = chest_slots(self.state, self.rules)
+        chest[0] = {"item": "wood", "count": 10}
+        chest[1] = {"item": "wood", "count": 10}
+        ok, msg = do_action(self.state, self.crops, "transfer chest 1 chest 2", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        chest = chest_slots(self.state, self.rules)
+        self.assertEqual(chest[1]["count"], 16)
+        self.assertEqual(chest[0]["count"], 4)
+
+    def test_transfer_refuses_a_swap_that_does_not_fit(self):
+        from chest import install_built_chest, chest_slots
+        from inventory import add_to_pack, pack_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        chest_slots(self.state, self.rules)[0] = {"item": "stone", "count": 16}
+        add_to_pack(self.state, P1, "hoe", 1)
+        ok, msg = do_action(self.state, self.crops, "transfer chest 1 pack 1", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("fit", msg.lower())
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 16)
+        self.assertEqual(pack_of(self.state, P1)[0]["item"], "hoe")
+
+    def test_take_chest_slot_one_and_stack(self):
+        from chest import install_built_chest, chest_slots
+        from inventory import pack_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        chest_slots(self.state, self.rules)[0] = {"item": "stone", "count": 16}
+        ok, msg = do_action(self.state, self.crops, "take chest 1 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(pack_of(self.state, P1)[0]["count"], 1)
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 15)
+        ok, msg = do_action(self.state, self.crops, "take chest 1 stack", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(pack_of(self.state, P1)[0]["count"], 8)
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 8)
+
+    def test_put_pack_slot_one_and_stack(self):
+        from chest import install_built_chest, chest_slots
+        from inventory import add_to_pack, pack_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        add_to_pack(self.state, P1, "wood", 5)
+        ok, msg = do_action(self.state, self.crops, "put pack 1 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(pack_of(self.state, P1)[0]["count"], 4)
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["item"], "wood")
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 1)
+        ok, msg = do_action(self.state, self.crops, "put pack 1 stack", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(pack_of(self.state, P1)[0])
+        self.assertEqual(chest_slots(self.state, self.rules)[0]["count"], 5)
+
+    def test_cabin_chest_sprite_uses_tiered_banding(self):
+        from pathlib import Path
+        from PIL import Image
+        from cabin import get_cabin_tile, CABIN_CHEST
+        from chest import install_built_chest
+        from packs import PACKS_ROOT, layers_for_key, load_manifest
+        from sprites import sprite_key, parse_sprite_key, svg_for_key
+
+        install_built_chest(self.state, self.rules)
+        row, col = CABIN_CHEST
+        wood_tile = get_cabin_tile(self.state, row, col)
+        self.assertEqual(wood_tile["chest_tier"], "wood")
+        self.assertEqual(sprite_key(wood_tile), "cabin_interior_chest")
+        for tier in ("copper", "iron", "gold"):
+            install_built_chest(self.state, self.rules, tier=tier)
+            tile = get_cabin_tile(self.state, row, col)
+            self.assertEqual(tile["chest_tier"], tier)
+            key = sprite_key(tile)
+            self.assertEqual(key, f"cabin_interior_chest_{tier}")
+            parsed = parse_sprite_key(key)
+            self.assertEqual(parsed.get("tile"), "chest")
+            self.assertEqual(parsed.get("tier"), tier)
+            svg = svg_for_key(key)
+            if tier == "copper":
+                self.assertIn("#b87333", svg)
+            elif tier == "iron":
+                self.assertIn("#6a6d72", svg)
+            else:
+                self.assertIn("#d4a017", svg)
+        man = load_manifest("storybook")
+        for tier in ("copper", "iron", "gold"):
+            layers = layers_for_key(f"cabin_interior_chest_{tier}", man)
+            files = " ".join(str(layer.get("file") or "") for layer in (layers or []))
+            self.assertIn(f"cabin_chest_{tier}.png", files)
+            path = PACKS_ROOT / "storybook" / "overlays" / f"cabin_chest_{tier}.png"
+            self.assertTrue(path.is_file(), path)
+            with Image.open(path) as img:
+                self.assertEqual(img.size, (512, 512))
+                self.assertEqual(img.mode, "RGBA")
+        wood_path = PACKS_ROOT / "storybook" / "overlays" / "cabin_chest.png"
+        copper_path = PACKS_ROOT / "storybook" / "overlays" / "cabin_chest_copper.png"
+        with Image.open(wood_path) as wood_img, Image.open(copper_path) as copper_img:
+            wood = wood_img.convert("RGBA")
+            copper = copper_img.convert("RGBA")
+            # The wooden lid stays the same; the metal strap is retinted.
+            self.assertEqual(wood.getpixel((250, 175)), copper.getpixel((250, 175)))
+            self.assertNotEqual(wood.getpixel((125, 160)), copper.getpixel((125, 160)))

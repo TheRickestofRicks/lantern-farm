@@ -136,6 +136,10 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
         kind = typ[len("cabin_"):]
         if typ in {"cabin_fireplace", "cabin_kitchen"} and tile.get("fire"):
             return f"cabin_interior_{kind}_lit"
+        if typ == "cabin_chest":
+            tier = str(tile.get("chest_tier") or "").strip().lower()
+            if tier in {"copper", "iron", "gold"}:
+                return f"cabin_interior_chest_{tier}"
         return f"cabin_interior_{kind}"
     if typ in {"grass", "hillside", "mine_entrance"}:
         if typ == "mine_entrance":
@@ -1526,9 +1530,19 @@ def _parse_cabin_interior_sprite_key(key: str) -> dict | None:
     if rest.endswith("_lit"):
         fire = True
         rest = rest[: -len("_lit")]
+    tier = None
+    for name in ("copper", "iron", "gold"):
+        suffix = "_" + name
+        if rest.endswith(suffix):
+            tier = name
+            rest = rest[: -len(suffix)]
+            break
     if rest not in {"floor", "bed", "chest", "fireplace", "door", "kitchen"}:
         return None
-    return {"kind": "cabin_interior", "tile": rest, "fire": fire}
+    info = {"kind": "cabin_interior", "tile": rest, "fire": fire}
+    if tier:
+        info["tier"] = tier
+    return info
 
 
 def _cabin_floor_ground() -> str:
@@ -1554,7 +1568,7 @@ def _cabin_floor_ground() -> str:
 """
 
 
-def _cabin_interior_overlay(tile: str, fire: bool = False) -> str:
+def _cabin_interior_overlay(tile: str, fire: bool = False, tier: str | None = None) -> str:
     if tile == "bed":
         return """
   <rect x="14" y="18" width="132" height="100" rx="8" fill="#6b3a28" stroke="#3a1c12" stroke-width="2"/>
@@ -1565,10 +1579,19 @@ def _cabin_interior_overlay(tile: str, fire: bool = False) -> str:
   <path d="M20,92 q60,18 120,0" fill="none" stroke="#8a2e32" stroke-width="3"/>
 """
     if tile == "chest":
-        return """
+        band = {
+            "copper": "#b87333",
+            "iron": "#6a6d72",
+            "gold": "#d4a017",
+        }.get(str(tier or "wood").strip().lower(), "#4a3a30")
+        return f"""
   <rect x="36" y="70" width="88" height="54" rx="6" fill="#8a5520" stroke="#3a2414" stroke-width="2"/>
   <rect x="36" y="62" width="88" height="22" rx="6" fill="#a46828" stroke="#3a2414" stroke-width="2"/>
-  <rect x="70" y="78" width="20" height="14" rx="3" fill="#c9a227" stroke="#6b4a10" stroke-width="1.4"/>
+  <rect x="36" y="62" width="10" height="62" fill="{band}" stroke="#3a2414" stroke-width="1"/>
+  <rect x="114" y="62" width="10" height="62" fill="{band}" stroke="#3a2414" stroke-width="1"/>
+  <rect x="36" y="108" width="16" height="16" fill="{band}" stroke="#3a2414" stroke-width="1"/>
+  <rect x="108" y="108" width="16" height="16" fill="{band}" stroke="#3a2414" stroke-width="1"/>
+  <rect x="70" y="78" width="20" height="14" rx="3" fill="{band}" stroke="#3a2414" stroke-width="1.4"/>
   <line x1="44" y1="96" x2="116" y2="96" stroke="#3a2414" stroke-width="1.5" opacity="0.5"/>
 """
     if tile == "fireplace":
@@ -1701,7 +1724,8 @@ def svg_town_tile(info: dict) -> str:
 def svg_cabin_interior(info: dict) -> str:
     tile = (info or {}).get("tile") or "floor"
     fire = bool((info or {}).get("fire"))
-    body = _cabin_floor_ground() + _cabin_interior_overlay(tile, fire)
+    tier = (info or {}).get("tier")
+    body = _cabin_floor_ground() + _cabin_interior_overlay(tile, fire, tier)
     return _svg(body)
 
 

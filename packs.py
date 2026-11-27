@@ -218,7 +218,10 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
                 name = f"cabin_{tile}_lit"
             else:
                 name = f"cabin_{tile}"
-            ffile = _pack_file(manifest, overlays.get(name) or "")
+            tier = str(parsed.get("tier") or "").strip().lower()
+            if tile == "chest" and tier in {"copper", "iron", "gold"}:
+                name = f"cabin_chest_{tier}"
+            ffile = _pack_file(manifest, overlays.get(name) or overlays.get(f"cabin_{tile}") or "")
             if not ffile:
                 return None
             layers.append({"role": "crop", "file": ffile})

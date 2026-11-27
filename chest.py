@@ -585,6 +585,75 @@ def swap_chest_slots(state: dict, a: int, b: int, rules: dict | None = None) -> 
     return True, "The chest is rearranged."
 
 
+def _slot_parts(slot) -> tuple:
+    from inventory import stack_tool_tier
+
+    if not slot or not slot.get("item"):
+        return None, 0, None
+    return slot.get("item"), int(slot.get("count") or 0), stack_tool_tier(slot)
+
+
+def _write_slot(slots: list, index: int, item, count: int, tier, rules: dict | None = None) -> None:
+    from inventory import _with_tier
+
+    if count <= 0 or not item:
+        slots[index] = None
+    else:
+        slots[index] = _with_tier(item, count, tier)
+
+
+def _store_cap(item, store: str, rules: dict | None = None) -> int:
+    from inventory import max_stack_for
+
+    return max_stack_for(item, in_chest=(store == "chest"), rules=rules)
+
+
+def _same_stack(a, b) -> bool:
+    ia, _, ta = _slot_parts(a)
+    ib, _, tb = _slot_parts(b)
+    return bool(ia and ib and ia == ib and ta == tb)
+
+
+def _parse_slot_amount(raw, count: int) -> tuple[int | None, str | None]:
+    text = str(raw if raw is not None else "1").strip().lower()
+    if text in {"stack", "all"}:
+        return max(0, int(count)), None
+    try:
+        n = int(text)
+    except (TypeError, ValueError):
+        return None, "Say 1 or stack."
+    if n < 1:
+        return None, "Say 1 or stack."
+    return n, None
+
+
+def _find_merge_or_empty(slots: list, size: int, item: str, tier, cap: int) -> tuple[int | None, int]:
+    from inventory import stack_tool_tier
+
+    empty = None
+    for i in range(size):
+        slot = slots[i] if i < len(slots) else None
+        if slot and slot.get("item") == item and stack_tool_tier(slot) == tier:
+            room = cap - int(slot.get("count") or 0)
+            if room > 0:
+                return i, room
+        elif not slot and empty is None:
+            empty = i
+    if empty is not None:
+        return empty, cap
+    return None, 0
+
+
+def _require_at_built_chest(state: dict, player: str, rules: dict | None = None) -> str | None:
+    from cabin import player_at_cabin_tile
+
+    if not chest_is_built(state):
+        return "There isn't a chest yet."
+    if not player_at_cabin_tile(state, player, "chest"):
+        return "Walk to the chest to move things between the backpack and the chest."
+    return None
+
+
 def move_pack_chest_slot(
     state: dict,
     player: str,
@@ -594,56 +663,169 @@ def move_pack_chest_slot(
     dest_i: int,
     rules: dict | None = None,
 ) -> tuple[bool, str]:
-    """Move one stack between a pack slot and a chest slot (1-indexed)."""
-    from inventory import pack_of, pack_slots, sync_inventory_view, item_name, max_stack_for, is_tool, stack_tool_tier
+    """Move as much of a stack as the destination can hold (1-indexed slots).
+
+    Destination caps are 16 in the chest and 8 in the backpack (1 for a tool
+    in the pack). Same-item stacks merge up to the cap; leftovers stay in
+    the source slot. Different items swap only if both stacks fit.
+    """
+    from inventory import pack_of, sync_inventory_view
 
     src = (src or "").strip().lower()
     dest = (dest or "").strip().lower()
     if src not in {"pack", "chest"} or dest not in {"pack", "chest"}:
         return False, "Move a stack between pack and chest slots."
-    if src == dest == "chest":
-        return swap_chest_slots(state, src_i, dest_i, rules)
-    if src == dest == "pack":
-        pack = pack_of(state, player, rules)
-        try:
-            i, j = int(src_i), int(dest_i)
-        except (TypeError, ValueError):
-            return False, "Use backpack slot numbers starting at 1."
-        if i < 1 or j < 1 or i > len(pack) or j > len(pack):
-            return False, "That backpack slot is empty or missing."
-        pack[i - 1], pack[j - 1] = pack[j - 1], pack[i - 1]
-        sync_inventory_view(state, rules)
-        return True, "The backpack is rearranged."
-    if not chest_is_built(state):
-        return False, "There isn't a chest yet."
+    err = _require_at_built_chest(state, player, rules)
+    if err:
+        return False, err
     pack = pack_of(state, player, rules)
     chest = chest_slots(state, rules)
     size = chest_slot_count(state, rules)
+    if len(chest) < size:
+        chest = pad_chest_slots(chest, size)
+        state[CHEST_KEY] = chest
     try:
         si, di = int(src_i), int(dest_i)
     except (TypeError, ValueError):
         return False, "Use slot numbers starting at 1."
-    if src == "pack":
-        if si < 1 or si > len(pack):
-            return False, "That backpack slot is missing."
+    src_list = pack if src == "pack" else chest
+    dest_list = pack if dest == "pack" else chest
+    src_limit = len(pack) if src == "pack" else len(chest)
+    if si < 1 or si > src_limit:
+        return False, f"That {'backpack' if src == 'pack' else 'chest'} slot is missing."
+    if dest == "chest":
         if di < 1 or di > max(len(chest), size):
             return False, "That chest slot is not on this chest."
         if di > size:
             return False, "That chest slot is overflow; take something out first."
-        moving = pack[si - 1]
-        target = chest[di - 1] if di <= len(chest) else None
-        pack[si - 1], chest[di - 1] = target, moving
+        if di > len(chest):
+            chest = pad_chest_slots(chest, di)
+            state[CHEST_KEY] = chest
+            dest_list = chest
+    elif di < 1 or di > len(pack):
+        return False, "That backpack slot is missing."
+    if src == dest and si == di:
+        return True, "Moved."
+    src_slot = src_list[si - 1]
+    if not src_slot or not src_slot.get("item"):
+        return False, f"That {'backpack' if src == 'pack' else 'chest'} slot is empty."
+    src_item, src_count, src_tier = _slot_parts(src_slot)
+    dest_slot = dest_list[di - 1]
+    dest_cap = _store_cap(src_item, dest, rules)
+    if not dest_slot or not dest_slot.get("item"):
+        take = min(src_count, dest_cap)
+        _write_slot(dest_list, di - 1, src_item, take, src_tier, rules)
+        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules)
+    elif _same_stack(src_slot, dest_slot):
+        dest_count = int(dest_slot.get("count") or 0)
+        room = dest_cap - dest_count
+        if room <= 0:
+            return False, "That stack is already full."
+        take = min(src_count, room)
+        dest_slot["count"] = dest_count + take
+        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules)
     else:
-        if si < 1 or si > len(chest):
-            return False, "That chest slot is missing."
-        if di < 1 or di > len(pack):
-            return False, "That backpack slot is missing."
-        moving = chest[si - 1]
-        target = pack[di - 1]
-        chest[si - 1], pack[di - 1] = target, moving
+        dest_item, dest_count, dest_tier = _slot_parts(dest_slot)
+        src_cap = _store_cap(dest_item, src, rules)
+        if src_count > dest_cap or dest_count > src_cap:
+            return False, "Those stacks don't both fit if you swap them."
+        src_list[si - 1], dest_list[di - 1] = dest_slot, src_slot
     state[CHEST_KEY] = chest
     sync_inventory_view(state, rules)
     return True, "Moved."
+
+
+def take_from_chest_slot(
+    state: dict,
+    player: str,
+    slot_i,
+    amount="1",
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Take 1 or a stack from one chest slot into a pack slot (up to the pack cap)."""
+    from inventory import pack_of, sync_inventory_view, item_name
+
+    err = _require_at_built_chest(state, player, rules)
+    if err:
+        return False, err
+    try:
+        i = int(slot_i)
+    except (TypeError, ValueError):
+        return False, "Use a chest slot number starting at 1."
+    chest = chest_slots(state, rules)
+    if i < 1 or i > len(chest):
+        return False, "That chest slot is missing."
+    src = chest[i - 1]
+    if not src or not src.get("item"):
+        return False, "That chest slot is empty."
+    item, count, tier = _slot_parts(src)
+    want, perr = _parse_slot_amount(amount, count)
+    if perr:
+        return False, perr
+    pack = pack_of(state, player, rules)
+    cap = _store_cap(item, "pack", rules)
+    dest_i, room = _find_merge_or_empty(pack, len(pack), item, tier, cap)
+    if dest_i is None or room < 1:
+        return False, "The backpack has no room for that."
+    take = min(want, count, room)
+    if take < 1:
+        return False, "The backpack has no room for that."
+    dest = pack[dest_i]
+    if dest and dest.get("item"):
+        dest["count"] = int(dest.get("count") or 0) + take
+    else:
+        _write_slot(pack, dest_i, item, take, tier, rules)
+    _write_slot(chest, i - 1, item, count - take, tier, rules)
+    state[CHEST_KEY] = chest
+    sync_inventory_view(state, rules)
+    return True, f"Took {item_name(item, take, state=state)}."
+
+
+def put_from_pack_slot(
+    state: dict,
+    player: str,
+    slot_i,
+    amount="1",
+    rules: dict | None = None,
+) -> tuple[bool, str]:
+    """Put 1 or a stack from one pack slot into a chest slot (up to 16)."""
+    from inventory import pack_of, sync_inventory_view, item_name
+
+    err = _require_at_built_chest(state, player, rules)
+    if err:
+        return False, err
+    try:
+        i = int(slot_i)
+    except (TypeError, ValueError):
+        return False, "Use a backpack slot number starting at 1."
+    pack = pack_of(state, player, rules)
+    if i < 1 or i > len(pack):
+        return False, "That backpack slot is missing."
+    src = pack[i - 1]
+    if not src or not src.get("item"):
+        return False, "That backpack slot is empty."
+    item, count, tier = _slot_parts(src)
+    want, perr = _parse_slot_amount(amount, count)
+    if perr:
+        return False, perr
+    size = chest_slot_count(state, rules)
+    chest = pad_chest_slots(chest_slots(state, rules), size)
+    cap = _store_cap(item, "chest", rules)
+    dest_i, room = _find_merge_or_empty(chest, size, item, tier, cap)
+    if dest_i is None or room < 1:
+        return False, "The chest has no room for that."
+    take = min(want, count, room)
+    if take < 1:
+        return False, "The chest has no room for that."
+    dest = chest[dest_i]
+    if dest and dest.get("item"):
+        dest["count"] = int(dest.get("count") or 0) + take
+    else:
+        _write_slot(chest, dest_i, item, take, tier, rules)
+    _write_slot(pack, i - 1, item, count - take, tier, rules)
+    state[CHEST_KEY] = chest
+    sync_inventory_view(state, rules)
+    return True, f"Put {item_name(item, take, state=state)} in the chest."
 
 
 def public_chest(state: dict, rules: dict | None = None) -> dict:

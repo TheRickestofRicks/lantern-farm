@@ -15,7 +15,9 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 - Winter season, as Year 1 continues toward all four seasons being playable.
 - Proposed: overwintering crops (garlic, spinach, kale, winter onion; wild onion planted in autumn sleeps through winter and wakes in spring).
-- Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating.
+- Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating. Constructable decorations include a table (+5 energy when you eat food at it) and a chair (+10 energy for 30 minutes of time).
+- Next week: an action/time-based day-to-night cycle. Each action takes time depending on the action and the tool tier, for example watering is 30 minutes base, 25 with copper, 20 with iron, 15 with gold.
+- Fishing minigame: the centre hills tile becomes a pond. A fishing rod is purchasable (hook and line included), as are bait types with different effectiveness. Bites depend on weather and bait, which affects which fish bite and how often. Overfishing is possible and tracked per species. Late-game activity for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
 - Mine depth beyond the first floors.
 - Sleeping bag: sleep inside the mine, wake with 50 energy on the same tile without being booted out. It takes a backpack slot (bulky).
 - More slime types deeper in the mine (grey slimes from floor 6 are in).
@@ -48,6 +50,22 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - A seed maker (like Stardew's), crafted for 5 stone and 20 wood, turns a crop into seeds.
 - Suggestions: it takes about a day to finish so it fits turns; a small chance of a bonus seed; plants left long may flower first.
 - Open questions: how many seeds per crop? Does going to seed replace the harvest (you lose the crop)? How many days after mature until it flowers or goes to seed? Where does the seed maker live (cabin, farm)? Can it take any harvested crop, or only ones that went to seed on the plot?
+
+## Idea: constructable table and chair (Rick, 2026-11-27)
+- Cabin decorations you can build: a table and a chair.
+- Eating food at the table gives +5 energy.
+- Sitting in the chair gives +10 energy for 30 minutes of time.
+
+## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
+- Next week: the day should move from day to night by the time actions take, not only by ending a turn.
+- Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
+
+## Idea: fishing minigame (Rick, 2026-11-27)
+- The centre hills tile becomes a pond.
+- A fishing rod is purchasable (hook and line included), as are bait types with different effectiveness.
+- Bites depend on weather and bait type, which affects which fish bite and how often.
+- Overfishing is possible and tracked per species.
+- Purpose: late-game activities for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
 
 ## In: chest redesign (Rick, 2026-11-27; built 2026-11-27)
 - The chest is its own window, like the store, with a draggable grid of rows and columns. You can drag to rearrange slots and drag between the backpack and the chest.

@@ -585,6 +585,18 @@ PAGE = r"""<!DOCTYPE html>
       flex-wrap: wrap;
       gap: 0.4rem;
     }
+    /* This-tile actions stack above Legal Actions; do not wrap "Walk here"
+       out beside the collapsible heading. */
+    #tile-actions {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: stretch;
+    }
+    .tile-walk {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
     .btn {
       appearance: none;
       border: 1px solid var(--line);
@@ -1028,7 +1040,69 @@ PAGE = r"""<!DOCTYPE html>
     .chest-cell.is-overflow { border-style: dashed; }
     .chest-cell.is-dragging, .pack-cell.is-dragging { opacity: 0.4; }
     .chest-cell.is-target, .pack-cell.is-target { border-color: var(--gold); }
+    .chest-cell.is-selected, .pack-cell.is-selected { outline: 2px solid var(--gold); }
     .chest-cell[data-item], .pack-cell[data-item] { cursor: grab; }
+    .chest-title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-width: 0;
+    }
+    .chest-title-icon {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      flex: 0 0 auto;
+    }
+    .chest-drag-ghost {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 80;
+      pointer-events: none;
+      width: 3.6rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+    }
+    .chest-drag-ghost img {
+      width: 2.6rem;
+      height: 2.6rem;
+      object-fit: contain;
+    }
+    .chest-drag-ghost .chest-drag-badge {
+      margin-top: -0.35rem;
+      background: #2a1c12;
+      border: 1px solid var(--gold);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      padding: 0 0.38rem;
+      color: var(--ink);
+      line-height: 1.3;
+    }
+    .chest-item-menu {
+      position: fixed;
+      z-index: 70;
+      background: #2a1c12;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      min-width: 8.5rem;
+    }
+    .chest-item-menu button {
+      font: inherit;
+      color: var(--ink);
+      background: #3a2a1c;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.35rem 0.55rem;
+      cursor: pointer;
+      text-align: left;
+    }
     .chest-meta, .chest-help { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; line-height: 1.4; }
     .chest-card { touch-action: none; user-select: none; -webkit-user-select: none; }
     .chest-card.is-dragging { opacity: 0.55; }
@@ -1236,7 +1310,10 @@ PAGE = r"""<!DOCTYPE html>
     <div class="shop-backdrop" id="chest-backdrop"></div>
     <div class="shop-dialog chest-dialog" role="dialog" aria-modal="true" aria-labelledby="chest-title">
       <div class="shop-head">
-        <h2 id="chest-title">Chest</h2>
+        <div class="chest-title-row">
+          <img id="chest-title-icon" class="chest-title-icon" alt="" hidden>
+          <h2 id="chest-title">Chest</h2>
+        </div>
         <button type="button" class="btn" id="chest-close">Close</button>
       </div>
       <div class="chest-band" id="chest-band" hidden></div>
@@ -1245,7 +1322,7 @@ PAGE = r"""<!DOCTYPE html>
       <div id="chest-grid" class="chest-grid"></div>
       <h3 class="shop-section-title">Backpack</h3>
       <div id="chest-pack-grid" class="chest-grid"></div>
-      <p class="chest-help" id="chest-help">Drag items to rearrange, or between the backpack and the chest.</p>
+      <p class="chest-help" id="chest-help">Click an item for Take or Put (1 or the stack). Drag moves a full stack for the destination — up to 8 in the backpack, 16 in the chest. Leftovers stay where they were.</p>
     </div>
   </div>
   <div id="settings-modal" class="shop-modal" hidden>
@@ -1303,6 +1380,7 @@ PAGE = r"""<!DOCTYPE html>
     let savesOpen = false;
     let settingsOpen = false;
     let chestOpen = false;
+    let chestBusy = false;
     let savesSwitch = null;
     let savesRenameId = null;
     let journalSeason = "spring";
@@ -2438,14 +2516,6 @@ PAGE = r"""<!DOCTYPE html>
         $("tile-desc").textContent = desc + " It's " + who + "'s turn.";
         return;
       }
-      if (stand && (stand.r !== r || stand.c !== c)) {
-        const walk = document.createElement("button");
-        walk.type = "button";
-        walk.className = "btn";
-        walk.textContent = "Walk here";
-        walk.addEventListener("click", function () { actCmd("move to " + r + " " + c); });
-        box.appendChild(walk);
-      }
       const legalWrap = document.createElement("div");
       legalWrap.className = "chest-section legal-actions-section";
       const legalOpen = legalActionsIsOpen();
@@ -2540,13 +2610,22 @@ PAGE = r"""<!DOCTYPE html>
         legalBody.appendChild(b);
       }
       if (legalBody.childNodes.length) box.appendChild(legalWrap);
-      // Walk-here descriptor when looking at another tile
+      // Walk here is a This-tile action for the plot you clicked, not the
+      // standing-tile list. Keep it outside the Legal Actions collapsible
+      // (above it) so it stays reachable when that list is folded away.
       if (stand && (stand.r !== r || stand.c !== c)) {
         const walkCmd = "move to " + r + " " + c;
-        const walkBtn = box.querySelector("button");
-        if (walkBtn && walkBtn.textContent === "Walk here") {
-          walkBtn.textContent = actionLabel(walkCmd, "Walk here");
-        }
+        const walkRow = document.createElement("div");
+        walkRow.className = "tile-walk";
+        const walk = document.createElement("button");
+        walk.type = "button";
+        walk.className = "btn";
+        walk.id = "walk-here";
+        walk.textContent = actionLabel(walkCmd, "Walk here");
+        walk.addEventListener("click", function () { actCmd(walkCmd); });
+        walkRow.appendChild(walk);
+        if (legalWrap.parentNode === box) box.insertBefore(walkRow, legalWrap);
+        else box.appendChild(walkRow);
       }
       if (plantPick && plantPick.kinds && plantPick.kinds.length) {
         renderPlantPicker(box, workR, workC, plantPick);
@@ -3047,6 +3126,99 @@ PAGE = r"""<!DOCTYPE html>
       chestOpen = false;
       const modal = $("chest-modal");
       if (modal) modal.hidden = true;
+      cancelChestInteraction();
+    }
+    function chestOverlaySrc(tier) {
+      const pack = packById(artPackId);
+      const id = (pack && pack.id) || "storybook";
+      const key = (tier && tier !== "wood") ? ("cabin_chest_" + tier) : "cabin_chest";
+      const rel = pack && pack.overlays && pack.overlays[key];
+      if (rel && typeof rel === "string" && /^[a-z0-9_./-]+$/i.test(rel) && rel.indexOf("..") < 0) {
+        return "/static/packs/" + id + "/" + rel;
+      }
+      return "/static/packs/" + id + "/overlays/" + key + ".png";
+    }
+    function hideDragGhost() {
+      const ghost = $("chest-drag-ghost");
+      if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    }
+    function moveDragGhost(ev) {
+      const ghost = $("chest-drag-ghost");
+      if (!ghost) return;
+      ghost.style.transform = "translate(" + ev.clientX + "px, " + ev.clientY + "px) translate(-50%, -60%)";
+    }
+    function showDragGhost(slot, ev) {
+      hideDragGhost();
+      if (!slot || !slot.item) return;
+      const ghost = document.createElement("div");
+      ghost.id = "chest-drag-ghost";
+      ghost.className = "chest-drag-ghost";
+      ghost.setAttribute("aria-hidden", "true");
+      const img = document.createElement("img");
+      img.src = itemIconSrc(slot.item);
+      img.alt = "";
+      ghost.appendChild(img);
+      const badge = document.createElement("span");
+      badge.className = "chest-drag-badge";
+      badge.textContent = String(slot.count || 1);
+      ghost.appendChild(badge);
+      document.body.appendChild(ghost);
+      moveDragGhost(ev);
+    }
+    function hideChestItemMenu() {
+      const menu = $("chest-item-menu");
+      if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+      document.removeEventListener("pointerdown", chestMenuOutside, true);
+      const selected = document.querySelectorAll(".chest-cell.is-selected, .pack-cell.is-selected");
+      selected.forEach(function (el) { el.classList.remove("is-selected"); });
+    }
+    function chestMenuOutside(ev) {
+      if (ev.target && ev.target.closest && ev.target.closest("#chest-item-menu")) return;
+      hideChestItemMenu();
+    }
+    function showChestItemMenu(cell, data) {
+      hideChestItemMenu();
+      if (!cell || !cell.dataset.item) return;
+      if (!data || !data.your_turn || !data.at_chest) return;
+      const store = cell.dataset.store;
+      const index = cell.dataset.index;
+      const menu = document.createElement("div");
+      menu.id = "chest-item-menu";
+      menu.className = "chest-item-menu";
+      function addBtn(label, cmd) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = label;
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          hideChestItemMenu();
+          actCmd(cmd);
+        });
+        menu.appendChild(btn);
+      }
+      if (store === "chest") {
+        addBtn("Take 1", "take chest " + index + " 1");
+        addBtn("Take stack", "take chest " + index + " stack");
+      } else {
+        addBtn("Put 1", "put pack " + index + " 1");
+        addBtn("Put stack", "put pack " + index + " stack");
+      }
+      cell.classList.add("is-selected");
+      document.body.appendChild(menu);
+      const box = cell.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(box.left, window.innerWidth - 160)) + "px";
+      menu.style.top = (box.bottom + 4) + "px";
+      setTimeout(function () {
+        document.addEventListener("pointerdown", chestMenuOutside, true);
+      }, 0);
+    }
+    function cancelChestInteraction() {
+      hideDragGhost();
+      hideChestItemMenu();
+      chestBusy = false;
+      const dragging = document.querySelectorAll(".chest-cell.is-dragging, .pack-cell.is-dragging");
+      dragging.forEach(function (el) { el.classList.remove("is-dragging"); });
     }
     function fillChestCell(cell, slot, store, index, data) {
       cell.className = store === "pack" ? "pack-cell" : "chest-cell";
@@ -3057,6 +3229,7 @@ PAGE = r"""<!DOCTYPE html>
       if (overflow) cell.classList.add("is-overflow");
       if (slot && slot.item) {
         cell.dataset.item = slot.item;
+        cell.dataset.count = String(slot.count || 1);
         const img = document.createElement("img");
         img.src = itemIconSrc(slot.item);
         img.alt = "";
@@ -3067,32 +3240,84 @@ PAGE = r"""<!DOCTYPE html>
       } else {
         cell.classList.add("is-empty");
         cell.textContent = "";
+        delete cell.dataset.item;
+        delete cell.dataset.count;
       }
     }
-    function enableSlotDrag(grid, data) {
+    function bindChestDragOnce() {
+      const dialog = document.querySelector(".chest-dialog");
+      if (!dialog || dialog.dataset.dragReady) return;
+      dialog.dataset.dragReady = "1";
+      let start = null;
       let dragging = null;
-      grid.addEventListener("pointerdown", function (ev) {
-        const live = lastData || data;
+      function slotFromCell(cell) {
+        if (!cell || !cell.dataset.item) return null;
+        return {
+          item: cell.dataset.item,
+          count: Number(cell.dataset.count || 1),
+          store: cell.dataset.store,
+          index: cell.dataset.index
+        };
+      }
+      dialog.addEventListener("pointerdown", function (ev) {
+        if (ev.target && ev.target.closest && ev.target.closest("#chest-item-menu, button, input, textarea, a")) return;
+        const live = lastData;
         const cell = ev.target.closest && ev.target.closest(".chest-cell, .pack-cell");
         if (!cell || !cell.dataset.item) return;
-        if (!live.your_turn || !live.at_chest) return;
+        if (!live || !live.your_turn || !live.at_chest) return;
         if (ev.button && ev.button !== 0) return;
-        dragging = cell;
-        cell.classList.add("is-dragging");
+        start = { cell: cell, x: ev.clientX, y: ev.clientY, pointerId: ev.pointerId, slot: slotFromCell(cell) };
         try { cell.setPointerCapture(ev.pointerId); } catch (err) {}
       });
-      grid.addEventListener("pointerup", function (ev) {
-        if (!dragging) return;
-        const src = dragging;
-        src.classList.remove("is-dragging");
-        dragging = null;
-        const dest = document.elementFromPoint(ev.clientX, ev.clientY);
-        const cell = dest && dest.closest && dest.closest(".chest-cell, .pack-cell");
-        if (!cell || cell === src) return;
-        const cmd = "transfer " + src.dataset.store + " " + src.dataset.index
-          + " " + cell.dataset.store + " " + cell.dataset.index;
-        actCmd(cmd);
+      dialog.addEventListener("pointermove", function (ev) {
+        if (!start) return;
+        const dx = ev.clientX - start.x;
+        const dy = ev.clientY - start.y;
+        if (!dragging && (dx * dx + dy * dy) >= 36) {
+          dragging = start.cell;
+          chestBusy = true;
+          hideChestItemMenu();
+          dragging.classList.add("is-dragging");
+          showDragGhost(start.slot, ev);
+        }
+        if (dragging) moveDragGhost(ev);
       });
+      function endPointer(ev, cancelled) {
+        if (!start) return;
+        const src = start.cell;
+        const wasDrag = !!dragging;
+        start = null;
+        dragging = null;
+        if (wasDrag) {
+          src.classList.remove("is-dragging");
+          hideDragGhost();
+          if (cancelled) {
+            chestBusy = false;
+            return;
+          }
+          const dest = document.elementFromPoint(ev.clientX, ev.clientY);
+          const cell = dest && dest.closest && dest.closest(".chest-cell, .pack-cell");
+          if (!cell || cell === src) {
+            chestBusy = false;
+            return;
+          }
+          const cmd = "transfer " + src.dataset.store + " " + src.dataset.index
+            + " " + cell.dataset.store + " " + cell.dataset.index;
+          const done = actCmd(cmd);
+          if (done && typeof done.finally === "function") {
+            done.finally(function () {
+              chestBusy = false;
+              hideDragGhost();
+            });
+          } else {
+            chestBusy = false;
+          }
+          return;
+        }
+        if (!cancelled) showChestItemMenu(src, lastData);
+      }
+      dialog.addEventListener("pointerup", function (ev) { endPointer(ev, false); });
+      dialog.addEventListener("pointercancel", function (ev) { endPointer(ev, true); });
     }
     function renderChestWindow(data) {
       const info = (data && data.chest_info) || {};
@@ -3102,7 +3327,19 @@ PAGE = r"""<!DOCTYPE html>
       const tools = $("chest-toolbar");
       const grid = $("chest-grid");
       const packGrid = $("chest-pack-grid");
+      hideChestItemMenu();
       if (title) title.textContent = info.built ? (info.name ? (info.name.charAt(0).toUpperCase() + info.name.slice(1)) : "Chest") : "Build a chest";
+      const icon = $("chest-title-icon");
+      if (icon) {
+        if (info.built) {
+          icon.hidden = false;
+          icon.src = chestOverlaySrc(info.tier || "wood");
+          icon.alt = title ? title.textContent : "Chest";
+        } else {
+          icon.hidden = true;
+          icon.removeAttribute("src");
+        }
+      }
       if (band) {
         if (info.built && info.band) {
           band.hidden = false;
@@ -3153,7 +3390,6 @@ PAGE = r"""<!DOCTYPE html>
           fillChestCell(cell, items[i], "chest", i + 1, data);
           grid.appendChild(cell);
         }
-        if (info.built && data.your_turn && data.at_chest) enableSlotDrag(grid, data);
       }
       if (packGrid) {
         packGrid.innerHTML = "";
@@ -3165,13 +3401,7 @@ PAGE = r"""<!DOCTYPE html>
           packGrid.appendChild(cell);
         }
       }
-      if (info.built && data.your_turn && data.at_chest) {
-        const dialog = grid && grid.closest(".chest-dialog");
-        if (dialog && !dialog.dataset.dragReady) {
-          enableSlotDrag(dialog, data);
-          dialog.dataset.dragReady = "1";
-        }
-      }
+      bindChestDragOnce();
     }
 
     function seasonLabel(list) {
@@ -3934,7 +4164,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     async function poll() {
-      if (authStopped) return;
+      if (authStopped || chestBusy) return;
       try {
         const res = await fetch("/api/state", {cache: "no-store", credentials: "same-origin"});
         if (res.status === 401 || res.status === 403) {
@@ -4421,6 +4651,10 @@ PAGE = r"""<!DOCTYPE html>
 
       if (key === "Escape") {
         ev.preventDefault();
+        if (chestOpen && ($("chest-drag-ghost") || $("chest-item-menu") || chestBusy)) {
+          cancelChestInteraction();
+          return;
+        }
         if (settingsOpen) {
           closeSettings();
           return;

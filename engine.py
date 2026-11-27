@@ -6841,6 +6841,18 @@ def do_action(
     elif verb == "pickup":
         verb = "take"
 
+    # Slot commands from the chest window, before put is aliased to drop.
+    if verb == "take" and args and str(args[0]).lower() == "chest" and len(args) >= 2 and str(args[1]).isdigit():
+        from chest import take_from_chest_slot
+        amount = args[2] if len(args) > 2 else "1"
+        ok, msg = take_from_chest_slot(state, actor, args[1], amount, rules)
+        return ok, msg
+    if verb in {"put", "stow"} and args and str(args[0]).lower() == "pack" and len(args) >= 2 and str(args[1]).isdigit():
+        from chest import put_from_pack_slot
+        amount = args[2] if len(args) > 2 else "1"
+        ok, msg = put_from_pack_slot(state, actor, args[1], amount, rules)
+        return ok, msg
+
     if verb in {"take", "drop", "put", "stow", "craft"}:
         if verb in {"put", "stow"}:
             verb = "drop"
