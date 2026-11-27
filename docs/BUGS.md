@@ -7,6 +7,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Open
 | Found | Bug | Severity | Notes |
 |---|---|---|---|
+| 2026-11-27 | Shop shows "everbearing strawberry seed"; everbearing ones are starters/seedlings, so the item name should say "starter" everywhere | minor | Spotted in the honour store. Check the item name, shop list, notes text and art manifest. |
 
 ## Fixed
 | Found | Bug | Fixed in |
