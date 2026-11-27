@@ -2175,6 +2175,7 @@ PAGE = r"""<!DOCTYPE html>
         "climb up",
         "climb down",
         "fuel fireplace",
+        "fuel stove",
         "mine",
         "rest",
         "strike",

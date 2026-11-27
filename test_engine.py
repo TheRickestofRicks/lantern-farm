@@ -8948,6 +8948,50 @@ class CabinInterior(unittest.TestCase):
         self.assertNotIn("enter cabin", data.get("commandsAfterPlainEnter") or [])
 
 
+    def test_look_lists_fuel_actions_only_when_they_are_doable(self):
+        """fuel fireplace / fuel stove appear in look's legal list iff they can be done."""
+        from describe import describe_state
+        from inventory import add_to_pack, sync_inventory_view
+        from engine import legal_actions, format_legal_action
+
+        # Fireplace: hidden without pack wood, listed when standing there with wood.
+        inside(self.state, P1, "fireplace")
+        self.state["current_player"] = P1
+        self.state["fireplace_fueled"] = False
+        self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertNotIn("fuel fireplace", look)
+        add_to_pack(self.state, P1, "wood", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("fuel fireplace", actions)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("fuel fireplace", look)
+        self.assertIn("5 energy", format_legal_action("fuel fireplace", self.state, self.crops, P1, self.rules))
+        # Hidden on a different cabin tile, even with pack wood.
+        inside(self.state, P1, "bed")
+        self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        # Hidden once already fueled.
+        inside(self.state, P1, "fireplace")
+        self.state["fireplace_fueled"] = True
+        self.assertNotIn("fuel fireplace", legal_actions(self.state, self.crops, P1, self.rules))
+        self.state["fireplace_fueled"] = False
+
+        # Stove: same rules, at the kitchen.
+        inside(self.state, P1, "kitchen")
+        self.state["stove_fueled"] = False
+        # One wood still in the pack from above.
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("fuel stove", actions)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("fuel stove", look)
+        self.assertIn("5 energy", format_legal_action("fuel stove", self.state, self.crops, P1, self.rules))
+        inside(self.state, P1, "bed")
+        self.assertNotIn("fuel stove", legal_actions(self.state, self.crops, P1, self.rules))
+        inside(self.state, P1, "kitchen")
+        self.state["stove_fueled"] = True
+        self.assertNotIn("fuel stove", legal_actions(self.state, self.crops, P1, self.rules))
+
 class FrostAndWitheredDisplay(unittest.TestCase):
     def setUp(self):
         self.crops = load_crops()
@@ -9389,6 +9433,60 @@ class EastMarketTown(unittest.TestCase):
         # One put action for the single carrot, and put-1 plus put-all for the wood.
         self.assertEqual(len(put_buttons), 3)
 
+
+    def test_stall_sells_seeds_at_half_shop_price_not_crop_price(self):
+        """Planting stock was priced as the harvested crop (carrot seed = 32G)."""
+        from town import stall_sell_price, stall_is_empty
+        from inventory import item_sell_price, add_to_pack, sync_inventory_view, stack_count, pack_of
+        from engine import crop_info, format_legal_action, legal_actions
+
+        carrot = crop_info(self.crops, "carrot")
+        self.assertEqual(int(carrot["sell_price"]), 32)
+        self.assertEqual(int(carrot["seed_price"]), 12)
+        self.assertEqual(item_sell_price("carrot", self.crops, self.rules), 32)
+        self.assertEqual(stall_sell_price("carrot", self.crops, self.rules), 32)
+        self.assertEqual(stall_sell_price("carrot_seed", self.crops, self.rules), 6)
+        self.assertEqual(item_sell_price("carrot_seed", self.crops, self.rules), 6)
+
+        # Every crop's seeds, seedlings, and crowns sell for half the shop price.
+        for kind, info in (self.crops.get("crops") or {}).items():
+            try:
+                buy = int(info["seed_price"])
+                crop_sell = int(info["sell_price"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            want = buy // 2 if buy // 2 > 0 else None
+            for suffix in ("_seed", "_seedling", "_crown"):
+                item = kind + suffix
+                got = stall_sell_price(item, self.crops, self.rules)
+                self.assertEqual(got, want, f"{item} should be half of seed_price {buy}, not {got}")
+                if want is not None:
+                    self.assertNotEqual(got, crop_sell, f"{item} must not sell at crop price {crop_sell}")
+            # Harvested crops stay at their own sell price.
+            self.assertEqual(stall_sell_price(kind, self.crops, self.rules), crop_sell)
+
+        # Known planting-stock items used in play.
+        self.assertEqual(stall_sell_price("everbearing_seedling", self.crops, self.rules), 20)
+        self.assertEqual(stall_sell_price("asparagus_crown", self.crops, self.rules), 15)
+        self.assertEqual(stall_sell_price("rhubarb_crown", self.crops, self.rules), 12)
+
+        # Selling a carrot seed at the stall pays 6G, not 32G.
+        at_town(self.state, P1, "stall")
+        self.state["current_player"] = P1
+        add_to_pack(self.state, P1, "carrot_seed", 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self.assertIn("sell carrot_seed 1", legal_actions(self.state, self.crops, P1, self.rules))
+        line = format_legal_action("sell carrot_seed 1", self.state, self.crops, P1, self.rules)
+        self.assertIn("+6G", line)
+        gold = int(self.state["gold"])
+        ok, msg = do_action(self.state, self.crops, "sell carrot_seed 1", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.state["players"][P1]["energy"] = 50
+        ok, msg = do_action(self.state, self.crops, "sell now", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold + 6)
+        self.assertTrue(stall_is_empty(self.state))
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "carrot_seed"), 0)
 
 class SleepingBagAndMineDifficulty(unittest.TestCase):
     def setUp(self):

@@ -977,6 +977,24 @@ def recipe_is_sellable(item: str | None, rec: dict | None = None) -> bool:
     return _recipe_looks_like_jam(item, rec)
 
 
+
+_PLANTING_STOCK_SUFFIXES = ("_seedling", "_seed", "_crown", "_crowns")
+
+
+def planting_stock_kind(item: str | None) -> str | None:
+    """Crop kind if this item is a seed, seedling, or crown; otherwise None."""
+    key = normalize_item(item) if item else None
+    if not key:
+        key = (str(item or "").strip().lower().replace("-", " ").replace(" ", "_"))
+    if not key:
+        return None
+    for suffix in _PLANTING_STOCK_SUFFIXES:
+        if key.endswith(suffix):
+            kind = key[: -len(suffix)]
+            return kind or None
+    return None
+
+
 def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = None) -> int | None:
     if item in MATERIALS:
         try:
@@ -1011,6 +1029,21 @@ def item_sell_price(item: str, crops: dict | None = None, rules: dict | None = N
         except (TypeError, ValueError):
             return None
     from engine import crop_info, load_crops
+
+    # crop_info() strips _seed/_seedling/_crown, so planting stock must be
+    # priced before that lookup. The stall (and any other sell path) pays
+    # half the shop buy price, rounded down — not the harvested crop's price.
+    stock_kind = planting_stock_kind(item)
+    if stock_kind:
+        info = crop_info(crops or load_crops(), stock_kind)
+        if not info:
+            return None
+        try:
+            buy = int(info["seed_price"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        price = buy // 2
+        return price if price > 0 else None
 
     info = crop_info(crops or load_crops(), item)
     if not info:
