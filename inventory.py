@@ -43,6 +43,23 @@ TOOLS = {
     },
 }
 
+SLEEPING_BAG = "sleeping_bag"
+DEFAULT_SLEEPING_BAG_PRICE = 120
+
+# Bought equipment. A sleeping bag occupies one backpack slot (pack stack 1).
+EQUIPMENT = {
+    SLEEPING_BAG: {
+        "name": "sleeping bag",
+        "name_plural": "sleeping bags",
+        "price": DEFAULT_SLEEPING_BAG_PRICE,
+        "description": (
+            "A rolled blanket you can sleep in anywhere. End your turn with it "
+            "in your backpack (and not in a bed) to wake on the same spot with "
+            "100 energy and no cabin comfort bonuses."
+        ),
+    },
+}
+
 # Shop staples: cheap, year-round, lightly filling.
 STAPLES = {
     "bread": {
@@ -354,6 +371,11 @@ ITEM_ALIASES = {
     "axes": TOOL_AXE,
     "pickaxe": TOOL_PICKAXE,
     "pickaxes": TOOL_PICKAXE,
+    "sleeping_bag": SLEEPING_BAG,
+    "sleeping bag": SLEEPING_BAG,
+    "sleeping bags": SLEEPING_BAG,
+    "bedroll": SLEEPING_BAG,
+    "bed roll": SLEEPING_BAG,
     "pick-axe": TOOL_PICKAXE,
     "pick axe": TOOL_PICKAXE,
     "pick": TOOL_PICKAXE,
@@ -545,6 +567,10 @@ def is_tool(item: str | None) -> bool:
     return (item or "") in TOOLS
 
 
+def is_equipment(item: str | None) -> bool:
+    return (item or "") in EQUIPMENT
+
+
 def is_fertilizer(item: str | None) -> bool:
     return (item or "") in FERTILIZERS
 
@@ -583,6 +609,37 @@ def staple_is_sold(item: str | None, rules: dict | None = None) -> bool:
     if info.get("shop") is False:
         return False
     return info.get("price") is not None
+
+
+
+def equipment_info(item: str | None, rules: dict | None = None) -> dict | None:
+    item = item or ""
+    if item not in EQUIPMENT:
+        return None
+    info = dict(EQUIPMENT[item])
+    custom = (rules or {}).get("sleeping_bag") if item == SLEEPING_BAG and isinstance(rules, dict) else None
+    if isinstance(custom, dict):
+        info.update(custom)
+    if info.get("price") is not None:
+        try:
+            info["price"] = int(info["price"])
+        except (TypeError, ValueError):
+            info["price"] = int(EQUIPMENT[item]["price"])
+    return info
+
+
+def sleeping_bag_price(rules: dict | None = None) -> int:
+    info = equipment_info(SLEEPING_BAG, rules) or EQUIPMENT[SLEEPING_BAG]
+    try:
+        return max(0, int(info.get("price") or DEFAULT_SLEEPING_BAG_PRICE))
+    except (TypeError, ValueError):
+        return DEFAULT_SLEEPING_BAG_PRICE
+
+
+def equipment_shop_items(rules: dict | None = None) -> list[str]:
+    """Year-round honour-store equipment (currently the sleeping bag)."""
+    del rules
+    return list(EQUIPMENT)
 
 
 def staple_shop_items(rules: dict | None = None) -> list[str]:
@@ -682,8 +739,8 @@ def is_recipe_item(item: str | None, rules: dict | None = None) -> bool:
 
 
 def max_stack_for(item: str, *, in_chest: bool = False, rules: dict | None = None) -> int:
-    if is_tool(item):
-        # Tools may share a chest slot (the two cans together) but each
+    if is_tool(item) or is_equipment(item):
+        # Tools and the sleeping bag may share a chest slot, but each
         # occupies its own pack slot.
         return chest_stack_limit(rules) if in_chest else 1
     return chest_stack_limit(rules) if in_chest else pack_stack_limit(rules)
@@ -774,6 +831,26 @@ def normalize_item(raw: str | None) -> str | None:
     fert = fertilizer_item_for_kind(text) or fertilizer_item_for_kind(underscored)
     if fert:
         return fert
+    # Display names for forged tools ("copper pickaxe", "iron watering can").
+    # "copper ore" is already handled by ITEM_ALIASES above.
+    words = text.split()
+    if len(words) >= 2 and words[0] in {"copper", "iron", "gold"}:
+        rest = " ".join(words[1:])
+        found = None
+        if rest in ITEM_ALIASES:
+            found = ITEM_ALIASES[rest]
+        else:
+            compact_rest = rest.replace(" ", "")
+            if compact_rest in ITEM_ALIASES:
+                found = ITEM_ALIASES[compact_rest]
+            else:
+                under_rest = rest.replace(" ", "_")
+                if under_rest in TOOLS:
+                    found = under_rest
+        if found and found in TOOLS:
+            return found
+    if underscored in EQUIPMENT:
+        return underscored
     return None
 
 
@@ -833,6 +910,10 @@ def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict 
     item = item or ""
     if item in TOOLS:
         noun = tool_display_noun(item, count, state)
+        return f"{count} {noun}"
+    if item in EQUIPMENT:
+        info = equipment_info(item, rules) or EQUIPMENT[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
         return f"{count} {noun}"
     if item in STAPLES:
         info = staple_info(item, rules) or STAPLES[item]

@@ -618,7 +618,7 @@ def describe_town_tile(state: dict, row: int, col: int, weather: str | None = No
     if typ == TILE_STORE:
         return (
             f"  {here} — the honour store. There's no shopkeeper; "
-            "leave coins in the tin for seeds, fertilizer, staples, and (once the mine is found) a pickaxe."
+            "leave coins in the tin for seeds, fertilizer, staples, a sleeping bag, and (once the mine is found) a pickaxe."
             f"{snow}"
         )
     if typ == TILE_FORGE:

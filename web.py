@@ -1808,7 +1808,7 @@ PAGE = r"""<!DOCTYPE html>
         return tileName(r, c) + " — the market stall, under a blue awning. Drop goods here; they sell when the day ends. Spend " + ((data && data.instant_sell_energy) || 50) + " energy to sell everything now." + stock;
       }
       if (tile.type === "town_store") {
-        return tileName(r, c) + " — the honour store. There's no shopkeeper; leave coins in the tin for seeds, fertilizer, staples, and (once the mine is found) a pickaxe.";
+        return tileName(r, c) + " — the honour store. There's no shopkeeper; leave coins in the tin for seeds, fertilizer, staples, a sleeping bag, and (once the mine is found) a pickaxe.";
       }
       if (tile.type === "town_forge") {
         return tileName(r, c) + " — the town forge. Upgrade a hoe, watering can, axe, or pickaxe here.";
@@ -4193,10 +4193,10 @@ def _tool_tiers_payload(state: dict | None) -> dict:
 
 def _item_name_catalog(crops: dict, rules: dict | None = None, state: dict | None = None) -> dict:
     """Human names (with spaces) for every known item, used by the web UI."""
-    from inventory import FERTILIZERS, TOOLS, recipes, item_name
+    from inventory import FERTILIZERS, TOOLS, EQUIPMENT, recipes, item_name
     from engine import stock_key
     from inventory import STAPLES, MATERIALS, FORAGE_ITEMS, item_eat_energy, item_sell_price
-    keys = list(TOOLS) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
+    keys = list(TOOLS) + list(EQUIPMENT) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
         keys.append(stock_key(kind, info))
@@ -4242,15 +4242,37 @@ def _recipe_catalog(rules: dict | None = None) -> dict:
 
 
 def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
-    """Shop tools that should appear in the Tools section of the web shop."""
+    """Shop tools and equipment that should appear in the Tools section of the web shop."""
     from mine import pickaxe_unlocked, pickaxe_in_world, pickaxe_price
-    from inventory import TOOL_PICKAXE, TOOLS
+    from inventory import (
+        TOOL_PICKAXE,
+        TOOLS,
+        EQUIPMENT,
+        SLEEPING_BAG,
+        equipment_info,
+        sleeping_bag_price,
+    )
 
     out = {}
+    gold = int(state.get("gold") or 0)
+    bag = equipment_info(SLEEPING_BAG, rules) or EQUIPMENT[SLEEPING_BAG]
+    bag_price = sleeping_bag_price(rules)
+    out[SLEEPING_BAG] = {
+        "name": bag.get("name") or "sleeping bag",
+        "name_plural": bag.get("name_plural") or "sleeping bags",
+        "shop_name": bag.get("name") or "sleeping bag",
+        "stock": "",
+        "seed_price": int(bag_price),
+        "price": int(bag_price),
+        "sell_price": None,
+        "available": True,
+        "affordable": gold >= int(bag_price),
+        "unique": False,
+        "description": bag.get("description") or "",
+    }
     if not pickaxe_unlocked(state) or pickaxe_in_world(state, rules):
         return out
     price = pickaxe_price(rules)
-    gold = int(state.get("gold") or 0)
     info = TOOLS.get(TOOL_PICKAXE) or {}
     out[TOOL_PICKAXE] = {
         "name": info.get("name") or "pickaxe",
@@ -4268,6 +4290,7 @@ def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
         ),
     }
     return out
+
 
 
 def _staple_catalog(rules: dict | None = None) -> dict:

@@ -49,8 +49,10 @@ several. `strike` or `flee` when you stand on the same tile as one.
 The forge in town upgrades the
 hoe, watering can, axe, and pickaxe with 5 ore of the next tier.
 `go cabin` does not work from inside the mine — climb out first.
-Ending a turn in the mine wakes at the hills entrance with 50 energy;
-0 HP still wakes at the hills entrance with 25 energy.
+Ending a turn in the mine wakes at the hills entrance with 50 energy,
+or on the same floor and tile with 100 energy if you are carrying a
+sleeping bag; 0 HP still wakes at the hills entrance with 25 energy.
+The honour store sells a sleeping bag for 120G.
 
 `look` always names the area you are in, summarises the other areas,
 and says where the other player is standing. The web page keeps those
@@ -63,7 +65,7 @@ Two players, configured in `config.local.json`. After a night in the cabin you
 wake with **100 energy**. Till, plant, and water cost **10** each (5 once
 the tool is copper or better); each step (including a diagonal) costs
 **5**. Crafting at the kitchen and forging at the town forge cost **5**.
-Entering the mine costs **5**, climbing down **10**, climbing up **5**,
+Entering the mine costs **5**, climbing down **5**, climbing up **5**,
 and strike or flee **5**. Harvest, buy, sell, take, drop, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
@@ -83,7 +85,9 @@ editing the engine.
   the next morning. The morning cap
   can reach 120. End the turn anywhere else and you pass out, waking where
   you fell with **50** energy — the fire and a full belly only help a night
-  spent in the cabin.
+  spent in the cabin. If a sleeping bag is in your backpack, you sleep in
+  it instead: same spot (including a mine floor), **100** energy, and no
+  comfort bonuses.
 - When **both** have ended their turn for the day, the day advances
   (growth, wither, weather — the same rules as before) and it becomes
   the starting player's turn again.

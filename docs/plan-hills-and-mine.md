@@ -235,11 +235,13 @@ rune magic, is still open.
 
 **Elevator removal.** The elevator is built today and comes out in
 this phase. Until rune teleport lands, the way up and down is
-climbing ladders (down 10, up 5). `go cabin` from inside the mine
+climbing ladders (down 5, up 5). `go cabin` from inside the mine
 stays refused until you climb out to the hills entrance, then walk
 home as usual. Ending a turn in the mine (not 0 HP) wakes at the
 hills entrance with 50 energy, pack kept, including when the season
-changes. 0 HP still wakes at the hills mine entrance with 25 energy.
+changes — unless you are carrying a sleeping bag (see Mine
+difficulty, below). 0 HP still wakes at the hills mine entrance with
+25 energy.
 
 Code impact (follow-up for this phase; do not change code from this
 document alone):
@@ -356,7 +358,8 @@ These conflicts were resolved when the town was built.
   current sellables, plus fresh produce, jam, wood, stones, ore, and
   so on.
 - **Store / shop** lived at the cabin. Seeds, staples, fertilizer,
-  herbal tea, and the pickaxe now sell at the honour store in town.
+  herbal tea, the sleeping bag, and the pickaxe now sell at the honour
+  store in town.
 - **Pickaxe shop unlock:** the pickaxe appears in the shop only after
   someone finds the mine entrance (`mine_entrance_found`). That
   unlock can stay even if the store moves to town on day 1 — the
@@ -426,6 +429,9 @@ Storybook art:
   rocks. Overlay plus a `runestone_ore` item icon.
 - **Grey slime sprites.** The first slime type, for floor 6 and
   deeper (never on safe floors).
+- **Sleeping bag item icon.** The bag is in the game with a simple
+  Classic SVG placeholder (`BAG` on a warm brown square). Paint a
+  proper rolled blanket for Storybook in this pass.
 - **Prettier Storybook town tiles.** Stall, honour store, forge,
   and grass. The current tiles work; this is a prettier pass.
 - **Redo the snow tile graphics.** The current Storybook farm snow
@@ -506,7 +512,7 @@ Elsewhere note. First Farm is never loaded or written by this work.
   enter arrives on a clear floor-1 tile; layouts are deterministic for
   the same seed and season and re-roll when the season changes; the
   ladder is not on the centre, is hidden under a rock, and is revealed
-  when mined; climb down costs 10; ores follow the depth bands; safe
+  when mined; climb down costs 5; ores follow the depth bands; safe
   floors have no rocks, a once-a-day rest, and (until Phase 3) an
   elevator; passing out in the mine currently wakes at the last
   elevator or the entrance (the entrance if the season changes); 0
@@ -521,9 +527,36 @@ Elsewhere note. First Farm is never loaded or written by this work.
   goo; older single-slime saves migrate to a list; quartz drops from
   plain stone on floors 1–4; runestone ore rocks are rare early and
   more frequent deeper; no elevator actions or tiles; ending a turn
-  in the mine wakes at the hills entrance; `go cabin` stays refused
-  until you climb out.
+  in the mine wakes at the hills entrance unless a sleeping bag is
+  in the backpack (same floor and tile, 100 energy, no comfort
+  bonuses); climb down costs 5; the honour store sells a sleeping
+  bag for 120G; `go cabin` stays refused until you climb out;
+  `take copper pickaxe` (and other forged tool display names) parses.
 
+
+
+## Mine difficulty
+
+Play feedback: Rick only reached floor 2. Climbing down cost 10 and
+ending a turn in the mine sent you back to the hills entrance with
+50 energy, so a deeper run was hard to afford. Two changes address
+that:
+
+- Climbing down a ladder costs **5** energy (the same as climbing
+  up).
+- The honour store sells a **sleeping bag** for **120G** (in the
+  100–150G range; about three pickaxes, less than a good jam sale).
+  It takes one backpack slot (pack stack 1, like a tool). Ending a
+  turn with the bag in your pack, when you are not in a cabin bed,
+  uses it automatically: you sleep in the bag and wake on the same
+  spot with **100 energy** and **no comfort bonuses** (no fireplace,
+  no herbal tea, no full-belly bonus, no double-bed / together
+  rest). In the mine that means the same floor and tile, and the
+  floor state is kept. Without the bag, existing rules are
+  unchanged (mine pass-out still wakes at the hills entrance with
+  50 energy). The look line and web UI show “You'll sleep in the
+  sleeping bag…” when this applies. A simple Classic SVG
+  placeholder stands in for the item icon until the art pass.
 
 ## Build order
 

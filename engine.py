@@ -131,6 +131,8 @@ def player_requested_carry(state: dict, player: str) -> bool:
     """
     if is_player_in_cabin(state, player):
         return False
+    if sleeps_in_sleeping_bag(state, player):
+        return False
     slot = player_slot(state, player)
     return bool(slot.get("carry_home")) or bool(slot.get("ended_turn"))
 
@@ -346,21 +348,35 @@ def together_rest_applies(state: dict, rules: dict | None = None) -> bool:
     return all(energy_left(n) > needed for n in names)
 
 
+def player_has_sleeping_bag(state: dict, player: str, rules: dict | None = None) -> bool:
+    """True when a sleeping bag is in that player's backpack (not only the chest)."""
+    from inventory import pack_has, SLEEPING_BAG
+
+    return bool(pack_has(state, player, SLEEPING_BAG, 1, rules))
+
+
+def sleeps_in_sleeping_bag(state: dict, player: str, rules: dict | None = None) -> bool:
+    """End-turn uses the bag automatically if it is carried and the player is not in a bed."""
+    return (not is_player_in_cabin(state, player)) and player_has_sleeping_bag(state, player, rules)
+
+
 def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
     """Energy a player would wake with if the day turned right now."""
     rules = rules or load_rules()
-    if not is_player_in_cabin(state, player):
-        return pass_out_energy(rules)
-    cap = max_energy(rules)
-    if cabin_fire_will_burn(state, rules):
-        cap += comfort_fire_bonus(rules)
-    if player_ate_today(state, player, rules):
-        cap += comfort_fed_bonus(rules)
-    if player_drank_herbal_tea(state, player):
-        cap += comfort_tea_bonus(rules)
-    if together_rest_applies(state, rules):
-        cap += comfort_together_bonus(rules)
-    return cap
+    if is_player_in_cabin(state, player):
+        cap = max_energy(rules)
+        if cabin_fire_will_burn(state, rules):
+            cap += comfort_fire_bonus(rules)
+        if player_ate_today(state, player, rules):
+            cap += comfort_fed_bonus(rules)
+        if player_drank_herbal_tea(state, player):
+            cap += comfort_tea_bonus(rules)
+        if together_rest_applies(state, rules):
+            cap += comfort_together_bonus(rules)
+        return cap
+    if sleeps_in_sleeping_bag(state, player, rules):
+        return max_energy(rules)
+    return pass_out_energy(rules)
 
 
 def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> int:
@@ -405,6 +421,8 @@ def apply_cabin_comfort(state: dict, rules: dict | None = None) -> dict:
                 + (comfort_tea_bonus(rules) if drank else 0)
                 + (comfort_together_bonus(rules) if together else 0)
             )
+        elif player_has_sleeping_bag(state, name, rules):
+            wake[name] = base
         else:
             wake[name] = faint
     # The fuel was for this night, whether or not anyone slept in the cabin.
@@ -664,6 +682,9 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
         where = "in town"
     else:
         where = "in the field"
+    if sleeps_in_sleeping_bag(state, player, rules):
+        cap = max_energy(rules)
+        return f"You'll sleep in the sleeping bag {where} — {cap} energy tomorrow"
     return f"You'll pass out {where} — {faint} energy tomorrow"
 
 
@@ -1741,7 +1762,11 @@ def shop_listing(
             day = None
         if not season:
             season = state.get("season")
+    from inventory import equipment_shop_items, SLEEPING_BAG
     items = shop_kinds(crops, season, day=day) + staple_shop_items(rules) + fertilizer_shop_items(season, rules)
+    for item in equipment_shop_items(rules):
+        if item not in items:
+            items.append(item)
     if state is not None:
         from mine import pickaxe_unlocked, pickaxe_in_world
         from inventory import TOOL_PICKAXE
@@ -2187,6 +2212,7 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             area = AREA_FARM
             spawned = True
         slept = is_cabin_place(area, row, col)
+        used_bag = (not slept) and player_has_sleeping_bag(state, key, rules)
         # A brand-new or unplaced player spawns on the farm cabin tile.
         # After a real night in the cabin, they wake at the interior bed.
         if slept and not spawned:
@@ -2195,7 +2221,12 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             row, col = CABIN_BED
             area = AREA_CABIN
         floor = None
-        if (not slept) and area == AREA_MINE:
+        if area == AREA_MINE:
+            try:
+                floor = int(prev.get("floor") or 0) or None
+            except (TypeError, ValueError):
+                floor = None
+        if (not slept) and (not used_bag) and area == AREA_MINE:
             from mine import wake_place_after_mine_passout, mine_of
             mine = mine_of(state)
             crops_now = load_crops()
@@ -2208,6 +2239,9 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             area, row, col, floor = wake_place_after_mine_passout(
                 state, rules, season_changed=season_changed
             )
+        elif used_bag and area == AREA_MINE:
+            from mine import ensure_mine
+            ensure_mine(state, rules)
         from inventory import empty_pack, normalize_pack
         cap_hp = hills_max_hp(rules)
         try:
@@ -2643,7 +2677,7 @@ def end_turn(
     slot = player_slot(state, player)
     # Ending away from the cabin is a silent request to be carried home,
     # the same flag as passing while away. Ending in the cabin clears it.
-    if not is_player_in_cabin(state, player):
+    if not is_player_in_cabin(state, player) and not sleeps_in_sleeping_bag(state, player, rules):
         slot["carry_home"] = True
     else:
         slot["carry_home"] = False
@@ -3559,6 +3593,35 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         msg = _honour_buy_msg(player, "a pickaxe", price, where, state["gold"])
         log_append(state, msg, player)
         return True, msg
+    from inventory import (
+        is_equipment,
+        equipment_info,
+        equipment_shop_items,
+        sleeping_bag_price,
+        SLEEPING_BAG,
+        EQUIPMENT,
+    )
+    equip = normalize_item(str(kind)) or ""
+    if equip and is_equipment(equip):
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        info = equipment_info(equip, load_rules()) or EQUIPMENT.get(equip) or {}
+        unit = sleeping_bag_price(load_rules()) if equip == SLEEPING_BAG else int(info.get("price") or 0)
+        price = int(unit) * count
+        gold = int(state["gold"])
+        label = inv_item_name(equip, count, crops)
+        if gold < price:
+            return False, f"Not enough gold. {label} cost {price}G; you have {gold}G."
+        if player and not _player_at_honour_store(state, player):
+            return False, _honour_store_too_far()
+        state["gold"] = gold - price
+        prefer = "pack" if player and pack_space_for(state, player, equip, count) else "chest"
+        store_item(state, equip, count, player, prefer=prefer if player else "chest")
+        where = "the backpack" if prefer == "pack" and player else "the cabin chest"
+        msg = _honour_buy_msg(player, label, price, where, state["gold"])
+        log_append(state, msg, player)
+        return True, msg
     fert_item = fertilizer_item_for_kind(str(kind))
     if fert_item:
         season = state.get("season") or "this season"
@@ -4239,6 +4302,8 @@ def format_dawn_status(
                 rest_bits.append(f"You: {energy}.")
             else:
                 rest_bits.append(f"{display_name(name)}: {energy}.")
+        elif item.get("in_bag"):
+            rest_bits.append(f"{who} slept in the sleeping bag ({energy} energy).")
         elif item.get("in_mine"):
             rest_bits.append(f"{who} passed out in the mine ({energy} energy).")
         else:
@@ -4268,6 +4333,7 @@ def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
         where = describe_place_where(area, prow, pcol, floor=floor)
         in_cabin = is_player_in_cabin(state, name)
         in_mine = area == AREA_MINE
+        in_bag = sleeps_in_sleeping_bag(state, name, rules)
         if in_cabin:
             energy = preview_wake_energy(state, name, rules)
             note = cabin_sleep_note(
@@ -4276,6 +4342,12 @@ def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
                 cabin_fire_will_burn(state, rules),
                 player_ate_today(state, name, rules),
                 together_rest_applies(state, rules),
+            )
+        elif in_bag:
+            energy = preview_wake_energy(state, name, rules)
+            note = (
+                f"{display_name(name)} slept in the sleeping bag {where} "
+                f"and wakes with {energy} energy."
             )
         elif in_mine:
             energy = pass_out_energy(rules)
@@ -4296,6 +4368,7 @@ def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
             "player": name,
             "in_cabin": in_cabin,
             "in_mine": in_mine,
+            "in_bag": in_bag,
             "energy": energy,
             "note": note,
         })
@@ -5627,6 +5700,10 @@ def legal_actions(
             info = staple_info(item, rules)
             if info and int(state["gold"]) >= int(info["price"]):
                 actions.append(f"buy {item} 1")
+        from inventory import equipment_shop_items, EQUIPMENT
+        for item in equipment_shop_items(rules):
+            # Always list equipment, even if gold is short, so the store can show the price.
+            actions.append(f"buy {item} 1")
         from inventory import TOOL_PICKAXE, item_count, item_label
         if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules):
             # Always list it once the entrance is found, even if gold is short,
@@ -6066,6 +6143,14 @@ def action_descriptor(
         if item == TOOL_PICKAXE:
             from mine import pickaxe_price
             price = pickaxe_price(rules) * count
+            gold = int(state.get("gold") or 0)
+            if gold < price:
+                return f"{price}G (you have {gold}G)"
+            return f"−{price}G, leaves {gold - price}G"
+        from inventory import is_equipment, sleeping_bag_price, equipment_info, SLEEPING_BAG
+        if is_equipment(item):
+            unit = sleeping_bag_price(rules) if item == SLEEPING_BAG else int((equipment_info(item, rules) or {}).get("price") or 0)
+            price = int(unit) * count
             gold = int(state.get("gold") or 0)
             if gold < price:
                 return f"{price}G (you have {gold}G)"

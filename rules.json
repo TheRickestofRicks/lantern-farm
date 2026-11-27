@@ -21,7 +21,7 @@
     "chop": 10,
     "forage": 5,
     "mine": 10,
-    "climb_down": 10,
+    "climb_down": 5,
     "climb_up": 5,
     "enter_mine": 5,
     "rest": 0,
@@ -80,6 +80,9 @@
   },
   "snacks_per_turn": 2,
   "pass_out_energy": 50,
+  "sleeping_bag": {
+    "price": 120
+  },
   "till_hold_days": 5,
   "pack_slots": 4,
   "pack_stack": 8,

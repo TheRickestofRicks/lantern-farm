@@ -570,6 +570,8 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertEqual(energy_cost("move", self.rules), 5)
         self.assertEqual(energy_cost("eat", self.rules), 0)
         self.assertEqual(energy_cost("craft", self.rules), 5)
+        self.assertEqual(energy_cost("climb_down", self.rules), 5)
+        self.assertEqual(energy_cost("climb_up", self.rules), 5)
         self.assertEqual(step_energy(self.rules), 5)
         self.assertEqual(snacks_per_turn(self.rules), 2)
         self.assertEqual(pass_out_energy(self.rules), 50)
@@ -5669,7 +5671,9 @@ class MinePhaseTwo(unittest.TestCase):
         self.state["mine_entrance_found"] = False
         self.state["gold"] = 51
         payload = web.api_payload(self.state, self.crops, player=P1)
-        self.assertFalse(payload.get("tools") or {})
+        tools = payload.get("tools") or {}
+        self.assertNotIn("pickaxe", tools)
+        self.assertIn("sleeping_bag", tools)
         self.assertNotIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
 
         # Listed (and priced) even when gold is short of 40G.
@@ -5778,7 +5782,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertTrue(ok, msg)
         from mine import player_floor
         self.assertEqual(player_floor(self.state, P1), 2)
-        self.assertEqual(self.state["players"][P1]["energy"], 80)
+        self.assertEqual(self.state["players"][P1]["energy"], 85)
         self.assertIn("floor 2", msg.lower())
 
     def test_ores_follow_depth_bands_and_safe_floors_have_rest(self):
@@ -7918,6 +7922,32 @@ class ForgedToolDisplay(unittest.TestCase):
         self.assertIn("a copper axe", msg)
         self.assertNotIn("an copper axe", msg)
 
+    def test_take_accepts_forged_tool_display_names(self):
+        from inventory import normalize_item, TOOL_PICKAXE, TOOL_CAN, TOOL_HOE, TOOL_AXE, add_to_chest, pack_has
+        from mine import set_tool_tier
+        from cabin import CABIN_CHEST
+        from hills import set_player_place, AREA_CABIN
+        from engine import format_legal_action
+        self.assertEqual(normalize_item("copper pickaxe"), TOOL_PICKAXE)
+        self.assertEqual(normalize_item("iron watering can"), TOOL_CAN)
+        self.assertEqual(normalize_item("gold hoe"), TOOL_HOE)
+        self.assertEqual(normalize_item("copper axe"), TOOL_AXE)
+        self.assertEqual(normalize_item("copper ore"), "copper_ore")
+        set_tool_tier(self.state, TOOL_PICKAXE, "copper")
+        add_to_chest(self.state, TOOL_PICKAXE, 1, self.rules)
+        set_player_place(self.state, P1, AREA_CABIN, *CABIN_CHEST)
+        self.state["players"][P1]["pack"] = [None] * 4
+        self.state["current_player"] = P1
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("take pickaxe 1", actions)
+        listed = format_legal_action("take pickaxe 1", self.state, self.crops, P1, self.rules)
+        self.assertTrue(listed.startswith("take copper pickaxe 1"), listed)
+        self.assertIn("leaves 0", listed)
+        ok, msg = do_action(self.state, self.crops, "take copper pickaxe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, TOOL_PICKAXE, 1, self.rules), msg)
+
+
 
 
 
@@ -9339,3 +9369,148 @@ class EastMarketTown(unittest.TestCase):
         self.assertIn("Put all in stall (12G later)", put_buttons)
         # One put action for the single carrot, and put-1 plus put-all for the wood.
         self.assertEqual(len(put_buttons), 3)
+
+
+class SleepingBagAndMineDifficulty(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        self.state["gold"] = 200
+
+    def _end_both(self):
+        first = self.state["current_player"]
+        second = P2 if first == P1 else P1
+        ok, msg1 = do_action(self.state, self.crops, "end turn", player=first, rules=self.rules)
+        self.assertTrue(ok, msg1)
+        ok, msg2 = do_action(self.state, self.crops, "end turn", player=second, rules=self.rules)
+        self.assertTrue(ok, msg2)
+        return msg1, msg2
+
+    def test_honour_store_sells_a_sleeping_bag_for_120(self):
+        from inventory import pack_has, SLEEPING_BAG, max_stack_for, add_to_pack, pack_of
+        from engine import shop_listing, format_legal_action
+        import web
+        self.assertEqual(max_stack_for(SLEEPING_BAG), 1)
+        self.assertIn(
+            "sleeping_bag",
+            shop_listing(self.crops, self.state["season"], self.rules, state=self.state),
+        )
+        at_town(self.state, P1, "store")
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("buy sleeping_bag 1", actions)
+        line = format_legal_action("buy sleeping_bag 1", self.state, self.crops, P1, self.rules)
+        self.assertIn("120", line)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        bag = (payload.get("tools") or {}).get("sleeping_bag") or {}
+        self.assertEqual(int(bag.get("price") or 0), 120)
+        self.assertIn("sleeping bag", (bag.get("name") or "").lower())
+        self.assertIn("sleeping_bag", payload.get("item_names") or {})
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "buy sleeping_bag 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold - 120)
+        self.assertTrue(pack_has(self.state, P1, SLEEPING_BAG, 1, self.rules))
+        leftover = add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        self.assertEqual(leftover, 0)
+        slots = [s for s in pack_of(self.state, P1, self.rules) if s and s.get("item") == SLEEPING_BAG]
+        self.assertEqual(len(slots), 2)
+        self.assertTrue(all(int(s.get("count") or 0) == 1 for s in slots))
+
+    def test_end_turn_with_bag_sleeps_in_place_without_comfort(self):
+        from inventory import SLEEPING_BAG
+        from engine import player_requested_carry, set_cabin_fire
+        from hills import player_area, AREA_FARM
+        give_item(self.state, SLEEPING_BAG, 1, player=P1, where="pack")
+        stand(self.state, P1, 3, 1)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        set_cabin_fire(self.state, True)
+        self.state["players"][P1]["herbal_tea"] = True
+        self.state["players"][P1]["ate_energy_today"] = 20
+        outlook = sleep_outlook(self.state, P1, self.rules)
+        self.assertEqual(
+            outlook,
+            "You'll sleep in the sleeping bag in the field — 100 energy tomorrow",
+        )
+        look = __import__("describe").describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("You'll sleep in the sleeping bag", look)
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(player_requested_carry(self.state, P1))
+        self.assertFalse(self.state["players"][P1].get("carry_home"))
+        self.state["current_player"] = P2
+        stand(self.state, P2, 3, 1)
+        actions = legal_actions(self.state, self.crops, P2, self.rules)
+        self.assertFalse(any("carry" in a and "bed" in a for a in actions))
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        ok, msg2 = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg2)
+        self.assertEqual(self.state["day"], 2)
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (3, 1))
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P1]["energy_max"], 100)
+        self.assertGreaterEqual(self.state["players"][P2]["energy"], 100)
+        self.assertIn("slept in the sleeping bag", msg2.lower())
+        self.assertNotIn("passed out", msg2.lower())
+
+    def test_bag_in_the_chest_does_not_count_and_cabin_sleep_still_gets_comfort(self):
+        from inventory import SLEEPING_BAG
+        from engine import set_cabin_fire
+        from hills import player_area, AREA_CABIN
+        from cabin import CABIN_BED
+        give_item(self.state, SLEEPING_BAG, 1, player=P1, where="chest")
+        stand(self.state, P1, 2, 2)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        self.assertIn("You'll pass out in the field", sleep_outlook(self.state, P1, self.rules))
+        give_item(self.state, SLEEPING_BAG, 1, player=P1, where="pack")
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        # Keep P2 at the together-rest threshold so this is only the fire bonus.
+        self.state["players"][P2]["energy"] = 10
+        set_cabin_fire(self.state, True)
+        outlook = sleep_outlook(self.state, P1, self.rules)
+        self.assertIn("You'll sleep in the cabin", outlook)
+        self.assertIn("110 energy tomorrow", outlook)
+        self.assertNotIn("sleeping close", outlook)
+        self._end_both()
+        self.assertEqual(self.state["players"][P1]["energy"], 110)
+        self.assertEqual(player_area(self.state, P1), AREA_CABIN)
+        self.assertEqual(player_where(self.state, P1), CABIN_BED)
+
+    def test_bag_in_the_mine_wakes_on_the_same_floor(self):
+        from inventory import SLEEPING_BAG
+        from hills import set_player_place, AREA_MINE, player_area, AREA_HILLS, MINE_ENTRANCE
+        from mine import player_floor, get_floor
+        give_item(self.state, "pickaxe", 1, player=P1, where="pack")
+        give_item(self.state, SLEEPING_BAG, 1, player=P1, where="pack")
+        get_floor(self.state, 6, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        outlook = sleep_outlook(self.state, P1, self.rules)
+        self.assertEqual(
+            outlook,
+            "You'll sleep in the sleeping bag in the mine — 100 energy tomorrow",
+        )
+        payload = __import__("web").api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload.get("sleep_outlook"), outlook)
+        self._end_both()
+        self.assertEqual(player_area(self.state, P1), AREA_MINE)
+        self.assertEqual(player_floor(self.state, P1), 6)
+        self.assertEqual(player_where(self.state, P1), (2, 2))
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        give_item(self.state, "pickaxe", 1, player=P1, where="pack")
+        get_floor(self.state, 6, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+        self.assertIn(
+            "You'll pass out in the mine — 50 energy tomorrow",
+            sleep_outlook(self.state, P1, self.rules),
+        )
+        self._end_both()
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
+        self.assertEqual(self.state["players"][P1]["energy"], 50)
+
