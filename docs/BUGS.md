@@ -7,6 +7,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Open
 | Found | Bug | Severity | Notes |
 |---|---|---|---|
+| 2026-11-27 | After `build chest` at cabin r1c2, ground drops on that tile (hoe, axe, 2 watering cans) become unreachable: `take`/`pick up` only look in the chest ("The chest doesn't have that item"), and the items don't show in the chest either | critical | Blocks tilling, chopping and watering in Second Spring. Fix idea: move ground drops into the chest when it's built, or let take fall back to the ground. Then recover the tools in the second-spring save. |
 | 2026-11-27 | Shop shows "everbearing strawberry seed"; everbearing ones are starters/seedlings, so the item name should say "starter" everywhere | minor | Spotted in the honour store. Check the item name, shop list, notes text and art manifest. |
 
 ## Fixed
