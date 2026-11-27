@@ -180,3 +180,13 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - A mailbox stands outside the cabin for letters to specific players. Standing at it gives a legal move "leave letter to <player>" that opens a text box, and "read mail" when you have mail.
 - Agreed with Rick (2026-11-27): letters arrive at the next day turn, like real post, so they feel different from instant notes. The mailbox sprite raises a little flag when someone has unread mail. Maybe let a letter carry one small gift item from the backpack.
 
+## Cabin cellar (agreed with Rick, 2026-11-27)
+- Floor plan change: stairs down to the cellar at r1c3 (replacing the display case there). The display case moves to r3c3. The table becomes a small dining table, an upgrade on the kitchen tile (r3c2), instead of its own tile.
+- The cellar is a small, dark, lantern-lit room under the cabin, with a lantern hook by the stairs.
+- Casks for making non-alcoholic cider (and later other cask goods like apple vinegar or fruit cordial).
+- Drying racks for fish, mushrooms and fruit.
+- Mushroom logs or beds growing only what's realistic to cultivate in a basement (oyster, shiitake, button/cremini, lion's mane).
+- Root bins plus extra storage slots, to take pressure off the chest.
+- Gentle spoilage: depending on the item, after a while it sells for less, and after longer it decays entirely. Root bins and the cellar slow it down; dried, pickled and cask goods keep much longer.
+- A preserves shelf in the dark that pickles (and jam/honey jars) actually require, tying into the cooking revamp and the pantry.
+
