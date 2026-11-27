@@ -2652,6 +2652,23 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertTrue(entrance[0]["file"].endswith("mine_entrance_closed_snow.png"))
         forage = layers_for_key("hills_grass_forage_wild_onion", man)
         self.assertIn("forage_wild_onion", forage[1]["file"])
+        town = layers_for_key("town_stall", man)
+        self.assertEqual([layer["role"] for layer in town], ["ground", "crop"])
+        self.assertTrue(town[0]["file"].endswith("town_grass.png"))
+        self.assertIn("town_stall", town[1]["file"])
+        town_snow = layers_for_key("town_store_snow", man)
+        self.assertTrue(town_snow[0]["file"].endswith("town_grass_snow.png"))
+        self.assertIn("town_store", town_snow[1]["file"])
+        self.assertEqual(len(layers_for_key("town_grass", man)), 1)
+        rune = layers_for_key("mine_floor_rock_runestone", man)
+        self.assertIn("mine_rock_runestone", rune[1]["file"])
+        slime = layers_for_key("mine_floor_slime_grey", man)
+        self.assertIn("mine_slime_grey", slime[1]["file"])
+        drop = layers_for_key("mine_floor_drop_goo", man)
+        self.assertIn("mine_drop_goo", drop[1]["file"])
+        tree_snow = layers_for_key("hills_grass_snow_tree_grown", man)
+        self.assertTrue(tree_snow[0]["file"].endswith("hills_grass_snow.png"))
+        self.assertIn("tree_grown_snow", tree_snow[1]["file"])
         floor = layers_for_key("cabin_interior_floor", man)
         self.assertEqual([layer["role"] for layer in floor], ["ground"])
         self.assertTrue(floor[0]["file"].endswith("cabin_floor.png"))
@@ -2853,6 +2870,7 @@ class ArtPackAndPage(unittest.TestCase):
             "watering_can_copper", "watering_can_iron", "watering_can_gold",
             "axe_copper", "axe_iron", "axe_gold",
             "pickaxe_copper", "pickaxe_iron", "pickaxe_gold",
+            "quartz", "runestone_ore", "goo", "sleeping_bag",
         }
         self.assertEqual(set(items), expected)
         for key, rel in items.items():
@@ -6925,7 +6943,8 @@ class MinePhaseThree(unittest.TestCase):
         info = parse_sprite_key(key)
         self.assertEqual(info.get("rock"), "runestone_ore")
         self.assertTrue(svg_for_key(key))
-        self.assertIsNone(layers_for_key(key, load_manifest("storybook")))
+        layers = layers_for_key(key, load_manifest("storybook"))
+        self.assertIn("mine_rock_runestone", layers[1]["file"])
 
     def test_grey_slimes_spawn_from_floor_6_never_on_safe_floors(self):
         from mine import get_floor, slime_count_range, generate_floor, arrival_tile

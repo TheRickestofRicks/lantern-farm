@@ -96,6 +96,8 @@ def ground_key_for(parsed: dict) -> str | None:
         return "cabin_floor"
     if parsed.get("mine") or typ in {"mine_floor", "mine_safe"}:
         return typ
+    if parsed.get("town") or kind == "town":
+        return "town_grass_snow" if parsed.get("snow") else "town_grass"
     if parsed.get("hills"):
         typ = parsed.get("type") or kind
         if typ == "mine_entrance":
@@ -200,6 +202,15 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
         return None
     layers.append({"role": "ground", "file": gfile})
     typ = parsed.get("type") or parsed.get("kind")
+    if parsed.get("town") or typ in {"town_grass", "town_stall", "town_store", "town_forge"}:
+        tile = parsed.get("tile") or ""
+        if typ in {"town_stall", "town_store", "town_forge"} or tile in {"stall", "store", "forge"}:
+            okey = typ if typ in {"town_stall", "town_store", "town_forge"} else f"town_{tile}"
+            ffile = _pack_file(manifest, overlays.get(okey) or "")
+            if not ffile:
+                return None
+            layers.append({"role": "crop", "file": ffile})
+        return layers
     if parsed.get("kind") == "cabin_interior":
         tile = parsed.get("tile") or "floor"
         if tile != "floor":
@@ -262,7 +273,11 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
             layers.append({"role": "fertilizer", "file": ffile})
     if parsed.get("hills"):
         if typ_tree := parsed.get("tree"):
-            tfile = _pack_file(manifest, overlays.get(f"tree_{typ_tree}") or "")
+            name = f"tree_{typ_tree}"
+            if parsed.get("snow"):
+                tfile = _pack_file(manifest, overlays.get(f"{name}_snow") or overlays.get(name) or "")
+            else:
+                tfile = _pack_file(manifest, overlays.get(name) or "")
             if not tfile:
                 return None
             layers.append({"role": "crop", "file": tfile})

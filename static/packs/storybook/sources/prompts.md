@@ -185,3 +185,40 @@ Furniture overlays have no floor of their own — they sit on `cabin_floor`.
   furniture. Subject on magenta; no floor painted in the overlay.
 - **cabin_kitchen_lit** — The same island and stove with the firebox lit
   for the day.
+
+## Art pass (town, snow, slimes, and mine finds)
+
+A later pass redid snow grounds that had shown a pale path down the middle,
+painted prettier Storybook town tiles, and added missing Phase 3 icons.
+Paintings were generated at 1024×1024 in the same parchment ink-and-watercolour
+style, chroma-keyed (overlays and items) or cropped and edge-lifted (grounds),
+and resized to 512×512. Raw paintings live in `sources/originals/`.
+
+- **soil_snow**, **soil_wet_snow**, **soil_tilled_snow**, **soil_watered_snow** —
+  Even creamy snow over the matching soil, no mid-tile path, no footprints.
+  The watered-snow tile is a composite of the tilled-snow painting over darker
+  wet earth, because a straight generation kept dropping the snow.
+- **hills_grass_snow**, **hillside_snow** — Even snow with tufts and pebbles,
+  no path. `mine_entrance_closed_snow` and `cabin_snow` were already even
+  enough (the darker middle is the cave or the cabin) and were left as they
+  were.
+- **town_grass**, **town_grass_snow** — Full-bleed hand-laid cobbles that meet
+  neighbouring tiles as one market square, with an even snow dusting in winter.
+  Not a cobble rectangle floating in a grass frame.
+- **town_stall**, **town_store**, **town_forge** — Prettier painted overlays
+  on magenta: a wooden stall with a blue awning and baskets of produce, a
+  timber honour shop with a blank gold plaque (no letters), and a stone
+  smithy with a fire, anvil, and tools.
+- **mine_rock_runestone** — A smooth, rounded, rare-looking blue-grey boulder
+  with a faint teal shimmer, no carved letters. Subject on magenta.
+- **mine_slime_grey** — A cute watercolour grey slime with bead eyes and a
+  tiny smile, not scary, subject on magenta, sitting in the lower centre.
+- **mine_drop_goo** — A small grey goo puddle for the mine floor, subject on
+  magenta.
+- **quartz**, **runestone_ore**, **goo**, **sleeping_bag** — Item icons on
+  magenta: a clear quartz cluster, a smooth rounded runestone, a glossy grey
+  goo dollop, and a rolled dusty-blue and cream blanket with a leather strap.
+
+Classic SVG snow was updated in the same pass: hillside tiles no longer draw
+a mid-tile path under snow, town snow is an even blanket without a central
+cobble path, and the farm snow overlay patches are spread more evenly.

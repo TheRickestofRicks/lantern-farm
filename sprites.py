@@ -432,16 +432,20 @@ def _soil_layer(tilled: bool, watered: bool) -> str:
 def _snow_ground_overlay(tilled: bool) -> str:
     """A soft snow blanket for Classic SVG tiles, with earth still showing through."""
     patches = [
-        (40, 48, 22, 12, 0.72),
-        (90, 42, 26, 14, 0.65),
-        (128, 70, 18, 11, 0.6),
-        (28, 88, 24, 13, 0.7),
-        (80, 84, 30, 16, 0.55),
-        (118, 108, 22, 12, 0.68),
-        (52, 122, 26, 12, 0.62),
-        (96, 134, 20, 10, 0.58),
-        (18, 54, 12, 8, 0.5),
-        (140, 128, 14, 8, 0.55),
+        (24, 28, 20, 12, 0.62),
+        (70, 22, 22, 12, 0.58),
+        (118, 26, 20, 11, 0.64),
+        (146, 48, 16, 10, 0.55),
+        (18, 70, 18, 11, 0.6),
+        (60, 66, 20, 12, 0.52),
+        (104, 72, 22, 12, 0.58),
+        (142, 88, 16, 10, 0.56),
+        (28, 108, 22, 12, 0.64),
+        (76, 112, 22, 12, 0.55),
+        (122, 118, 20, 11, 0.6),
+        (48, 142, 20, 10, 0.58),
+        (100, 146, 18, 10, 0.54),
+        (140, 140, 14, 8, 0.5),
     ]
     if tilled:
         # Sit the snow more in the hollows, leave clod tops browner.
@@ -1335,7 +1339,7 @@ def _hills_ground(kind: str, snow: bool = False) -> str:
         f'<circle cx="28" cy="138" r="5" fill="{tuft}" opacity="0.7"/>',
         f'<circle cx="132" cy="142" r="6" fill="{tuft}" opacity="0.7"/>',
     ]
-    if kind == "hillside":
+    if kind == "hillside" and not snow:
         bits.append(f'<path d="M0 70 Q 80 40 160 78" fill="none" stroke="{dark}" stroke-width="10" opacity="0.25"/>')
     if snow:
         bits.append('<circle cx="50" cy="40" r="2" fill="#f7f9fc" opacity="0.9"/>')
@@ -1532,25 +1536,38 @@ def _cabin_interior_overlay(tile: str, fire: bool = False) -> str:
 
 
 def _town_ground(snow: bool = False) -> str:
-    grass = "#7a9a4a" if not snow else "#d8e4ef"
-    path = "#c4b496" if not snow else "#e8eef4"
-    edge = "#5a7038" if not snow else "#b8c8d4"
-    cobble = "#b8a888" if not snow else "#d9e2ea"
-    flakes = ""
     if snow:
+        # Even snow cover, no central path or cobble rectangle.
         flakes = (
-            '  <circle cx="24" cy="22" r="3" fill="#f7fbff" opacity="0.9"/>\n'
-            '  <circle cx="128" cy="30" r="4" fill="#f7fbff" opacity="0.85"/>\n'
-            '  <circle cx="50" cy="140" r="3.2" fill="#f7fbff" opacity="0.8"/>\n'
-            '  <circle cx="110" cy="148" r="2.6" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="22" cy="24" r="3" fill="#f7fbff" opacity="0.9"/>\n'
+            '  <circle cx="54" cy="18" r="2.4" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="90" cy="28" r="3.2" fill="#f7fbff" opacity="0.85"/>\n'
+            '  <circle cx="128" cy="22" r="2.8" fill="#f7fbff" opacity="0.85"/>\n'
+            '  <circle cx="18" cy="70" r="2.6" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="70" cy="62" r="3" fill="#f7fbff" opacity="0.75"/>\n'
+            '  <circle cx="118" cy="78" r="2.5" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="36" cy="118" r="3" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="88" cy="132" r="2.8" fill="#f7fbff" opacity="0.85"/>\n'
+            '  <circle cx="140" cy="124" r="2.4" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="50" cy="148" r="2.2" fill="#f7fbff" opacity="0.75"/>\n'
         )
+        return (
+            f'  <rect width="{SIZE}" height="{SIZE}" fill="#d4dce4"/>\n'
+            '  <circle cx="40" cy="44" r="10" fill="#c8d0d8" opacity="0.35"/>\n'
+            '  <circle cx="112" cy="70" r="12" fill="#c8d0d8" opacity="0.3"/>\n'
+            '  <circle cx="76" cy="120" r="11" fill="#c8d0d8" opacity="0.28"/>\n'
+            + flakes
+        )
+    grass = "#7a9a4a"
+    path = "#c4b496"
+    edge = "#5a7038"
+    cobble = "#b8a888"
     return (
         f'  <rect width="{SIZE}" height="{SIZE}" fill="{grass}"/>\n'
         f'  <rect x="18" y="18" width="124" height="124" rx="8" fill="{path}"/>\n'
         f'  <rect x="28" y="28" width="104" height="104" rx="6" fill="{cobble}"/>\n'
         f'  <path d="M40,60 h20 v14 h-20 z M70,86 h22 v12 h-22 z M100,48 h16 v14 h-16 z" fill="{edge}" opacity="0.25"/>\n'
         f'  <rect x="0" y="0" width="{SIZE}" height="{SIZE}" fill="none" stroke="{edge}" stroke-width="4"/>\n'
-        + flakes
     )
 
 

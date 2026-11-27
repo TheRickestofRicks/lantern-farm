@@ -198,7 +198,10 @@
     "zucchini_frost_bitten": "overlays/zucchini_frost_bitten.png",
     "town_stall": "overlays/town_stall.png",
     "town_store": "overlays/town_store.png",
-    "town_forge": "overlays/town_forge.png"
+    "town_forge": "overlays/town_forge.png",
+    "mine_rock_runestone": "overlays/mine_rock_runestone.png",
+    "mine_slime_grey": "overlays/mine_slime_grey.png",
+    "mine_drop_goo": "overlays/mine_drop_goo.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",
@@ -301,6 +304,10 @@
     "pickaxe_copper": "items/pickaxe_copper.png",
     "pickaxe_iron": "items/pickaxe_iron.png",
     "pickaxe_gold": "items/pickaxe_gold.png",
-    "herbal_tea": "items/herbal_tea.png"
+    "herbal_tea": "items/herbal_tea.png",
+    "quartz": "items/quartz.png",
+    "runestone_ore": "items/runestone_ore.png",
+    "goo": "items/goo.png",
+    "sleeping_bag": "items/sleeping_bag.png"
   }
 }
