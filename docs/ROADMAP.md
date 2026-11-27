@@ -75,6 +75,9 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Today the creation table is free from the start. Later, start with a plain basic crafting table instead, and unlock the creation table as an upgrade to it.
 - Sprite idea: `docs/art-ideas/basic_crafting_table.png`, a wooden bench with a hammer-and-chisel tool box, a lantern and a small copper nugget. It hints that ore exists but shows nothing magic, so enchanting stays a surprise.
 
+## Idea: seed potatoes (Rick, 2026-11-27)
+- Harvested potatoes can be saved and replanted as seed potatoes the next year, so a good harvest feeds next spring's planting.
+
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
