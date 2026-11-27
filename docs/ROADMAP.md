@@ -25,7 +25,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 - Winter season, as Year 1 continues toward all four seasons being playable.
 - Proposed: overwintering crops (garlic, spinach, kale, winter onion; wild onion planted in autumn sleeps through winter and wakes in spring).
-- Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating. Constructable decorations include a table (+5 energy when you eat food at it) and a chair (+10 energy for 30 minutes of time).
+- Decoration phase for the cabin: a buildable display case at r3c3, rugs, lanterns, and other home decorating. A small dining table is a kitchen upgrade (+5 energy when you eat food at it). The chair is under review (see the floor plan). Cellar stairs go at r1c3 (see Cabin cellar).
 - Next week: an action/time-based day-to-night cycle. Each action takes time depending on the action and the tool tier, for example watering is 30 minutes base, 25 with copper, 20 with iron, 15 with gold.
 - **First feature next week (Rick, 2026-11-27):** fishing minigame. It waits for next week so it gets built properly instead of squeezed into the end of this week's usage. The centre hills tile becomes a pond. A fishing rod is purchasable (hook and line included), as are bait types with different effectiveness. Bites depend on weather and bait, which affects which fish bite and how often. Overfishing is possible and tracked per species. Late-game activity for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
 - Mine depth beyond the first floors.
@@ -33,7 +33,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 - More slime types deeper in the mine (grey slimes from floor 6 are in).
 - Fireplace fuel-storage upgrade, so wood can be kept by the fireplace instead of carried from the chest for each load.
 - Propane stove, a shop-bought stove that cooks without chopping wood; fuel is purchased from the shop.
-- Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
+- Pantry: see the cooking revamp entry (kitchen upgrade, 10 wood).
 - Well-rested bed upgrade (+5 when you sleep in the upgraded bed above 10 energy). Together rest is already in and stays a separate bonus.
 - Journal history: the human player can browse journals from previous years in the journal UI, with a “Copy year” / export button that produces a clean text summary of that year to paste to the AI player.
 - Further skill uses and fine-tuning of the XP amounts in `rules.json` (granting, the level cap, and the inventory display are in).
@@ -70,6 +70,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Cabin decorations you can build: a table and a chair.
 - Eating food at the table gives +5 energy.
 - Sitting in the chair gives +10 energy for 30 minutes of time.
+- Open question: a 30-minute nap in bed gives +15, so the chair needs its own niche (usable while the bed is taken, or a cozy bonus by the fire) or becomes decoration only.
+- The table is now the small dining table, a kitchen upgrade (see Cabin cellar).
 
 ## Idea: basic crafting table first (Rick, 2026-11-27)
 - Today the creation table is free from the start. Later, start with a plain basic crafting table instead, and unlock the creation table as an upgrade to it.
@@ -89,8 +91,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 ## Idea: cabin floor plan (Rick, 2026-11-27)
 - r2c1: the rug spot.
-- r3c3: the eventual table (the constructable table and chair idea).
-- r1c3: the keepsake display case, as a later upgrade.
+- r3c3: the keepsake display case, as a later upgrade.
+- r1c3: stairs down to the cabin cellar.
+- r3c2 (kitchen): the small dining table is a kitchen upgrade, not its own tile.
+- Superseded 2026-11-27 by the agreed cellar layout: the table at r3c3 and the display case at r1c3.
 - The comfort idea folds into napping in bed: trade time (part of the day) for energy.
 - Open question (Lumen): how much time a nap costs once the action-time day/night cycle exists, and whether the rug adds a small cozy bonus to it.
 
@@ -114,7 +118,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Speak with Creature (see befriending slimes) also belongs here. Lumen's suggestion: imbued rune kinds from the altars could fuel different schools of spells.
 
 ## Idea: keepsake display case (Rick, 2026-11-27)
-- Built from 5 wood on the reserved cabin tile r1c3, opened like the chest.
+- Built from 5 wood at cabin r3c3 (moved from r1c3 for the cellar stairs), opened like the chest.
+- Keepsakes are exempt from spoilage.
 - Holds one item per slot (no stacks). Each slot has a placard for its item.
 - Each keepsake logs when it was picked up and by whom (e.g. "first runestone, found by Lumen, Day 12").
 
@@ -189,4 +194,19 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Root bins plus extra storage slots, to take pressure off the chest.
 - Gentle spoilage: depending on the item, after a while it sells for less, and after longer it decays entirely. Root bins and the cellar slow it down; dried, pickled and cask goods keep much longer.
 - A preserves shelf in the dark that pickles (and jam/honey jars) actually require, tying into the cooking revamp and the pantry.
+
+## Recipe gaps (audit 2026-11-27, design only; pick recipes together next week)
+- 15 of 20 crops have no recipe: radish, lettuce, spinach, pea, beet, potato, bush bean, cucumber, zucchini, tomato, pumpkin, corn, onion, rhubarb, asparagus. Everbearing berries make jam but not strawberry milk (it asks for `strawberry` exactly).
+- Rhubarb's description says to cook the stalks or make jam, but neither exists. First fixes: rhubarb jam and strawberry-rhubarb jam.
+- Pumpkin soup already has storybook art (`items/pumpkin_soup.png`) and no recipe.
+- Grown onions can't make onion soup. Pool onion with wild onion, the same way berries (`JAM_BERRY_ITEMS`) and mushrooms (`SOUP_MUSHROOM_ITEMS`) are pooled.
+- Safety net: a pooled garden vegetable soup (any 3 vegetables + milk) and a garden salad (any 3 greens), so no crop is ever an orphan. Special recipes add character on top.
+- New cellar mushrooms (shiitake, cremini, lion's mane) join the mushroom soup pool.
+- Staples to add, in order: flour (pies, crumble, zucchini bread), eggs, cellar vinegar (pickles for cucumber, beet, radish, onion), salt.
+- Winter: only carrot grows, so root bins and the overwintering crops need winter dishes (e.g. creamed spinach, onion soup).
+
+## Open design questions (2026-11-27)
+- How homesickness and sleep debt interact: does a sleeping-bag night count as real sleep, does sleeping together on a mine floor waive sleep debt too, and does a cabin nap clear homesickness?
+- With 3 or 4 players, mechanics written for "both" or "the other player" (homesickness waiver, sleeping close, hanami, flowers, healing) need a rule: all players, any two, or whoever shares the tile.
+- Food storage: decide what the pantry, root bins and preserves shelf each hold before building any of them.
 
