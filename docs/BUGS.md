@@ -7,6 +7,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Open
 | Found | Bug | Severity | Notes |
 |---|---|---|---|
+| 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 
 ## Fixed
 | Found | Bug | Fixed in |
