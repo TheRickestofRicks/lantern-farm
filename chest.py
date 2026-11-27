@@ -257,7 +257,7 @@ def normalize_built_chest(raw, rules: dict | None = None, *, slots: int = 12) ->
         first = True
         while left > 0:
             take = min(cap, left)
-            piece = _with_tier(item, take, cleaned.get("tier"))
+            piece = _with_tier(item, take, cleaned.get("tier"), cleaned.get("enchant"))
             if first:
                 out.append(piece)
                 first = False
@@ -347,6 +347,9 @@ def add_to_built_chest(
             break
         if slot and slot.get("item") == item:
             if is_tool(item) and stack_tool_tier(slot) != want:
+                continue
+            from inventory import stack_enchant
+            if stack_enchant(slot):
                 continue
             room = cap - int(slot.get("count") or 0)
             if room <= 0:
@@ -586,20 +589,20 @@ def swap_chest_slots(state: dict, a: int, b: int, rules: dict | None = None) -> 
 
 
 def _slot_parts(slot) -> tuple:
-    from inventory import stack_tool_tier
+    from inventory import stack_tool_tier, stack_enchant
 
     if not slot or not slot.get("item"):
-        return None, 0, None
-    return slot.get("item"), int(slot.get("count") or 0), stack_tool_tier(slot)
+        return None, 0, None, None
+    return slot.get("item"), int(slot.get("count") or 0), stack_tool_tier(slot), stack_enchant(slot)
 
 
-def _write_slot(slots: list, index: int, item, count: int, tier, rules: dict | None = None) -> None:
+def _write_slot(slots: list, index: int, item, count: int, tier, rules: dict | None = None, enchant=None) -> None:
     from inventory import _with_tier
 
     if count <= 0 or not item:
         slots[index] = None
     else:
-        slots[index] = _with_tier(item, count, tier)
+        slots[index] = _with_tier(item, count, tier, enchant)
 
 
 def _store_cap(item, store: str, rules: dict | None = None) -> int:
@@ -609,9 +612,9 @@ def _store_cap(item, store: str, rules: dict | None = None) -> int:
 
 
 def _same_stack(a, b) -> bool:
-    ia, _, ta = _slot_parts(a)
-    ib, _, tb = _slot_parts(b)
-    return bool(ia and ib and ia == ib and ta == tb)
+    ia, _, ta, ea = _slot_parts(a)
+    ib, _, tb, eb = _slot_parts(b)
+    return bool(ia and ib and ia == ib and ta == tb and ea == eb)
 
 
 def _parse_slot_amount(raw, count: int) -> tuple[int | None, str | None]:
@@ -627,13 +630,19 @@ def _parse_slot_amount(raw, count: int) -> tuple[int | None, str | None]:
     return n, None
 
 
-def _find_merge_or_empty(slots: list, size: int, item: str, tier, cap: int) -> tuple[int | None, int]:
-    from inventory import stack_tool_tier
+def _find_merge_or_empty(slots: list, size: int, item: str, tier, cap: int, enchant=None) -> tuple[int | None, int]:
+    from inventory import stack_tool_tier, stack_enchant
 
     empty = None
+    want_enchant = enchant or None
     for i in range(size):
         slot = slots[i] if i < len(slots) else None
-        if slot and slot.get("item") == item and stack_tool_tier(slot) == tier:
+        if (
+            slot
+            and slot.get("item") == item
+            and stack_tool_tier(slot) == tier
+            and stack_enchant(slot) == want_enchant
+        ):
             room = cap - int(slot.get("count") or 0)
             if room > 0:
                 return i, room
@@ -709,13 +718,13 @@ def move_pack_chest_slot(
     src_slot = src_list[si - 1]
     if not src_slot or not src_slot.get("item"):
         return False, f"That {'backpack' if src == 'pack' else 'chest'} slot is empty."
-    src_item, src_count, src_tier = _slot_parts(src_slot)
+    src_item, src_count, src_tier, src_enchant = _slot_parts(src_slot)
     dest_slot = dest_list[di - 1]
     dest_cap = _store_cap(src_item, dest, rules)
     if not dest_slot or not dest_slot.get("item"):
         take = min(src_count, dest_cap)
-        _write_slot(dest_list, di - 1, src_item, take, src_tier, rules)
-        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules)
+        _write_slot(dest_list, di - 1, src_item, take, src_tier, rules, src_enchant)
+        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules, src_enchant)
     elif _same_stack(src_slot, dest_slot):
         dest_count = int(dest_slot.get("count") or 0)
         room = dest_cap - dest_count
@@ -723,9 +732,9 @@ def move_pack_chest_slot(
             return False, "That stack is already full."
         take = min(src_count, room)
         dest_slot["count"] = dest_count + take
-        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules)
+        _write_slot(src_list, si - 1, src_item, src_count - take, src_tier, rules, src_enchant)
     else:
-        dest_item, dest_count, dest_tier = _slot_parts(dest_slot)
+        dest_item, dest_count, dest_tier, dest_enchant = _slot_parts(dest_slot)
         src_cap = _store_cap(dest_item, src, rules)
         if src_count > dest_cap or dest_count > src_cap:
             return False, "Those stacks don't both fit if you swap them."
@@ -758,13 +767,13 @@ def take_from_chest_slot(
     src = chest[i - 1]
     if not src or not src.get("item"):
         return False, "That chest slot is empty."
-    item, count, tier = _slot_parts(src)
+    item, count, tier, enchant = _slot_parts(src)
     want, perr = _parse_slot_amount(amount, count)
     if perr:
         return False, perr
     pack = pack_of(state, player, rules)
     cap = _store_cap(item, "pack", rules)
-    dest_i, room = _find_merge_or_empty(pack, len(pack), item, tier, cap)
+    dest_i, room = _find_merge_or_empty(pack, len(pack), item, tier, cap, enchant)
     if dest_i is None or room < 1:
         return False, "The backpack has no room for that."
     take = min(want, count, room)
@@ -774,8 +783,8 @@ def take_from_chest_slot(
     if dest and dest.get("item"):
         dest["count"] = int(dest.get("count") or 0) + take
     else:
-        _write_slot(pack, dest_i, item, take, tier, rules)
-    _write_slot(chest, i - 1, item, count - take, tier, rules)
+        _write_slot(pack, dest_i, item, take, tier, rules, enchant)
+    _write_slot(chest, i - 1, item, count - take, tier, rules, enchant)
     state[CHEST_KEY] = chest
     sync_inventory_view(state, rules)
     return True, f"Took {item_name(item, take, state=state)}."
@@ -804,14 +813,14 @@ def put_from_pack_slot(
     src = pack[i - 1]
     if not src or not src.get("item"):
         return False, "That backpack slot is empty."
-    item, count, tier = _slot_parts(src)
+    item, count, tier, enchant = _slot_parts(src)
     want, perr = _parse_slot_amount(amount, count)
     if perr:
         return False, perr
     size = chest_slot_count(state, rules)
     chest = pad_chest_slots(chest_slots(state, rules), size)
     cap = _store_cap(item, "chest", rules)
-    dest_i, room = _find_merge_or_empty(chest, size, item, tier, cap)
+    dest_i, room = _find_merge_or_empty(chest, size, item, tier, cap, enchant)
     if dest_i is None or room < 1:
         return False, "The chest has no room for that."
     take = min(want, count, room)
@@ -821,8 +830,8 @@ def put_from_pack_slot(
     if dest and dest.get("item"):
         dest["count"] = int(dest.get("count") or 0) + take
     else:
-        _write_slot(chest, dest_i, item, take, tier, rules)
-    _write_slot(pack, i - 1, item, count - take, tier, rules)
+        _write_slot(chest, dest_i, item, take, tier, rules, enchant)
+    _write_slot(pack, i - 1, item, count - take, tier, rules, enchant)
     state[CHEST_KEY] = chest
     sync_inventory_view(state, rules)
     return True, f"Put {item_name(item, take, state=state)} in the chest."

@@ -2,9 +2,19 @@
 
 ## 2026-11-27
 
+- The Creation Table is a free build at cabin row 2 col 2 (the middle of the room). Craft runestones there from runestone ore (1 ore, 5 energy) any day. On an aurora night you can enchant a pickaxe or the boots you are wearing.
+- Building the cabin chest still costs 5 wood, and now also costs 25 energy (was 5).
+- Inventory is its own window (press I, or the Inventory button left of Chest). Clothes, boots, and hands sit above the four general backpack slots. The art-style picker moved into Settings.
+- Everyone starts in leather boots (5 energy per step, cabin walking still free). Hiking boots (50G at the honour store) cost 4 in the hills and the mine. Nimble, worked onto worn boots at the Creation Table on an aurora night (overall level 10, 10 runestones, 100 energy), subtracts 1 from a paid step.
+- Cosmetic starting clothes can be set on a player in config (`starting_clothes`). Lumen starts in a blue sweater.
+- XP from the `xp` table in `rules.json` is now granted during play: mining (by rock, plus 5 for a gem), woodcutting, planting, harvesting, and defeating a slime. Each skill caps at level 10; leftover XP still accumulates. Overall level uses the same thresholds on total XP. Levels and XP are shown in the inventory window.
+- Aurora nights are a very rare clear weather, autumn and winter only (2 in 100 of those days, taken from sun so other weather is unchanged). The forecast is always right about them, and they never appear as a mistaken forecast. A cheap coloured veil shows over the map.
+- Pickaxe enchants at the Creation Table on an aurora night: Improved Yield (mining 5, 5 runestones, 50 energy: 25% chance of +1 yield, +5% gem chance) and Superior Yield (mining 10, 10 runestones, 100 energy: 50% +1, +10% gem). Superior replaces Improved.
+- Legal Actions lists build table, craft runestone, and the enchants you can actually work from the table tile.
+
 - The Chest button (and Build chest, before one is built) only appears while you stand on the cabin chest tile (row 1 col 2). It is hidden everywhere else, including other tiles inside the cabin.
 - Unearthing a plain tree stump in the hills now gives 1 wood. Mushroom logs still give none.
-- Experience amounts now live in a single `xp` table in `rules.json` so they are easy to tune. The numbers are pending a final okay and are not granted during play yet. Mining differs by rock (stone 2, copper ore 5, iron 8, gold 12, runestone ore 15, plus 5 when a gem such as quartz drops). Woodcutting is 5 per tree. Farming is 1 per plant and 4 per harvest; watering gives 0. Combat is 10 per slime.
+- Experience amounts now live in a single `xp` table in `rules.json` so they are easy to tune. The numbers remain in that table so they are easy to tune; they are now also granted during play (see above). Mining differs by rock (stone 2, copper ore 5, iron 8, gold 12, runestone ore 15, plus 5 when a gem such as quartz drops). Woodcutting is 5 per tree. Farming is 1 per plant and 4 per harvest; watering gives 0. Combat is 10 per slime.
 - Mushroom logs last one in-game year (four seasons of 15 days, 60 days total) from the day they appear, then the tile goes back to empty grass. Existing logs are stamped with today's date so they get a full year from now.
 
 - The cabin chest is now a window of its own, like the store, with a draggable grid. There is no starting chest: stand at the north-wall nook (row 1 col 2) in the cabin and `build chest` for 5 wood (the first decoration/building). Base size is 12 slots, stacks of 16. Upgrade at the chest with 8 copper ore (24 slots), then 10 iron ore (36), then 12 gold ore (48); each upgrade changes the banding colour. Copper, iron, and gold chests show tinted metal straps and a latch on the cabin tile and in the chest window header, derived from the wooden chest art. New games put the hoe, shovel, axe, two watering cans, and the starting strawberry seeds on that cabin floor tile. Existing farms that already had a chest are grandfathered as a built wooden chest; if they held more than 12 stacks, the extras stay as overflow and nothing is deleted.

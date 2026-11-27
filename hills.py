@@ -1103,7 +1103,7 @@ def _gold_axe_splash(state: dict, player: str, row: int, col: int, rules: dict |
         tile = get_hills_tile(state, rr, cc)
         if not has_grown_tree(tile):
             continue
-        wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules)
+        wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules, player=player)
         if not pack_space_for(state, player, "wood", wood_n, rules):
             return ""
         leftover = add_to_pack(state, player, "wood", wood_n, rules)
@@ -1155,7 +1155,7 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         )
     from mine import yield_with_upgrade
     from inventory import TOOL_AXE
-    wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules)
+    wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules, player=player)
     from inventory import give_or_drop_at_player
     packed, dropped, phrase = give_or_drop_at_player(state, player, "wood", wood_n, rules)
     tile["tree"] = make_tree("stump", planted_day=int(state.get("day") or 1), days_grown=0)
@@ -1171,6 +1171,9 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
         extra = _gold_axe_splash(state, player, row, col, rules)
         if extra:
             msg = msg.rstrip(".") + extra
+    from xp import grant_xp, woodcutting_xp
+
+    grant_xp(state, player, "woodcutting", woodcutting_xp("tree", rules))
     log_append(state, msg, player)
     return True, msg
 

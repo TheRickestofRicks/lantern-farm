@@ -202,12 +202,55 @@ def energy_cost(action_verb: str, rules: dict | None = None) -> int:
 
 
 def step_energy(rules: dict | None = None) -> int:
-    """Energy charged for any one step, including a diagonal."""
+    """Default energy for one step (leather boots, or no boots). Cabin is free."""
     rules = rules or load_rules()
     costs = rules.get("action_energy") or {}
     if "move" in costs:
         return int(costs["move"])
     return int(rules.get("move_energy", 5))
+
+
+def step_energy_for(
+    state: dict | None = None,
+    player: str | None = None,
+    area: str | None = None,
+    rules: dict | None = None,
+) -> int:
+    """Energy for one step in this area, including hiking boots and Nimble.
+
+    Walking inside the cabin is always free. Nimble does not change that.
+    """
+    from hills import AREA_CABIN, normalize_area
+    from gear import move_step_cost
+
+    rules = rules or load_rules()
+    area = normalize_area(area) if area else ""
+    if area == AREA_CABIN:
+        return 0
+    base = step_energy(rules)
+    if not state or not player:
+        return base
+    return move_step_cost(state, player, area, rules, default=base)
+
+
+def travel_cost(
+    state: dict,
+    player: str,
+    places: list,
+    rules: dict | None = None,
+    start_area: str | None = None,
+) -> int:
+    """Paid energy to walk a list of (area, row, col) destination steps."""
+    from hills import player_area
+
+    rules = rules or load_rules()
+    area = start_area if start_area is not None else player_area(state, player)
+    total = 0
+    for step in places or []:
+        total += step_energy_for(state, player, area, rules)
+        if isinstance(step, (tuple, list)) and step:
+            area = step[0]
+    return total
 
 
 def snacks_per_turn(rules: dict | None = None) -> int:
@@ -1394,7 +1437,7 @@ def day_in_season(day: int, crops: dict | None = None) -> int:
     return ((int(day) - 1) % n) + 1
 
 
-WEATHER_KINDS = ("sun", "cloud", "rain", "storm", "snow")
+WEATHER_KINDS = ("aurora", "sun", "cloud", "rain", "storm", "snow")
 WET_WEATHER = frozenset({"rain", "storm", "snow"})
 DRY_WEATHER = frozenset({"sun", "cloud"})
 
@@ -1544,6 +1587,10 @@ def forecast_weather(
     lead = int(target_day) - int(made_on)
     if lead <= 0:
         return actual
+    # Aurora nights are rare and always forecast accurately. They also never
+    # appear as a mistaken forecast for some other day.
+    if actual == "aurora":
+        return actual
     acc = forecast_accuracy(lead, rules)
     # Compare in 1/10000ths so this stays integer and stable.
     threshold = int(round(acc * 10000))
@@ -1553,6 +1600,7 @@ def forecast_weather(
     season = season_for_day(target_day, crops)
     weights = dict(season_weather_weights(season, rules))
     weights.pop(actual, None)
+    weights.pop("aurora", None)
     if not weights:
         return actual
     return _pick_weighted(weights, weather_mix(int(seed), int(made_on), salt=int(target_day) * 0x165667B1))
@@ -2250,6 +2298,11 @@ def weather_arrive_message(weather: str) -> str:
         return flavor("snow") or "Snow settles on the farm. The soil stays wet, but crops don't grow today."
     if weather == "cloud":
         return flavor("cloud") or "The sky is overcast. The soil stays as you left it."
+    if weather == "aurora":
+        return flavor("aurora") or (
+            "An aurora night settles over the farm. The sky is clear, and the "
+            "northern lights shimmer — a rare night for work at the Creation Table."
+        )
     return flavor("clear") or "A clear day dawns over the farm."
 
 
@@ -3200,6 +3253,9 @@ def plant(state: dict, crops: dict, row, col, kind, player: str | None = None) -
     clear_till_hold(tile)
     planted = stock_label(kind, info, 1)
     msg = f"{who(player, 'plant', 'plants')} {a_or_an(planted)} {planted} at {here}."
+    from xp import grant_xp, farming_xp
+
+    grant_xp(state, player, "farming", farming_xp("plant", load_rules()))
     log_append(state, msg, player)
     return True, msg
 
@@ -3621,6 +3677,9 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     reset_till_hold(tile)
     noun = crop_name_plural(kind, info, yield_n)
     msg = _with_overflow(f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}.")
+    from xp import grant_xp, farming_xp
+
+    grant_xp(state, player, "farming", farming_xp("harvest", load_rules()))
     log_append(state, msg, player)
     return True, msg
 
@@ -4695,6 +4754,7 @@ def _dawn_header_and_log(
         "rain": "a rainy morning",
         "storm": "a stormy morning",
         "snow": "a snowy morning",
+        "aurora": "an aurora night",
     }.get(state["weather"], state["weather"])
     header = f"Day {d} dawns, {season} (day {within} of {total}), {sky}."
     if log:
@@ -4752,7 +4812,7 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
         "up": "north", "down": "south", "left": "west", "right": "east"
     }.get(canonical, canonical)
     from hills import AREA_CABIN
-    cost = 0 if area == AREA_CABIN else step_energy(rules)
+    cost = step_energy_for(state, player, area, rules)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -4816,7 +4876,7 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
         return True, f"{display_name(player)} is already {describe_area_where(area, *dest)}."
     steps = path_steps(src, dest)
     from hills import AREA_CABIN
-    cost = 0 if area == AREA_CABIN else step_energy(rules) * len(steps)
+    cost = travel_cost(state, player, [(area, r, c) for r, c in steps], rules, start_area=area)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -4861,7 +4921,7 @@ def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     places = path_places(area, src, AREA_FARM, (CABIN_ROW, CABIN_COL))
     if not places:
         return False, "There's no path to the cabin from here."
-    cost = step_energy(rules) * len(places)
+    cost = travel_cost(state, player, places, rules, start_area=area)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -4905,7 +4965,7 @@ def go_town(state: dict, player: str, rules: dict | None = None) -> tuple[bool, 
     places = path_places(area, src, AREA_TOWN, TOWN_ENTRANCE)
     if not places:
         return False, "There's no path to town from here."
-    cost = step_energy(rules) * len(places)
+    cost = travel_cost(state, player, places, rules, start_area=area)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -4949,7 +5009,7 @@ def go_town_feature(state: dict, player: str, feature: str, rules: dict | None =
     # path_places same-area includes dest and starts after src, so cost is correct,
     # but if we just arrived at the entrance this turn we already paid to get there.
     steps = path_steps(here, dest)
-    cost = step_energy(rules) * len(steps)
+    cost = travel_cost(state, player, [(area, r, c) for r, c in steps], rules, start_area=area)
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
@@ -5874,7 +5934,7 @@ def legal_actions(
     here = player_where(state, actor) if actor else (CABIN_ROW, CABIN_COL)
     area = player_area(state, actor) if actor else AREA_FARM
     floor = player_floor(state, actor) if actor and area == AREA_MINE else None
-    step = step_energy(rules)
+    step = step_energy_for(state, actor, area, rules)
     step_here = 0 if area == AREA_CABIN else step
     for direction, delta in MOVE_DELTA.items():
         crossing = area_crossing(area, here[0], here[1], direction)
@@ -6129,6 +6189,10 @@ def legal_actions(
     if actor and chest_is_built(state) and player_at_cabin_tile(state, actor, "chest"):
         if next_tier(state, rules) and energy >= energy_cost("upgrade_chest", rules):
             actions.append("upgrade chest")
+    from creation import legal_table_actions
+
+    if actor:
+        actions.extend(legal_table_actions(state, actor, rules))
     if player_at_cabin_tile(state, actor, "chest"):
         if actor:
             from inventory import pack_space_for
@@ -6377,6 +6441,7 @@ def action_descriptor(
     )
     from hills import AREA_CABIN as _DESC_CABIN
     actor_area = hills_player_area(state, actor) if actor else AREA_FARM
+    step = step_energy_for(state, actor, actor_area, rules)
     step_here = 0 if actor_area == _DESC_CABIN else step
     if verb == "move" and args:
         if args[0] == "to" and len(args) >= 3:
@@ -6645,6 +6710,43 @@ def action_descriptor(
         return f"+{gained} energy"
     if verb == "drink":
         return "+10 energy tomorrow if you sleep in the cabin"
+    if verb == "build" and args and args[0].lower() == "table":
+        return "free"
+    if verb == "build" and args and args[0].lower() == "chest":
+        from chest import build_cost
+        from inventory import item_name as inv_item_name
+        parts = " and ".join(inv_item_name(k, v, crops, rules, state=state) for k, v in build_cost(rules).items()) or "materials"
+        return f"{parts}, {_energy_word(energy_cost('build_chest', rules))}"
+    if verb == "craft" and args and "runestone" in " ".join(args).lower() and "jam" not in " ".join(args).lower():
+        from creation import runestone_recipe
+        from inventory import item_name as inv_item_name
+        rec = runestone_recipe(rules)
+        return (
+            f"{inv_item_name('runestone_ore', rec['ore'], crops, rules, state=state)}, "
+            f"{_energy_word(rec['energy'])}"
+        )
+    if verb == "enchant":
+        from creation import normalize_enchant, enchant_info, enchant_energy, ENCHANT_NIMBLE, PICKAXE_ENCHANTS
+        text = " ".join(args).lower()
+        kind = normalize_enchant(text)
+        if kind is None:
+            for prefix in ("pickaxe ", "the pickaxe ", "boots ", "the boots "):
+                if text.startswith(prefix):
+                    kind = normalize_enchant(text[len(prefix):])
+                    break
+        if kind is None and ("nimble" in text or text.strip() in {"boots"}):
+            kind = ENCHANT_NIMBLE
+        info = enchant_info(kind, rules) or {}
+        need = int(info.get("runestones") or 0)
+        from inventory import item_name as inv_item_name
+        bits = [inv_item_name("runestone", need, crops, rules, state=state)] if need else []
+        if info.get("skill_level"):
+            bits.append(f"mining {info['skill_level']}")
+        if info.get("overall_level"):
+            bits.append(f"overall level {info['overall_level']}")
+        bits.append(_energy_word(enchant_energy(kind, rules)))
+        bits.append("aurora night")
+        return ", ".join(bits)
     if verb == "craft":
         rec_id = normalize_item(" ".join(args)) or " ".join(args)
         rec = recipes(rules).get(rec_id) or {}
@@ -6855,6 +6957,57 @@ def do_action(
         ok, msg = put_from_pack_slot(state, actor, args[1], amount, rules)
         return ok, msg
 
+    if verb == "craft":
+        joined = " ".join(args).lower()
+        if args and "runestone" in joined and "jam" not in joined:
+            from creation import craft_runestone, runestone_recipe
+            rec = runestone_recipe(rules)
+            times = 1
+            if args and str(args[-1]).isdigit():
+                times = max(1, int(args[-1]))
+            cost = rec["energy"] * times
+            energy = int(player_slot(state, actor)["energy"])
+            if cost > energy:
+                return False, energy_short_message("craft_runestone", cost, energy, verb="craft")
+            ok, msg = craft_runestone(state, actor, rules, crops, count=times)
+            if ok and cost:
+                player_slot(state, actor)["energy"] = energy - cost
+            return ok, msg
+    if verb == "enchant":
+        from creation import enchant as do_enchant, normalize_enchant, enchant_energy, ENCHANT_NIMBLE
+        text = " ".join(args).lower()
+        kind = normalize_enchant(text)
+        if kind is None:
+            for prefix in ("pickaxe ", "the pickaxe ", "boots ", "the boots "):
+                if text.startswith(prefix):
+                    kind = normalize_enchant(text[len(prefix):])
+                    break
+        if kind is None and ("nimble" in text or text.strip() in {"boots"}):
+            kind = ENCHANT_NIMBLE
+        cost = enchant_energy(kind, rules) if kind else 0
+        energy = int(player_slot(state, actor)["energy"])
+        if cost > energy:
+            return False, energy_short_message("enchant", cost, energy, verb="enchant")
+        ok, msg = do_enchant(state, actor, args, rules, crops)
+        if ok and cost:
+            player_slot(state, actor)["energy"] = energy - cost
+        return ok, msg
+    if verb == "equip":
+        from gear import equip_from_pack, GEAR_SLOTS
+        # equip pack 2 hands  /  equip pack 2 boots
+        words = [w.lower() for w in args]
+        if len(words) >= 3 and words[0] == "pack" and words[2] in GEAR_SLOTS:
+            ok, msg = equip_from_pack(state, actor, words[1], words[2], rules)
+            return ok, msg
+        return False, "Usage: equip pack <slot> clothes|boots|hands"
+    if verb == "unequip":
+        from gear import unequip_to_pack, GEAR_SLOTS
+        kind = (args[0].lower() if args else "")
+        if kind not in GEAR_SLOTS:
+            return False, "Usage: unequip clothes|boots|hands"
+        ok, msg = unequip_to_pack(state, actor, kind, rules)
+        return ok, msg
+
     if verb in {"take", "drop", "put", "stow", "craft"}:
         if verb in {"put", "stow"}:
             verb = "drop"
@@ -6961,7 +7114,8 @@ def do_action(
     elif verb == "flee":
         cost_verb = "flee"
     elif verb == "build":
-        cost_verb = "build_chest"
+        what = (args[0].lower() if args else "")
+        cost_verb = "build_table" if what == "table" else "build_chest"
     elif verb == "upgrade":
         cost_verb = "upgrade_chest"
     if cost_verb in {"enter_cabin", "leave_cabin"}:
@@ -7102,10 +7256,15 @@ def do_action(
         else:
             return False, "Usage: fuel fireplace  or  fuel stove"
     elif verb == "build":
-        if not args or args[0].lower() != "chest":
-            return False, "Usage: build chest"
-        from chest import build_chest
-        ok, msg = build_chest(state, actor, rules, crops)
+        what = (args[0].lower() if args else "")
+        if what == "table":
+            from creation import build_table
+            ok, msg = build_table(state, actor, rules, crops)
+        elif what == "chest":
+            from chest import build_chest
+            ok, msg = build_chest(state, actor, rules, crops)
+        else:
+            return False, "Usage: build chest   or: build table"
     elif verb == "upgrade":
         if not args or args[0].lower() != "chest":
             return False, "Usage: upgrade chest"
@@ -7133,7 +7292,7 @@ def do_action(
             False,
             "Unknown action. Try look, move, go cabin, go town, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
             "strike, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
-            "eat, buy, sell, sell now, take, drop, craft, recipes, build chest, upgrade chest, fuel fireplace, fuel stove, or end turn.",
+            "eat, buy, sell, sell now, take, drop, craft, recipes, build chest, build table, upgrade chest, enchant, equip, fuel fireplace, fuel stove, or end turn.",
         )
 
     if ok and cost:

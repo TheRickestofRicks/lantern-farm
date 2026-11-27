@@ -132,7 +132,7 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
         if tile.get("drop"):
             key += "_drop_" + str(tile.get("drop"))
         return key
-    if typ in {"cabin_floor", "cabin_bed", "cabin_chest", "cabin_fireplace", "cabin_door", "cabin_kitchen"}:
+    if typ in {"cabin_floor", "cabin_bed", "cabin_chest", "cabin_table", "cabin_fireplace", "cabin_door", "cabin_kitchen"}:
         kind = typ[len("cabin_"):]
         if typ in {"cabin_fireplace", "cabin_kitchen"} and tile.get("fire"):
             return f"cabin_interior_{kind}_lit"
@@ -1616,6 +1616,16 @@ def _cabin_interior_overlay(tile: str, fire: bool = False, tier: str | None = No
   <rect x="52" y="84" width="56" height="48" fill="#8a5520" stroke="#3a2414" stroke-width="1.5"/>
   <circle cx="104" cy="86" r="5" fill="#c9a227"/>
 """
+    if tile == "table":
+        return """
+  <rect x="28" y="78" width="104" height="52" rx="4" fill="#8a5a28" stroke="#3a2414" stroke-width="2"/>
+  <rect x="32" y="70" width="96" height="14" rx="3" fill="#c4a06a" stroke="#3a2414" stroke-width="2"/>
+  <rect x="36" y="128" width="10" height="18" fill="#5a3a18"/>
+  <rect x="114" y="128" width="10" height="18" fill="#5a3a18"/>
+  <circle cx="56" cy="78" r="7" fill="#6a8aa8" stroke="#2a3a4a" stroke-width="1.2"/>
+  <circle cx="80" cy="76" r="6" fill="#7a6a9a" stroke="#2a2a3a" stroke-width="1.2"/>
+  <rect x="96" y="72" width="16" height="8" rx="2" fill="#c9a227" stroke="#5a3a10" stroke-width="1"/>
+"""
     if tile == "kitchen":
         return """
   <rect x="16" y="70" width="128" height="62" fill="#6b4a28" stroke="#3a2414" stroke-width="2"/>
@@ -1783,6 +1793,7 @@ _ITEM_LABELS = {
     "iron_ore": "IRON",
     "gold_ore": "GOLD",
     "quartz": "QUARTZ",
+    "runestone": "RUNE",
     "runestone_ore": "RUNE",
     "goo": "GOO",
     "wild_onion": "ONION",
@@ -1812,6 +1823,12 @@ _ITEM_LABELS = {
     "fertilizer_general": "FERT",
     "fertilizer_yield": "YLD",
     "fertilizer_growth": "GRW",
+    "runestone": "RUNE",
+    "runestone_ore": "RORE",
+    "leather_boots": "BOOT",
+    "hiking_boots": "HIKE",
+    "blue_sweater": "BLUE",
+    "green_hoodie": "HOOD",
 }
 
 _ITEM_COLORS = {
@@ -1857,6 +1874,12 @@ _ITEM_COLORS = {
     "fertilizer_general": ("#1f6b5a", "#7dcec0"),
     "fertilizer_yield": ("#2a6b2a", "#9ad48a"),
     "fertilizer_growth": ("#2a5a6b", "#8ad4ce"),
+    "runestone": ("#5a4a8a", "#d8cff0"),
+    "runestone_ore": ("#4a3a6a", "#c8bdd8"),
+    "leather_boots": ("#5a3a22", "#e2c4a0"),
+    "hiking_boots": ("#3a4a2a", "#c8d8a8"),
+    "blue_sweater": ("#2a4a8a", "#c8d8f0"),
+    "green_hoodie": ("#2a6b38", "#c8e8b0"),
 }
 
 

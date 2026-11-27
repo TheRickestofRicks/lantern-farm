@@ -1,7 +1,9 @@
-"""Tunable experience-point amounts for Lantern Farm.
+"""Tunable experience-point amounts and skill levels for Lantern Farm.
 
 Numbers live in a single ``xp`` table in ``rules.json`` so they are easy to
-tune. They are pending a final okay and are not granted during play yet.
+tune. XP is granted during play from that table. Each skill's level is capped
+at 10; XP may still accumulate. Overall level uses the same thresholds on the
+sum of all skill XP.
 """
 
 from __future__ import annotations
@@ -28,6 +30,12 @@ DEFAULT_XP = {
         "slime": 10,
     },
 }
+
+SKILLS = ("mining", "woodcutting", "farming", "combat")
+
+# Cumulative XP thresholds for levels 1 through 10.
+DEFAULT_LEVELS = [0, 40, 100, 200, 350, 550, 800, 1100, 1500, 2000]
+DEFAULT_LEVEL_CAP = 10
 
 # Rock kinds currently placed on mine tiles (quartz is a gem drop, not a rock).
 MINING_ROCKS = ("stone", "copper_ore", "iron_ore", "gold_ore", "runestone_ore")
@@ -107,3 +115,162 @@ def combat_xp(kind: str | None = "slime", rules: dict | None = None) -> int:
     if key not in combat:
         key = "slime"
     return _amount(combat, key, 10)
+
+
+def level_cap(rules: dict | None = None) -> int:
+    raw = _load_rules(rules).get("xp")
+    if isinstance(raw, dict) and raw.get("level_cap") is not None:
+        try:
+            return max(1, int(raw.get("level_cap")))
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_LEVEL_CAP
+
+
+def level_thresholds(rules: dict | None = None) -> list[int]:
+    """Cumulative XP required to be at each level, starting at level 1 = 0."""
+    raw = _load_rules(rules).get("xp")
+    got = raw.get("levels") if isinstance(raw, dict) else None
+    cap = level_cap(rules)
+    out: list[int] = []
+    if isinstance(got, list):
+        for value in got:
+            try:
+                out.append(max(0, int(value)))
+            except (TypeError, ValueError):
+                continue
+    if not out:
+        out = list(DEFAULT_LEVELS)
+    out = sorted(set(out))
+    if not out or out[0] != 0:
+        out = [0] + [n for n in out if n > 0]
+    # Ensure we have `cap` entries (levels 1..cap).
+    while len(out) < cap:
+        prev = out[-1]
+        step = out[-1] - out[-2] if len(out) >= 2 else 50
+        out.append(prev + max(1, step))
+    return out[:cap]
+
+
+def level_for_xp(xp: int, rules: dict | None = None) -> int:
+    """Skill or overall level for this much XP, capped at the level cap."""
+    try:
+        amount = max(0, int(xp or 0))
+    except (TypeError, ValueError):
+        amount = 0
+    thresholds = level_thresholds(rules)
+    level = 1
+    for i, need in enumerate(thresholds, start=1):
+        if amount >= need:
+            level = i
+        else:
+            break
+    return min(level, level_cap(rules))
+
+
+def xp_into_level(xp: int, rules: dict | None = None) -> tuple[int, int, int | None]:
+    """Return (level, xp into this level, xp needed for next or None if capped)."""
+    thresholds = level_thresholds(rules)
+    cap = level_cap(rules)
+    level = level_for_xp(xp, rules)
+    current = thresholds[level - 1] if 0 <= level - 1 < len(thresholds) else 0
+    into = max(0, int(xp or 0) - current)
+    if level >= cap or level >= len(thresholds):
+        return level, into, None
+    nxt = thresholds[level]
+    return level, into, max(0, nxt - int(xp or 0))
+
+
+def empty_xp() -> dict[str, int]:
+    return {skill: 0 for skill in SKILLS}
+
+
+def player_xp_map(state: dict, player: str | None) -> dict[str, int]:
+    """Live XP map on the player's slot, filled with missing skills at 0."""
+    from engine import player_slot
+
+    out = empty_xp()
+    if not player:
+        return out
+    slot = player_slot(state, player)
+    raw = slot.get("xp")
+    if not isinstance(raw, dict):
+        raw = {}
+        slot["xp"] = raw
+    for skill in SKILLS:
+        try:
+            val = int(raw.get(skill) or 0)
+        except (TypeError, ValueError):
+            val = 0
+        raw[skill] = max(0, val)
+        out[skill] = raw[skill]
+    return out
+
+
+def total_xp(state: dict, player: str | None) -> int:
+    return sum(player_xp_map(state, player).values())
+
+
+def skill_level(state: dict, player: str | None, skill: str, rules: dict | None = None) -> int:
+    amounts = player_xp_map(state, player)
+    key = str(skill or "").strip().lower()
+    return level_for_xp(int(amounts.get(key) or 0), rules)
+
+
+def overall_level(state: dict, player: str | None, rules: dict | None = None) -> int:
+    return level_for_xp(total_xp(state, player), rules)
+
+
+def grant_xp(
+    state: dict,
+    player: str | None,
+    skill: str,
+    amount: int,
+    rules: dict | None = None,
+) -> int:
+    """Add XP to a skill. Returns the amount actually granted (0 if none)."""
+    del rules
+    if not player:
+        return 0
+    try:
+        add = int(amount or 0)
+    except (TypeError, ValueError):
+        add = 0
+    if add <= 0:
+        return 0
+    key = str(skill or "").strip().lower()
+    if key not in SKILLS:
+        return 0
+    amounts = player_xp_map(state, player)
+    amounts[key] = int(amounts.get(key) or 0) + add
+    from engine import player_slot
+
+    player_slot(state, player)["xp"] = amounts
+    return add
+
+
+def xp_view(state: dict, player: str | None, rules: dict | None = None) -> dict:
+    """Payload for the inventory window: overall level and per-skill progress."""
+    amounts = player_xp_map(state, player)
+    skills = {}
+    for skill in SKILLS:
+        xp = int(amounts.get(skill) or 0)
+        level, into, needed = xp_into_level(xp, rules)
+        skills[skill] = {
+            "xp": xp,
+            "level": level,
+            "into": into,
+            "next": needed,
+            "capped": needed is None,
+        }
+    total = total_xp(state, player)
+    level, into, needed = xp_into_level(total, rules)
+    return {
+        "total_xp": total,
+        "overall_level": level,
+        "overall_into": into,
+        "overall_next": needed,
+        "overall_capped": needed is None,
+        "level_cap": level_cap(rules),
+        "skills": skills,
+    }

@@ -496,17 +496,14 @@ def pickaxe_unlocked(state: dict) -> bool:
 
 
 def tool_tier(state: dict, tool: str, player: str | None = None) -> str:
-    """Forge tier for a tool. Pickaxe tiers live on the item in the player's pack."""
+    """Forge tier for a tool. Pickaxe tiers live on the item in hands or pack."""
     from inventory import TOOL_PICKAXE, pack_of, stack_tool_tier, normalize_item
+    from gear import held_tool_slot
 
     if tool == TOOL_PICKAXE and player:
-        for slot in pack_of(state, player) or []:
-            if not isinstance(slot, dict):
-                continue
-            if normalize_item(slot.get("item")) == TOOL_PICKAXE:
-                if slot.get("tier"):
-                    return stack_tool_tier(slot, default="basic")
-                break
+        slot, _where, _idx = held_tool_slot(state, player, TOOL_PICKAXE)
+        if slot and slot.get("tier"):
+            return stack_tool_tier(slot, default="basic")
         # No per-item tier: fall back to the farm-wide table (older saves).
     tiers = state.get("tool_tiers")
     if not isinstance(tiers, dict):
@@ -553,12 +550,36 @@ def tool_action_cost(state: dict, player: str | None, verb: str, rules: dict | N
     return tool_tier_energy(tier, rules)
 
 
-def yield_with_upgrade(state: dict, tool: str, base: int, rules: dict | None = None) -> int:
-    """Tool tiers no longer add yield. Later Bounty enchantments will hook in here."""
+def yield_with_upgrade(state: dict, tool: str, base: int, rules: dict | None = None, player: str | None = None) -> int:
+    """Apply pickaxe yield enchants. Tool forge tiers do not add yield."""
     try:
-        return int(base)
+        got = int(base)
     except (TypeError, ValueError):
         return 0
+    from inventory import TOOL_PICKAXE, stack_enchant
+    from gear import held_tool_slot
+    from creation import enchant_info
+
+    if tool != TOOL_PICKAXE or not player:
+        return got
+    slot, _where, _idx = held_tool_slot(state, player, TOOL_PICKAXE)
+    info = enchant_info(stack_enchant(slot), rules) or {}
+    try:
+        chance = int(info.get("yield_chance") or 0)
+    except (TypeError, ValueError):
+        chance = 0
+    if chance <= 0:
+        return got
+    from engine import weather_mix, player_where
+
+    seed = int(state.get("weather_seed") or 0)
+    day = int(state.get("day") or 1)
+    floor = player_floor(state, player) or 0
+    row, col = player_where(state, player)
+    roll = weather_mix(seed, day, salt=floor * 10000 + row * 100 + col + 7701) % 100
+    if roll < chance:
+        got += 1
+    return got
 
 
 def mark_checkpoint(state: dict, floor: int) -> None:
@@ -721,13 +742,23 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
             f"{display_name(player)} needs {indefinite(item_label(TOOL_PICKAXE, state=state))} in their backpack to break rock. "
             "Buy one from the shop after finding the mine entrance."
         )
-    got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
+    got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules, player=player)
     item = rock
     if rock == "stone" and 1 <= int(floor) <= 4:
         season, year = _season_key(state)
         seed = int(state.get("weather_seed") or 0)
         roll = mine_hash(seed, season, year, floor, row, col, 5502) % 100
-        if roll < quartz_chance(rules):
+        gem_chance = quartz_chance(rules)
+        from inventory import stack_enchant
+        from gear import held_tool_slot
+        from creation import enchant_info
+        slot, _where, _idx = held_tool_slot(state, player, TOOL_PICKAXE)
+        info = enchant_info(stack_enchant(slot), rules) or {}
+        try:
+            gem_chance += int(info.get("gem_bonus") or 0)
+        except (TypeError, ValueError):
+            pass
+        if roll < gem_chance:
             item = "quartz"
     from inventory import give_or_drop_at_player
     packed, dropped, phrase = give_or_drop_at_player(state, player, item, got, rules)
@@ -742,6 +773,9 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
         msg = f"{who(player, 'break', 'breaks')} the rock at {here} {phrase}."
         if revealed:
             msg = msg[:-1] + ", uncovering a ladder down."
+    from xp import grant_xp, mining_xp
+
+    grant_xp(state, player, "mining", mining_xp(rock, gem=(item == "quartz"), rules=rules))
     hit = slime_parting_hit(state, player, rules, floor=floor, row=row, col=col, as_you="break the rock")
     if hit:
         msg = f"{msg} {hit}"
@@ -761,7 +795,7 @@ def _splash_mine(state: dict, player: str, floor: int, row: int, col: int, rules
         rock = tile.get("rock")
         if not rock:
             continue
-        got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules)
+        got = yield_with_upgrade(state, TOOL_PICKAXE, 1, rules, player=player)
         if not pack_space_for(state, player, rock, got, rules):
             return "."
         leftover = add_to_pack(state, player, rock, got, rules)
@@ -1263,6 +1297,9 @@ def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[b
         msg = (
             f"{who(player, 'strike', 'strikes')} the {kind} slime and defeats it{loot}."
         )
+        from xp import grant_xp, combat_xp
+
+        grant_xp(state, player, "combat", combat_xp(kind, rules=rules))
         log_append(state, msg, player)
         return True, msg
     lost = hurt_hp(state, player, slime_damage_amount(rules), rules)

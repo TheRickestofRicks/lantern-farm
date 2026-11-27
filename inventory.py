@@ -156,7 +156,13 @@ MATERIALS = {
         "name": "runestone ore",
         "name_plural": "runestone ore",
         "sell_price": 15,
-        "description": "A smooth, rounded runestone, rare in the upper mine and more common deeper. It will feed rune magic later.",
+        "description": "A smooth, rounded runestone ore, rare in the upper mine and more common deeper. Craft it into a runestone at the Creation Table.",
+    },
+    "runestone": {
+        "name": "runestone",
+        "name_plural": "runestones",
+        "sell_price": 20,
+        "description": "A finished runestone, cut from runestone ore at the Creation Table. Used to enchant tools and boots on an aurora night.",
     },
     "goo": {
         "name": "goo",
@@ -391,9 +397,20 @@ ITEM_ALIASES = {
     "gold ore": "gold_ore",
     "gold_ore": "gold_ore",
     "quartz": "quartz",
-    "runestone": "runestone_ore",
+    "runestone": "runestone",
+    "runestones": "runestone",
+    "rune stone": "runestone",
+    "rune stones": "runestone",
     "runestone ore": "runestone_ore",
     "runestone_ore": "runestone_ore",
+    "leather boots": "leather_boots",
+    "leather_boots": "leather_boots",
+    "hiking boots": "hiking_boots",
+    "hiking_boots": "hiking_boots",
+    "blue sweater": "blue_sweater",
+    "blue_sweater": "blue_sweater",
+    "green hoodie": "green_hoodie",
+    "green_hoodie": "green_hoodie",
     "goo": "goo",
     "slime goo": "goo",
     "firewood": "wood",
@@ -568,7 +585,9 @@ def is_tool(item: str | None) -> bool:
 
 
 def is_equipment(item: str | None) -> bool:
-    return (item or "") in EQUIPMENT
+    from gear import is_boots
+
+    return (item or "") in EQUIPMENT or is_boots(item)
 
 
 def is_fertilizer(item: str | None) -> bool:
@@ -614,6 +633,10 @@ def staple_is_sold(item: str | None, rules: dict | None = None) -> bool:
 
 def equipment_info(item: str | None, rules: dict | None = None) -> dict | None:
     item = item or ""
+    from gear import is_boots, boots_info
+
+    if is_boots(item):
+        return boots_info(item, rules)
     if item not in EQUIPMENT:
         return None
     info = dict(EQUIPMENT[item])
@@ -637,9 +660,18 @@ def sleeping_bag_price(rules: dict | None = None) -> int:
 
 
 def equipment_shop_items(rules: dict | None = None) -> list[str]:
-    """Year-round honour-store equipment (currently the sleeping bag)."""
-    del rules
-    return list(EQUIPMENT)
+    """Year-round honour-store equipment (sleeping bag, hiking boots)."""
+    out: list[str] = []
+    from gear import BOOTS
+
+    for item in list(EQUIPMENT) + list(BOOTS):
+        info = equipment_info(item, rules) or {}
+        if info.get("shop") is False:
+            continue
+        if info.get("price") is None:
+            continue
+        out.append(item)
+    return out
 
 
 def staple_shop_items(rules: dict | None = None) -> list[str]:
@@ -739,9 +771,10 @@ def is_recipe_item(item: str | None, rules: dict | None = None) -> bool:
 
 
 def max_stack_for(item: str, *, in_chest: bool = False, rules: dict | None = None) -> int:
-    if is_tool(item) or is_equipment(item):
-        # Tools and the sleeping bag may share a chest slot, but each
-        # occupies its own pack slot.
+    from gear import is_clothes, is_boots
+
+    if is_tool(item) or is_equipment(item) or is_clothes(item) or is_boots(item):
+        # Tools, boots, clothes, and the sleeping bag occupy their own pack slot.
         return chest_stack_limit(rules) if in_chest else 1
     return chest_stack_limit(rules) if in_chest else pack_stack_limit(rules)
 
@@ -919,6 +952,16 @@ def item_name(
         return f"{count} {noun}"
     if item in EQUIPMENT:
         info = equipment_info(item, rules) or EQUIPMENT[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
+        return f"{count} {noun}"
+    from gear import CLOTHES, BOOTS, clothes_info, boots_info
+
+    if item in CLOTHES:
+        info = clothes_info(item) or CLOTHES[item]
+        noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
+        return f"{count} {noun}"
+    if item in BOOTS:
+        info = boots_info(item, rules) or BOOTS[item]
         noun = info["name"] if count == 1 else info.get("name_plural") or info["name"]
         return f"{count} {noun}"
     if item in STAPLES:
@@ -1102,12 +1145,22 @@ def stack_tool_tier(slot, default: str | None = None) -> str:
     return text if text else "basic"
 
 
-def _with_tier(item: str, count: int, tier: str | None = None) -> dict:
+def stack_enchant(slot) -> str | None:
+    """Enchant id on a tool or boots stack, or None."""
+    if not isinstance(slot, dict):
+        return None
+    raw = str(slot.get("enchant") or "").strip().lower().replace(" ", "_")
+    return raw or None
+
+
+def _with_tier(item: str, count: int, tier: str | None = None, enchant: str | None = None) -> dict:
     slot = {"item": item, "count": int(count)}
     if is_tool(item):
         t = stack_tool_tier(tier)
         if t != "basic":
             slot["tier"] = t
+    if enchant:
+        slot["enchant"] = str(enchant).strip().lower().replace(" ", "_")
     return slot
 
 
@@ -1124,7 +1177,7 @@ def _clean_stack(slot, *, in_chest: bool = False, rules: dict | None = None) -> 
     if count <= 0:
         return None
     cap = max_stack_for(item, in_chest=in_chest, rules=rules)
-    return _with_tier(item, min(count, cap), slot.get("tier"))
+    return _with_tier(item, min(count, cap), slot.get("tier"), stack_enchant(slot))
 
 
 def normalize_pack(raw, rules: dict | None = None) -> list:
@@ -1176,24 +1229,28 @@ def normalize_chest(raw, rules: dict | None = None) -> list:
         if count > 0:
             # Push un-capped so leftover over the stack limit splits,
             # and same-item partial stacks merge on load.
-            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"))
+            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"), enchant=stack_enchant(slot))
     return out
 
 
-def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: dict | None = None, tier: str | None = None) -> int:
+def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: dict | None = None, tier: str | None = None, enchant: str | None = None) -> int:
     """Add as many as will fit. Returns the leftover count.
 
     Pickaxes (and other tooled stacks with a forge tier) only merge with the
-    same tier, so a copper pickaxe never folds into a basic one.
+    same tier, so a copper pickaxe never folds into a basic one. Enchanted
+    tools and boots stay on their own stack.
     """
     if count <= 0:
         return 0
     cap = max_stack_for(item, in_chest=in_chest, rules=rules)
     want = stack_tool_tier(tier) if is_tool(item) else None
+    want_enchant = (str(enchant).strip().lower().replace(" ", "_") or None) if enchant else None
     for slot in dest:
         if not slot or slot.get("item") != item:
             continue
         if is_tool(item) and stack_tool_tier(slot) != want:
+            continue
+        if stack_enchant(slot) != want_enchant:
             continue
         room = cap - int(slot.get("count") or 0)
         if room <= 0:
@@ -1205,7 +1262,7 @@ def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: di
             return 0
     while count > 0:
         take = min(cap, count)
-        dest.append(_with_tier(item, take, want))
+        dest.append(_with_tier(item, take, want, want_enchant))
         count -= take
     return 0
 
@@ -1304,7 +1361,7 @@ def _normalize_ground_stacks(raw, rules: dict | None = None) -> list:
         except (TypeError, ValueError):
             count = 0
         if count > 0:
-            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"))
+            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"), enchant=stack_enchant(slot))
     return compact_chest(out)
 
 
@@ -1603,7 +1660,11 @@ def chest_of(state: dict, rules: dict | None = None) -> list:
 def pack_has(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> bool:
     if not player:
         return False
-    return stack_count(pack_of(state, player, rules), item) >= n
+    have = stack_count(pack_of(state, player, rules), item)
+    from gear import gear_item_count
+
+    have += gear_item_count(state, player, item)
+    return have >= n
 
 
 def pack_space_count(state: dict, player: str | None, item: str, rules: dict | None = None) -> int:
@@ -1638,6 +1699,9 @@ def add_to_pack(state: dict, player: str | None, item: str, n: int = 1, rules: d
     for i, slot in enumerate(pack):
         if slot and slot.get("item") == item:
             if is_tool(item) and stack_tool_tier(slot) != want:
+                continue
+            if stack_enchant(slot):
+                # Enchanted tools and boots stay on their own stack.
                 continue
             room = cap - int(slot.get("count") or 0)
             if room <= 0:
@@ -1782,14 +1846,16 @@ def add_stacks_to_ground(
 
 
 def all_stores(state: dict, rules: dict | None = None) -> list[dict]:
-    """Every stack in the chest and every pack."""
+    """Every stack in the chest, every pack, and worn/held gear."""
     from engine import known_players
+    from gear import gear_stacks
 
     stacks = list(chest_of(state, rules))
     players = state.get("players") or {}
     names = list(players) or list(known_players())
     for name in names:
         stacks.extend([s for s in pack_of(state, name, rules) if s])
+        stacks.extend(gear_stacks(state, name))
     return stacks
 
 
@@ -2052,6 +2118,10 @@ def migrate_inventory(state: dict, crops: dict | None = None, rules: dict | None
                 changed = True
 
     if ensure_starting_tools(state, rules):
+        changed = True
+    from gear import migrate_player_gear
+
+    if migrate_player_gear(state, rules):
         changed = True
     state["_inventory_is_view"] = True
     sync_inventory_view(state, rules)

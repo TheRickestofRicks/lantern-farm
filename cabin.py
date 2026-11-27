@@ -4,7 +4,7 @@ See docs/plan-hills-and-mine.md. Layout (rows top to bottom, columns left
 to right):
 
     (1,1) double bed    (1,2) chest         (1,3) empty floor
-    (2,1) free floor    (2,2) free floor    (2,3) fireplace
+    (2,1) free floor    (2,2) Creation Table (2,3) fireplace
     (3,1) door          (3,2) kitchen       (3,3) free floor
 
 The top-right floor tile is reserved for a buildable display case later.
@@ -20,6 +20,7 @@ CABIN_COLS = 3
 CABIN_BED = (1, 1)
 CABIN_CHEST = (1, 2)
 CABIN_DISPLAY = (1, 3)  # reserved; stays plain floor in this pass
+CABIN_TABLE = (2, 2)
 CABIN_FIREPLACE = (2, 3)
 CABIN_DOOR = (3, 1)
 CABIN_KITCHEN = (3, 2)
@@ -28,6 +29,7 @@ CABIN_KITCHEN = (3, 2)
 TILE_KIND = {
     CABIN_BED: "bed",
     CABIN_CHEST: "chest",
+    CABIN_TABLE: "table",
     CABIN_FIREPLACE: "fireplace",
     CABIN_DOOR: "door",
     CABIN_KITCHEN: "kitchen",
@@ -36,6 +38,7 @@ TILE_KIND = {
 KIND_LABEL = {
     "bed": "double bed",
     "chest": "chest",
+    "table": "Creation Table",
     "fireplace": "fireplace",
     "door": "door",
     "kitchen": "kitchen",
@@ -58,6 +61,10 @@ def cabin_tile_kind(row: int, col: int, state: dict | None = None) -> str:
     if kind == "chest" and state is not None:
         from chest import chest_is_built
         if not chest_is_built(state):
+            return "floor"
+    if kind == "table" and state is not None:
+        from creation import table_is_built
+        if not table_is_built(state):
             return "floor"
     return kind
 
@@ -155,6 +162,11 @@ def describe_cabin_tile(state: dict, row: int, col: int) -> str:
         body = f"{place} — a double bed. Ending your turn anywhere inside is still cabin sleep."
     elif kind == "chest":
         body = f"{place} — the cabin chest. Open it from this tile."
+    elif kind == "table":
+        body = (
+            f"{place} — the Creation Table. Craft runestones here any day; "
+            "on an aurora night you can enchant a pickaxe or boots."
+        )
     elif kind == "fireplace":
         from engine import fireplace_is_fueled
 
@@ -167,7 +179,12 @@ def describe_cabin_tile(state: dict, row: int, col: int) -> str:
     elif kind == "kitchen":
         body = f"{place} — the kitchen. Cook from this tile."
     else:
-        body = f"{place} — wooden floor."
+        from creation import table_tile, table_is_built
+        tr, tc = table_tile()
+        if (int(row), int(col)) == (tr, tc) and not table_is_built(state):
+            body = f"{place} — wooden floor, a clear space for a Creation Table (free to build)."
+        else:
+            body = f"{place} — wooden floor."
     return body + ground_look_phrase(state, AREA_CABIN, row, col)
 
 
@@ -181,6 +198,8 @@ def map_cell_lines(tile: dict) -> tuple[str, str]:
         return "fire", "lit" if tile.get("fire") else ""
     if typ == "cabin_door":
         return "door", ""
+    if typ == "cabin_table":
+        return "table", ""
     if typ == "cabin_kitchen":
         return "kitchen", ""
     return "floor", ""

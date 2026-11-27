@@ -30,8 +30,11 @@
     "forge": 5,
     "fuel_fireplace": 5,
     "fuel_stove": 5,
-    "build_chest": 5,
-    "upgrade_chest": 5
+    "build_chest": 25,
+    "upgrade_chest": 5,
+    "build_table": 0,
+    "craft_runestone": 5,
+    "enchant": 0
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -68,18 +71,20 @@
         "snow": 0
       },
       "autumn": {
-        "sun": 28,
+        "sun": 26,
         "cloud": 28,
         "rain": 30,
         "storm": 10,
-        "snow": 4
+        "snow": 4,
+        "aurora": 2
       },
       "winter": {
-        "sun": 22,
+        "sun": 20,
         "cloud": 20,
         "rain": 8,
         "storm": 0,
-        "snow": 50
+        "snow": 50,
+        "aurora": 2
       }
     }
   },
@@ -426,6 +431,69 @@
     },
     "combat": {
       "slime": 10
+    },
+    "level_cap": 10,
+    "levels": [
+      0,
+      40,
+      100,
+      200,
+      350,
+      550,
+      800,
+      1100,
+      1500,
+      2000
+    ]
+  },
+  "creation": {
+    "table": {
+      "row": 2,
+      "col": 2
+    },
+    "runestone": {
+      "ore": 1,
+      "out": 1,
+      "energy": 5
+    },
+    "enchants": {
+      "improved_yield": {
+        "name": "Improved Yield",
+        "target": "pickaxe",
+        "skill": "mining",
+        "skill_level": 5,
+        "runestones": 5,
+        "energy": 50,
+        "yield_chance": 25,
+        "gem_bonus": 5
+      },
+      "superior_yield": {
+        "name": "Superior Yield",
+        "target": "pickaxe",
+        "skill": "mining",
+        "skill_level": 10,
+        "runestones": 10,
+        "energy": 100,
+        "yield_chance": 50,
+        "gem_bonus": 10,
+        "replaces": "improved_yield"
+      },
+      "nimble": {
+        "name": "Nimble",
+        "target": "boots",
+        "overall_level": 10,
+        "runestones": 10,
+        "energy": 100,
+        "move_discount": 1
+      }
     }
+  },
+  "movement": {
+    "default": 5,
+    "hiking_areas": [
+      "hills",
+      "mine"
+    ],
+    "hiking_boots": 4
   }
 }

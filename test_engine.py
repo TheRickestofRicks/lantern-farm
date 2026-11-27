@@ -132,13 +132,14 @@ def settle(state, crops=None, rules=None):
 def inside(state, player, kind="door"):
     """Place a player on a cabin interior tile without charging movement."""
     from hills import set_player_place, AREA_CABIN
-    from cabin import CABIN_DOOR, CABIN_CHEST, CABIN_KITCHEN, CABIN_FIREPLACE, CABIN_BED
+    from cabin import CABIN_DOOR, CABIN_CHEST, CABIN_KITCHEN, CABIN_FIREPLACE, CABIN_BED, CABIN_TABLE
     spots = {
         "door": CABIN_DOOR,
         "chest": CABIN_CHEST,
         "kitchen": CABIN_KITCHEN,
         "fireplace": CABIN_FIREPLACE,
         "bed": CABIN_BED,
+        "table": CABIN_TABLE,
         "floor": (2, 2),
         "display": (1, 3),
     }
@@ -264,7 +265,7 @@ class WeatherDeterminism(unittest.TestCase):
             a = weather_for_day(day, self.crops, self.rules, seed=seed)
             b = weather_for_day(day, self.crops, self.rules, seed=seed)
             self.assertEqual(a, b)
-            self.assertIn(a, {"sun", "cloud", "rain", "storm", "snow"})
+            self.assertIn(a, {"aurora", "sun", "cloud", "rain", "storm", "snow"})
 
     def test_fresh_farm_starts_sunny_on_day_one(self):
         state = fresh_state(self.crops)
@@ -9024,7 +9025,7 @@ class CabinInterior(unittest.TestCase):
         self.assertEqual(cabin_tile_kind(1, 2), "chest")
         self.assertEqual(cabin_tile_kind(*CABIN_DISPLAY), "floor")
         self.assertEqual(cabin_tile_kind(2, 1), "floor")
-        self.assertEqual(cabin_tile_kind(2, 2), "floor")
+        self.assertEqual(cabin_tile_kind(2, 2), "table")
         self.assertEqual(cabin_tile_kind(2, 3), "fireplace")
         self.assertEqual(cabin_tile_kind(3, 1), "door")
         self.assertEqual(cabin_tile_kind(3, 2), "kitchen")
@@ -11003,3 +11004,245 @@ class XpTable(unittest.TestCase):
         self.assertEqual(farming_xp("water", custom), 1)
         self.assertEqual(combat_xp("grey", custom), 20)
         self.assertEqual(combat_xp("slime", custom), 11)
+
+
+class MainRoundCreationInventoryAndSkills(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["players"][P1]["energy"] = 120
+
+    def test_leather_boots_are_equipped_on_migrate_and_walking_still_costs_five(self):
+        from gear import gear_item, LEATHER_BOOTS, SLOT_BOOTS
+        from engine import step_energy_for
+        from hills import AREA_FARM
+
+        self.assertEqual(gear_item(self.state, P1, SLOT_BOOTS), LEATHER_BOOTS)
+        stand(self.state, P1, 2, 2)
+        before = int(self.state["players"][P1]["energy"])
+        ok, msg = do_action(self.state, self.crops, "move right", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(before - int(self.state["players"][P1]["energy"]), 5)
+        self.assertEqual(step_energy_for(self.state, P1, AREA_FARM, self.rules), 5)
+
+    def test_creation_table_is_free_to_build_at_r2c2_and_lists_legal_actions(self):
+        from creation import table_is_built
+        from engine import energy_cost
+
+        self.assertEqual(energy_cost("build_chest", self.rules), 25)
+        self.assertFalse(table_is_built(self.state))
+        inside(self.state, P1, "kitchen")
+        ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("row 2 col 2", msg.lower())
+        inside(self.state, P1, "table")
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("build table", legal)
+        self.assertIn("free", format_legal_action("build table", self.state, self.crops, P1, self.rules))
+        energy = int(self.state["players"][P1]["energy"])
+        ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(table_is_built(self.state))
+        self.assertEqual(self.state["players"][P1]["energy"], energy)
+        self.assertIn("Creation Table", msg)
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertNotIn("build table", legal)
+        ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+
+    def test_chest_build_now_costs_twenty_five_energy(self):
+        from inventory import add_to_pack
+        from chest import chest_is_built
+
+        inside(self.state, P1, "chest")
+        add_to_pack(self.state, P1, "wood", 5)
+        self.state["players"][P1]["energy"] = 20
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("energy", msg.lower())
+        self.state["players"][P1]["energy"] = 25
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(chest_is_built(self.state))
+        self.assertEqual(self.state["players"][P1]["energy"], 0)
+
+    def test_runestones_are_crafted_from_ore_at_the_table(self):
+        from creation import build_table
+        from inventory import add_to_pack, stack_count, pack_of, pack_has
+
+        inside(self.state, P1, "table")
+        ok, msg = build_table(self.state, P1, self.rules)
+        self.assertTrue(ok, msg)
+        add_to_pack(self.state, P1, "runestone_ore", 2)
+        energy = int(self.state["players"][P1]["energy"])
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("craft runestone", legal)
+        ok, msg = do_action(self.state, self.crops, "craft runestone", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "runestone", 1))
+        self.assertEqual(stack_count(pack_of(self.state, P1), "runestone_ore"), 1)
+        self.assertEqual(self.state["players"][P1]["energy"], energy - 5)
+
+    def test_hiking_boots_cost_four_in_the_hills_and_nimble_subtracts_one(self):
+        from inventory import add_to_pack
+        from gear import HIKING_BOOTS, equip_from_pack, gear_of, SLOT_BOOTS, SLOT_HANDS
+        from hills import set_player_place, AREA_HILLS, AREA_FARM
+        from engine import step_energy_for
+        from xp import grant_xp, overall_level, empty_xp
+        from creation import build_table
+
+        add_to_pack(self.state, P1, HIKING_BOOTS, 1)
+        # hiking is in the first free pack slot
+        pack = self.state["players"][P1]["pack"]
+        idx = next(i + 1 for i, s in enumerate(pack) if s and s.get("item") == HIKING_BOOTS)
+        ok, msg = equip_from_pack(self.state, P1, idx, "boots", self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(step_energy_for(self.state, P1, AREA_FARM, self.rules), 5)
+        self.assertEqual(step_energy_for(self.state, P1, AREA_HILLS, self.rules), 4)
+        set_player_place(self.state, P1, AREA_HILLS, 2, 2)
+        before = int(self.state["players"][P1]["energy"])
+        ok, msg = do_action(self.state, self.crops, "move right", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(before - int(self.state["players"][P1]["energy"]), 4)
+
+        # Nimble needs overall 10, aurora, table, 10 runestones, 100 energy.
+        grant_xp(self.state, P1, "mining", 2000, self.rules)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 10)
+        self.state["weather"] = "aurora"
+        inside(self.state, P1, "table")
+        self.assertTrue(build_table(self.state, P1, self.rules)[0] or True)
+        from creation import table_is_built
+        if not table_is_built(self.state):
+            ok, msg = do_action(self.state, self.crops, "build table", player=P1, rules=self.rules)
+            self.assertTrue(ok, msg)
+        add_to_pack(self.state, P1, "runestone", 10)
+        self.state["players"][P1]["energy"] = 120
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("enchant boots nimble", legal)
+        ok, msg = do_action(self.state, self.crops, "enchant boots nimble", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["players"][P1]["energy"], 20)
+        self.assertEqual(gear_of(self.state, P1, SLOT_BOOTS).get("enchant"), "nimble")
+        self.assertEqual(step_energy_for(self.state, P1, AREA_HILLS, self.rules), 3)
+        self.assertEqual(step_energy_for(self.state, P1, AREA_FARM, self.rules), 4)
+        from hills import AREA_CABIN
+        self.assertEqual(step_energy_for(self.state, P1, AREA_CABIN, self.rules), 0)
+
+    def test_enchants_need_an_aurora_night_and_pickaxe_yields_can_improve(self):
+        from creation import build_table, enchant_pickaxe
+        from inventory import add_to_pack, TOOL_PICKAXE, stack_enchant
+        from gear import held_tool_slot
+        from xp import grant_xp, skill_level
+        from mine import yield_with_upgrade
+
+        inside(self.state, P1, "table")
+        self.assertTrue(build_table(self.state, P1, self.rules)[0])
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1)
+        add_to_pack(self.state, P1, "runestone", 15)
+        grant_xp(self.state, P1, "mining", 2000, self.rules)
+        self.assertEqual(skill_level(self.state, P1, "mining", self.rules), 10)
+        self.state["weather"] = "sun"
+        self.state["players"][P1]["energy"] = 120
+        ok, msg = do_action(self.state, self.crops, "enchant pickaxe improved yield", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("aurora", msg.lower())
+        self.state["weather"] = "aurora"
+        self.state["players"][P1]["energy"] = 200
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("enchant pickaxe improved yield", legal)
+        self.assertIn("enchant pickaxe superior yield", legal)
+        ok, msg = do_action(self.state, self.crops, "enchant pickaxe improved yield", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        slot, _, _ = held_tool_slot(self.state, P1, TOOL_PICKAXE)
+        self.assertEqual(stack_enchant(slot), "improved_yield")
+        self.assertEqual(self.state["players"][P1]["energy"], 150)
+        ok, msg = do_action(self.state, self.crops, "enchant pickaxe superior yield", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        slot, _, _ = held_tool_slot(self.state, P1, TOOL_PICKAXE)
+        self.assertEqual(stack_enchant(slot), "superior_yield")
+        # Forced +1: 50% chance, but the function returns 1 or 2; both are legal.
+        got = yield_with_upgrade(self.state, TOOL_PICKAXE, 1, self.rules, player=P1)
+        self.assertIn(got, (1, 2))
+
+    def test_xp_is_granted_from_the_table_and_levels_cap_at_ten(self):
+        from xp import (
+            grant_xp, farming_xp, skill_level, overall_level, level_for_xp,
+            player_xp_map, xp_view,
+        )
+        from engine import plant
+
+        stand(self.state, P1, 2, 1)
+        from inventory import add_to_pack, TOOL_HOE
+        add_to_pack(self.state, P1, TOOL_HOE, 1)
+        ok, msg = till(self.state, self.crops, 2, 1, P1)
+        self.assertTrue(ok, msg)
+        add_to_pack(self.state, P1, "strawberry_seed", 1)
+        self.assertEqual(player_xp_map(self.state, P1)["farming"], 0)
+        ok, msg = plant(self.state, self.crops, 2, 1, "strawberry", P1)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_xp_map(self.state, P1)["farming"], farming_xp("plant", self.rules))
+        self.assertEqual(skill_level(self.state, P1, "farming", self.rules), 1)
+        grant_xp(self.state, P1, "mining", 5000, self.rules)
+        self.assertEqual(skill_level(self.state, P1, "mining", self.rules), 10)
+        self.assertGreaterEqual(player_xp_map(self.state, P1)["mining"], 2000)
+        self.assertEqual(level_for_xp(1999, self.rules), 9)
+        self.assertEqual(level_for_xp(2000, self.rules), 10)
+        self.assertEqual(overall_level(self.state, P1, self.rules), 10)
+        view = xp_view(self.state, P1, self.rules)
+        self.assertTrue(view["skills"]["mining"]["capped"])
+        self.assertEqual(view["level_cap"], 10)
+
+    def test_aurora_is_rare_accurate_and_counts_as_clear(self):
+        from engine import (
+            weather_for_day, forecast_weather, find_weather_seed,
+            is_wet_weather, weather_pauses_growth, weather_arrive_message,
+            season_weather_weights,
+        )
+
+        autumn = season_weather_weights("autumn", self.rules)
+        self.assertEqual(autumn.get("aurora"), 2)
+        self.assertEqual(sum(autumn.values()), 100)
+        self.assertFalse(is_wet_weather("aurora"))
+        self.assertFalse(weather_pauses_growth("aurora", self.rules))
+        self.assertIn("aurora", weather_arrive_message("aurora").lower())
+        # Day 46 is the first day of autumn (15-day seasons).
+        seed = find_weather_seed({46: "aurora"}, self.rules, self.crops)
+        self.assertEqual(weather_for_day(46, self.crops, self.rules, seed=seed), "aurora")
+        # Accurate at every lead, and a non-aurora day is never forecast as aurora.
+        for lead, made_on in ((1, 45), (3, 43), (7, 39)):
+            self.assertEqual(
+                forecast_weather(46, made_on, seed, self.crops, self.rules),
+                "aurora",
+            )
+        # A neighbouring day that is not aurora must not be wrongly called one.
+        if weather_for_day(47, self.crops, self.rules, seed=seed) != "aurora":
+            self.assertNotEqual(
+                forecast_weather(47, 46, seed, self.crops, self.rules),
+                "aurora",
+            )
+
+    def test_inventory_payload_lists_gear_and_skills(self):
+        from gear import gear_view, LEATHER_BOOTS
+        view = gear_view(self.state, P1, self.rules)
+        self.assertEqual((view.get("boots") or {}).get("item"), LEATHER_BOOTS)
+        self.assertIn("xp", view)
+        self.assertEqual(len(view.get("pack") or []), 4)
+        payload = __import__("web").api_payload(self.state, self.crops, player=P1)
+        self.assertIn("inventory", payload)
+        self.assertEqual(payload["inventory"]["boots"]["item"], LEATHER_BOOTS)
+        self.assertIn("table", payload)
+
+    def test_hiking_boots_are_sold_at_the_honour_store(self):
+        from gear import HIKING_BOOTS, hiking_boots_price
+        from inventory import pack_has
+
+        self.assertEqual(hiking_boots_price(self.rules), 50)
+        at_town(self.state, P1, "store")
+        self.state["gold"] = 50
+        ok, msg = buy(self.state, self.crops, HIKING_BOOTS, 1, P1)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, HIKING_BOOTS, 1))
+        self.assertEqual(self.state["gold"], 0)

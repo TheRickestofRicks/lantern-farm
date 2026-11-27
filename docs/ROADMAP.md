@@ -11,6 +11,16 @@ Finish Year 1: all four seasons playable, then settle into daily play sessions.
 Year 1 winter is in play. See Next for the remaining season work.
 The east market town is in: stall, honour store, and forge, east of the cabin.
 
+## In (2026-11-27)
+
+- Creation Table at cabin row 2 col 2, free to build. Craft runestones from runestone ore any day (1 ore, 5 energy).
+- Inventory window (I, and a button left of Chest): clothes, boots, and hands plus the four general backpack slots. Art style lives in Settings. Leather boots are equipped on migrate so walking still costs 5. The cabin chest now costs 5 wood and 25 energy to build.
+- Hiking boots (50G at the honour store) cost 4 energy in the hills and the mine. Nimble (overall level 10, 10 runestones, 100 energy, Creation Table on an aurora night) subtracts 1 from a paid step; cabin walking stays free.
+- Cosmetic clothes via `starting_clothes` in the player config. Lumen starts in a blue sweater; the other farm player can start in a green hoodie the same way.
+- XP is granted from the `xp` table during play. Skill levels cap at 10; overall level uses the same thresholds on total XP. Progress is shown in the inventory window.
+- Aurora nights: very rare clear weather in autumn and winter only, always forecast accurately, cheap veil over the map.
+- Pickaxe Improved Yield and Superior Yield, worked at the Creation Table on aurora nights.
+
 ## Next
 
 - Winter season, as Year 1 continues toward all four seasons being playable.
@@ -26,7 +36,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 - Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
 - Well-rested bed upgrade (+5 when you sleep in the upgraded bed above 10 energy). Together rest is already in and stays a separate bonus.
 - Journal history: the human player can browse journals from previous years in the journal UI, with a “Copy year” / export button that produces a clean text summary of that year to paste to the AI player.
-- Skills / XP (amounts pending a final okay): a single `xp` table in `rules.json`. Mining differs by rock (plain stone 2, copper ore 5, iron 8, gold 12, runestone ore 15, plus 5 when a gem such as quartz drops). Woodcutting is 5 per tree. Farming is 1 per plant and 4 per harvest; watering gives 0. Combat is 10 per slime.
+- Further skill uses and fine-tuning of the XP amounts in `rules.json` (granting, the level cap, and the inventory display are in).
 
 ## Later
 
@@ -40,7 +50,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Coffee (+40 energy now, with a sleep penalty). Herbal tea is already in the shop.
 - Open questions from granular growth: mixed jam berries, fertilizer prices after a season of play, and the pack stack cap.
 - Winter market stall or special order board that occasionally buys a cooked meal.
-- Rune system: runestone ore from the mine can be carved and imbued (ore + a runestone) to (1) enchant tools (Bounty = +1 yield, Shatter = splash), (2) waystones — attune a cleared tile (rocks and items removed) with transcribed runes and teleport back to it for a small energy cost, replacing the removed elevator, and (3) a homeward rune at high levels (teleport home).
+- The rest of the rune system: Shatter (splash mining), waystones (attune a cleared tile and teleport back for a small energy cost, replacing the removed elevator), and a homeward rune at high levels. Runestone crafting and the first pickaxe yield enchants plus Nimble are already in at the Creation Table.
 
 ## Idea: snow days pause plant growth (Rick, 2026-11-26)
 - On snow days, crops don't advance a growth stage (growth is paused, not lost).
@@ -68,8 +78,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Overfishing is possible and tracked per species.
 - Purpose: late-game activities for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
 
-## Idea: skills / XP (Rick, 2026-11-27; amounts pending okay)
-- Experience amounts live in one `xp` table in `rules.json` so they are easy to tune. They are not granted during play yet.
+## In: skills / XP (Rick, 2026-11-27; granted 2026-11-27)
+- Experience amounts live in one `xp` table in `rules.json` so they are easy to tune. They are granted during play, with skill levels capped at 10 and overall level taken from total XP.
 - Mining XP differs per rock: plain stone 2, copper ore 5, iron ore 8, gold ore 12, runestone ore 15. A +5 bonus applies when a gem drops (today that is quartz from plain stone on floors 1–4).
 - Woodcutting: 5 XP per tree chopped.
 - Farming: 1 XP per plant and 4 XP per harvest. Watering gives 0.

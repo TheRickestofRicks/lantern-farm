@@ -1174,6 +1174,84 @@ PAGE = r"""<!DOCTYPE html>
       border-radius: 8px;
       text-align: center;
     }
+
+    .inventory-gear {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(5.5rem, 1fr));
+      gap: 0.6rem;
+      margin: 0.6rem 0 1rem;
+    }
+    .inventory-slot {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #140f0c;
+      min-height: 5.8rem;
+      padding: 0.4rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      cursor: pointer;
+    }
+    .inventory-slot .slot-kind {
+      color: var(--gold);
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .inventory-slot .enchant-tag {
+      color: #9ad4ce;
+      font-size: 0.75rem;
+    }
+    .inventory-skills {
+      display: grid;
+      gap: 0.45rem;
+      margin: 0.4rem 0 0.8rem;
+    }
+    .skill-row {
+      display: grid;
+      grid-template-columns: 7.5rem 1fr auto;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+    .skill-bar {
+      height: 0.45rem;
+      background: #2a2018;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .skill-bar > span {
+      display: block;
+      height: 100%;
+      background: #c9a227;
+    }
+    .aurora-veil {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      z-index: 8;
+      background: linear-gradient(
+        180deg,
+        rgba(40, 90, 180, 0.22),
+        rgba(40, 180, 130, 0.12) 45%,
+        rgba(90, 40, 150, 0.10) 75%,
+        transparent 100%
+      );
+      mix-blend-mode: screen;
+      animation: aurora-shift 14s ease-in-out infinite alternate;
+    }
+    @keyframes aurora-shift {
+      from { opacity: 0.65; filter: hue-rotate(0deg); }
+      to { opacity: 1; filter: hue-rotate(28deg); }
+    }
+    #table-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0.6rem 0 1rem;
+    }
   </style>
 </head>
 <body>
@@ -1205,10 +1283,11 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>G</kbd> forage
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
-        &middot; <kbd>E</kbd> enter or interact (cabin, mine)
+        &middot; <kbd>I</kbd> inventory
+        &middot; <kbd>E</kbd> enter or interact (cabin, mine, table)
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn
         &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)
-        &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, or settings, or cancels unearth
+        &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, inventory, table, or settings, or cancels unearth
       </p>
     </section>
     <aside class="panel">
@@ -1217,12 +1296,11 @@ PAGE = r"""<!DOCTYPE html>
       <div class="inv" id="inv"></div>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button" hidden>Shop <kbd>S</kbd></button>
+        <button class="btn" id="open-inventory" type="button">Inventory <kbd>I</kbd></button>
         <button class="btn" id="open-chest" type="button" hidden>Chest</button>
+        <button class="btn" id="open-table" type="button" hidden>Table</button>
         <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
         <button class="btn" id="open-saves" type="button">Saves</button>
-        <label class="art-pack-wrap">Art
-          <select id="art-pack" aria-label="Art pack"></select>
-        </label>
       </div>
       <details class="recipe-book" id="recipe-book">
         <summary class="recipe-book-head">Recipe book</summary>
@@ -1325,6 +1403,35 @@ PAGE = r"""<!DOCTYPE html>
       <p class="chest-help" id="chest-help">Click an item for Take or Put (1 or the stack). Drag moves a full stack for the destination — up to 8 in the backpack, 16 in the chest. Leftovers stay where they were.</p>
     </div>
   </div>
+  <div id="inventory-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="inventory-backdrop"></div>
+    <div class="shop-dialog inventory-dialog" role="dialog" aria-modal="true" aria-labelledby="inventory-title">
+      <div class="shop-head">
+        <h2 id="inventory-title">Inventory</h2>
+        <button type="button" class="btn" id="inventory-close">Close</button>
+      </div>
+      <p class="chest-meta" id="inventory-level"></p>
+      <div class="inventory-gear" id="inventory-gear"></div>
+      <h3 class="shop-section-title">Backpack</h3>
+      <div id="inventory-pack-grid" class="chest-grid"></div>
+      <h3 class="shop-section-title">Skills</h3>
+      <div id="inventory-skills" class="inventory-skills"></div>
+      <p class="chest-help">Clothes, boots, and hands are worn or held. The backpack still has four general slots. Click a backpack item and a slot to equip it, or click worn gear to put it away.</p>
+    </div>
+  </div>
+  <div id="table-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="table-backdrop"></div>
+    <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="table-title">
+      <div class="shop-head">
+        <h2 id="table-title">Creation Table</h2>
+        <button type="button" class="btn" id="table-close">Close</button>
+      </div>
+      <p class="chest-meta" id="table-meta"></p>
+      <div id="table-actions"></div>
+      <p class="chest-help">Craft runestones from runestone ore any day. Enchants only work on an aurora night, with the pickaxe in your hands or backpack and boots on your feet.</p>
+    </div>
+  </div>
+  <div id="aurora-veil" class="aurora-veil" hidden></div>
   <div id="settings-modal" class="shop-modal" hidden>
     <div class="shop-backdrop" id="settings-backdrop"></div>
     <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -1333,6 +1440,14 @@ PAGE = r"""<!DOCTYPE html>
         <button type="button" class="btn" id="settings-close">Close</button>
       </div>
       <form class="settings-form" id="settings-form">
+        <fieldset>
+          <legend>Art</legend>
+          <div class="settings-row">
+            <label for="art-pack">Art style</label>
+            <select id="art-pack" aria-label="Art pack"></select>
+          </div>
+          <p class="settings-help">This only changes how the farm looks on this device.</p>
+        </fieldset>
         <label>
           <input type="checkbox" id="settings-autopass" name="autopass">
           Taking a break from farming
@@ -1354,8 +1469,8 @@ PAGE = r"""<!DOCTYPE html>
     </div>
   </div>
   <script>
-    const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow (soil stays wet, but crops don't grow today)"};
-    const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow (soil stays wet, but crops don't grow)"};
+    const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow (soil stays wet, but crops don't grow today)", aurora: "an aurora night (clear, rare)"};
+    const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow (soil stays wet, but crops don't grow)", aurora: "aurora night"};
     const PLAYERS = __PLAYERS_JSON__;
     const ROWS = __ROWS__;
     const COLS = __COLS__;
@@ -1381,6 +1496,9 @@ PAGE = r"""<!DOCTYPE html>
     let settingsOpen = false;
     let chestOpen = false;
     let chestBusy = false;
+    let inventoryOpen = false;
+    let tableOpen = false;
+    let inventoryPending = null;
     let savesSwitch = null;
     let savesRenameId = null;
     let journalSeason = "spring";
@@ -1559,7 +1677,7 @@ PAGE = r"""<!DOCTYPE html>
           tier = tierMatch[1];
           rest = "chest";
         }
-        const tiles = {floor: 1, bed: 1, chest: 1, fireplace: 1, door: 1, kitchen: 1};
+        const tiles = {floor: 1, bed: 1, chest: 1, table: 1, fireplace: 1, door: 1, kitchen: 1};
         if (tiles[rest]) return {kind: "cabin_interior", tile: rest, fire: fire, tier: tier};
       }
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
@@ -2176,6 +2294,7 @@ PAGE = r"""<!DOCTYPE html>
           cabin_fireplace: tile.fire ? "the fireplace, already fueled for tonight." : "the fireplace. Fuel it from this tile.",
           cabin_door: "the door back out to the farm. Press E to leave.",
           cabin_kitchen: "the kitchen. Cook from this tile.",
+          cabin_table: "the Creation Table. Craft runestones here; enchant on an aurora night.",
           cabin_floor: "wooden floor."
         };
         return tileName(r, c) + " — " + (labels[tile.type] || "inside the cabin.");
@@ -2276,6 +2395,9 @@ PAGE = r"""<!DOCTYPE html>
       renderForecast(data);
       renderKeys(data);
       syncLocationLaunch(data);
+      syncAuroraVeil(data);
+      renderInventory(data);
+      renderTable(data);
       const s = data.state;
       const sky = weatherWord[s.weather] || s.weather;
       const capE = data.max_energy || 100;
@@ -3082,6 +3204,14 @@ PAGE = r"""<!DOCTYPE html>
         shopBtn.disabled = !atStore;
       }
       if (!atStore && shopOpen) closeShop();
+      const tableBtn = $("open-table");
+      const tableInfo = (data && data.table) || {};
+      const canTable = !!(data && (data.at_table || (data.at_table_site && !tableInfo.built)));
+      if (tableBtn) {
+        tableBtn.hidden = !canTable;
+        tableBtn.disabled = !canTable;
+      }
+      if (tableOpen && data && !data.at_table && !data.at_table_site) closeTable();
       const chestBtn = $("open-chest");
       const info = (data && data.chest_info) || {};
       const canOpen = !!(data && (data.at_chest || (data.at_chest_site && !info.built)));
@@ -4369,7 +4499,7 @@ PAGE = r"""<!DOCTYPE html>
         + ' &middot; <kbd>E</kbd> enter or interact'
         + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
         + ' &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)'
-        + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, or settings, or cancels unearth';
+        + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, inventory, table, or settings, or cancels unearth';
       let work;
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
@@ -4650,7 +4780,221 @@ PAGE = r"""<!DOCTYPE html>
       actCmd(cmd);
     }
 
+
+    function itemIconSrc(item, extra) {
+      extra = extra || {};
+      const tier = extra.tier || "";
+      const key = (tier && tier !== "basic") ? (item + "_" + tier) : item;
+      return "/item/" + encodeURIComponent(key) + ".svg";
+    }
+    function itemLabelFor(item, extra) {
+      extra = extra || {};
+      const names = (lastData && lastData.item_names) || {};
+      const rec = names[item] || {};
+      let name = rec.name || (item || "").replace(/_/g, " ");
+      if (extra.tier && extra.tier !== "basic") name = extra.tier + " " + name;
+      if (extra.enchant === "improved_yield") name += " (Improved Yield)";
+      if (extra.enchant === "superior_yield") name += " (Superior Yield)";
+      if (extra.enchant === "nimble") name += " (Nimble)";
+      return name;
+    }
+    function renderInvSlot(slot, kind) {
+      const wrap = document.createElement("div");
+      wrap.className = "inventory-slot";
+      wrap.dataset.kind = kind;
+      const tag = document.createElement("div");
+      tag.className = "slot-kind";
+      tag.textContent = kind;
+      wrap.appendChild(tag);
+      if (slot && slot.item) {
+        const img = document.createElement("img");
+        img.src = itemIconSrc(slot.item, slot);
+        img.alt = itemLabelFor(slot.item, slot);
+        img.width = 48;
+        img.height = 48;
+        wrap.appendChild(img);
+        const lab = document.createElement("div");
+        lab.textContent = itemLabelFor(slot.item, slot);
+        wrap.appendChild(lab);
+        if (slot.enchant) {
+          const en = document.createElement("div");
+          en.className = "enchant-tag";
+          en.textContent = slot.enchant.replace(/_/g, " ");
+          wrap.appendChild(en);
+        }
+      } else {
+        const lab = document.createElement("div");
+        lab.textContent = "empty";
+        wrap.appendChild(lab);
+      }
+      return wrap;
+    }
+    function openInventory() {
+      inventoryOpen = true;
+      const modal = $("inventory-modal");
+      if (modal) modal.hidden = false;
+      renderInventory(lastData);
+    }
+    function closeInventory() {
+      inventoryOpen = false;
+      inventoryPending = null;
+      const modal = $("inventory-modal");
+      if (modal) modal.hidden = true;
+    }
+    function renderInventory(data) {
+      if (!inventoryOpen) return;
+      const inv = (data && data.inventory) || {};
+      const xp = inv.xp || {};
+      const levelEl = $("inventory-level");
+      if (levelEl) {
+        const cap = xp.level_cap || 10;
+        const next = (xp.overall_next == null) ? "capped" : (xp.overall_next + " XP to next");
+        levelEl.textContent = "Overall level " + (xp.overall_level || 1) + " of " + cap +
+          " — " + (xp.total_xp || 0) + " total XP (" + next + ").";
+      }
+      const gear = $("inventory-gear");
+      if (gear) {
+        gear.innerHTML = "";
+        ["clothes", "boots", "hands"].forEach(function (kind) {
+          const el = renderInvSlot(inv[kind], kind);
+          el.addEventListener("click", function () {
+            if (!data || !data.your_turn) {
+              showToast("Wait for your turn to change what you are wearing.", true);
+              return;
+            }
+            if (inventoryPending && inventoryPending.from === "pack") {
+              actCmd("equip pack " + inventoryPending.slot + " " + kind);
+              inventoryPending = null;
+              return;
+            }
+            if (inv[kind] && inv[kind].item) {
+              actCmd("unequip " + kind);
+            }
+          });
+          gear.appendChild(el);
+        });
+      }
+      const packGrid = $("inventory-pack-grid");
+      if (packGrid) {
+        packGrid.innerHTML = "";
+        packGrid.className = "chest-grid";
+        const pack = inv.pack || [];
+        pack.forEach(function (slot, i) {
+          const el = renderInvSlot(slot, "pack " + (i + 1));
+          if (inventoryPending && inventoryPending.from === "pack" && inventoryPending.slot === (i + 1)) {
+            el.style.outline = "2px solid var(--gold)";
+          }
+          el.addEventListener("click", function () {
+            if (!slot || !slot.item) {
+              inventoryPending = null;
+              renderInventory(lastData);
+              return;
+            }
+            inventoryPending = {from: "pack", slot: i + 1};
+            showToast("Click clothes, boots, or hands to move " + itemLabelFor(slot.item, slot) + " there.");
+            renderInventory(lastData);
+          });
+          packGrid.appendChild(el);
+        });
+      }
+      const skills = $("inventory-skills");
+      if (skills) {
+        skills.innerHTML = "";
+        const rows = (xp.skills) || {};
+        const order = ["mining", "woodcutting", "farming", "combat"];
+        order.forEach(function (name) {
+          const rec = rows[name] || {level: 1, xp: 0, next: 0, into: 0};
+          const row = document.createElement("div");
+          row.className = "skill-row";
+          const lab = document.createElement("div");
+          lab.textContent = name.charAt(0).toUpperCase() + name.slice(1) + " " + (rec.level || 1);
+          const bar = document.createElement("div");
+          bar.className = "skill-bar";
+          const fill = document.createElement("span");
+          let pct = 0;
+          if (rec.capped) pct = 100;
+          else if (rec.next != null) {
+            const span = (rec.into || 0) + (rec.next || 0);
+            pct = span ? Math.max(0, Math.min(100, 100 * (rec.into || 0) / span)) : 0;
+          }
+          fill.style.width = pct + "%";
+          bar.appendChild(fill);
+          const meta = document.createElement("div");
+          meta.textContent = rec.capped ? (rec.xp + " XP") : ((rec.xp || 0) + " XP, " + (rec.next || 0) + " to next");
+          row.appendChild(lab);
+          row.appendChild(bar);
+          row.appendChild(meta);
+          skills.appendChild(row);
+        });
+      }
+    }
+    function openTable() {
+      tableOpen = true;
+      const modal = $("table-modal");
+      if (modal) modal.hidden = false;
+      renderTable(lastData);
+    }
+    function closeTable() {
+      tableOpen = false;
+      const modal = $("table-modal");
+      if (modal) modal.hidden = true;
+    }
+    function renderTable(data) {
+      if (!tableOpen) return;
+      const info = (data && data.table) || {};
+      const meta = $("table-meta");
+      if (meta) {
+        if (!info.built) {
+          meta.textContent = "A clear space in the middle of the cabin. Building the Creation Table is free.";
+        } else if (info.aurora) {
+          meta.textContent = "An aurora night. You can craft runestones and work enchants here.";
+        } else {
+          meta.textContent = "The Creation Table. Craft runestones today; enchants wait for an aurora night.";
+        }
+      }
+      const box = $("table-actions");
+      if (!box) return;
+      box.innerHTML = "";
+      const legal = info.legal || [];
+      const can = !!(data && data.your_turn && (data.at_table || data.at_table_site));
+      function addBtn(cmd, label) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn primary";
+        b.textContent = label;
+        b.disabled = !can;
+        b.addEventListener("click", function () { actCmd(cmd); });
+        box.appendChild(b);
+      }
+      if (!info.built) {
+        addBtn("build table", "Build table (free)");
+        return;
+      }
+      if (legal.indexOf("craft runestone") >= 0) {
+        const rec = info.runestone || {};
+        addBtn("craft runestone", "Craft runestone (" + (rec.ore || 1) + " ore, " + (rec.energy || 5) + " energy)");
+      }
+      legal.forEach(function (cmd) {
+        if (cmd.indexOf("enchant") === 0) addBtn(cmd, cmd);
+      });
+      if (info.built && can && legal.length === 0) {
+        const p = document.createElement("p");
+        p.className = "chest-help";
+        p.textContent = info.aurora
+          ? "Nothing you can work right now. Check your level, runestones, energy, and that the pickaxe or boots are ready."
+          : "Bring runestone ore to craft, or wait for an aurora night to enchant.";
+        box.appendChild(p);
+      }
+    }
+    function syncAuroraVeil(data) {
+      const veil = $("aurora-veil");
+      if (!veil) return;
+      const w = (data && data.state && data.state.weather) || "";
+      veil.hidden = w !== "aurora";
+    }
+
     function onKey(ev) {
+
       if (typingInField(ev)) return;
       if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
       const key = ev.key;
@@ -4664,6 +5008,14 @@ PAGE = r"""<!DOCTYPE html>
         }
         if (settingsOpen) {
           closeSettings();
+          return;
+        }
+        if (inventoryOpen) {
+          closeInventory();
+          return;
+        }
+        if (tableOpen) {
+          closeTable();
           return;
         }
         if (chestOpen) {
@@ -4751,6 +5103,12 @@ PAGE = r"""<!DOCTYPE html>
       if (letter === "j") {
         ev.preventDefault();
         openJournal();
+        return;
+      }
+      if (letter === "i") {
+        ev.preventDefault();
+        if (inventoryOpen) closeInventory();
+        else openInventory();
         return;
       }
       if (shopOpen || journalOpen || savesOpen) return;
@@ -4894,6 +5252,10 @@ PAGE = r"""<!DOCTYPE html>
           openChest();
           return;
         }
+        if (data.at_table || data.at_table_site) {
+          openTable();
+          return;
+        }
         return;
       }
     }
@@ -4909,6 +5271,18 @@ PAGE = r"""<!DOCTYPE html>
     if (backdrop) backdrop.addEventListener("click", function () { closeShop(); });
     const openChestBtn = $("open-chest");
     if (openChestBtn) openChestBtn.addEventListener("click", function () { openChest(); });
+    const openInvBtn = $("open-inventory");
+    if (openInvBtn) openInvBtn.addEventListener("click", function () { openInventory(); });
+    const closeInvBtn = $("inventory-close");
+    if (closeInvBtn) closeInvBtn.addEventListener("click", function () { closeInventory(); });
+    const invBackdrop = $("inventory-backdrop");
+    if (invBackdrop) invBackdrop.addEventListener("click", function () { closeInventory(); });
+    const openTableBtn = $("open-table");
+    if (openTableBtn) openTableBtn.addEventListener("click", function () { openTable(); });
+    const closeTableBtn = $("table-close");
+    if (closeTableBtn) closeTableBtn.addEventListener("click", function () { closeTable(); });
+    const tableBackdrop = $("table-backdrop");
+    if (tableBackdrop) tableBackdrop.addEventListener("click", function () { closeTable(); });
     const closeChestBtn = $("chest-close");
     if (closeChestBtn) closeChestBtn.addEventListener("click", function () { closeChest(); });
     const chestBackdrop = $("chest-backdrop");
@@ -5014,6 +5388,7 @@ def render_page(viewer: str | None = None) -> str:
         "__CABIN_SHORT__": _json.dumps(flavor("cabin_short") or "the cabin, lantern lit in the window."),
         "__CABIN_BY_WEATHER__": _json.dumps({
             "sun": flavor("cabin_short") or "the cabin, lantern lit in the window.",
+            "aurora": flavor("cabin_short_aurora") or "the cabin under an aurora night, lantern lit in the window.",
             "cloud": flavor("cabin_short_cloud") or "the cabin under a grey sky, lantern lit in the window.",
             "rain": flavor("cabin_short_rain") or "the cabin, rain drumming on the roof.",
             "storm": flavor("cabin_short_storm") or "the cabin, a storm rattling the roof.",
@@ -5038,7 +5413,8 @@ def _item_name_catalog(crops: dict, rules: dict | None = None, state: dict | Non
     from inventory import FERTILIZERS, TOOLS, EQUIPMENT, recipes, item_name
     from engine import stock_key
     from inventory import STAPLES, MATERIALS, FORAGE_ITEMS, item_eat_energy, item_sell_price
-    keys = list(TOOLS) + list(EQUIPMENT) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
+    from gear import CLOTHES, BOOTS
+    keys = list(TOOLS) + list(EQUIPMENT) + list(CLOTHES) + list(BOOTS) + list(FERTILIZERS) + list(STAPLES) + list(MATERIALS) + list(FORAGE_ITEMS) + list(recipes(rules))
     for kind, info in (crops.get("crops") or {}).items():
         keys.append(kind)
         keys.append(stock_key(kind, info))
@@ -5111,6 +5487,22 @@ def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
         "affordable": gold >= int(bag_price),
         "unique": False,
         "description": bag.get("description") or "",
+    }
+    from gear import HIKING_BOOTS, hiking_boots_price, boots_info, BOOTS
+    hike_info = boots_info(HIKING_BOOTS, rules) or BOOTS[HIKING_BOOTS]
+    hike_price = hiking_boots_price(rules)
+    out[HIKING_BOOTS] = {
+        "name": hike_info.get("name") or "hiking boots",
+        "name_plural": hike_info.get("name_plural") or "hiking boots",
+        "shop_name": hike_info.get("name") or "hiking boots",
+        "stock": "",
+        "seed_price": int(hike_price),
+        "price": int(hike_price),
+        "sell_price": None,
+        "available": True,
+        "affordable": gold >= int(hike_price),
+        "unique": False,
+        "description": hike_info.get("description") or "",
     }
     if not pickaxe_unlocked(state) or pickaxe_count(state, rules) >= 2:
         return out
@@ -5418,6 +5810,10 @@ def api_payload(
         "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
         "at_chest_site": bool(viewer and __import__("chest").player_at_build_tile(state, viewer, rules)),
         "chest_info": __import__("chest").public_chest(state, rules),
+        "at_table": bool(viewer and player_at_cabin_tile(state, viewer, "table")),
+        "at_table_site": bool(viewer and __import__("creation").player_at_table_site(state, viewer, rules)),
+        "table": __import__("creation").table_view(state, viewer, rules),
+        "inventory": __import__("gear").gear_view(state, viewer, rules) if viewer else {},
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
         "at_stall": bool(viewer and is_player_at_stall(state, viewer)),
         "at_store": bool(viewer and is_player_at_store(state, viewer)),
