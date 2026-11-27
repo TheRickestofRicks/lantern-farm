@@ -146,6 +146,50 @@ def max_energy(rules: dict | None = None) -> int:
     return int(rules.get("max_energy", 100))
 
 
+def energy_action_label(cost_verb: str, verb: str | None = None) -> str:
+    """Player-facing name for an energy-costing action in refusal messages."""
+    labels = {
+        "mine": "breaking rock",
+        "break": "breaking rock",
+        "till": "tilling",
+        "water": "watering",
+        "pluck": "plucking",
+        "chop": "chopping",
+        "forage": "foraging",
+        "craft": "crafting",
+        "fuel_fireplace": "fueling the fireplace",
+        "fuel_stove": "fueling the stove",
+        "strike": "striking",
+        "hit": "striking",
+        "attack": "striking",
+        "plant": "planting",
+        "unearth": "unearthing",
+        "fertilize": "fertilizing",
+        "harvest": "harvesting",
+        "enter_mine": "entering the mine",
+        "climb_up": "climbing up",
+        "climb_down": "climbing down",
+        "forge": "forging",
+        "take": "taking",
+        "drop": "dropping",
+        "rest": "resting",
+        "fuel": "fueling the fireplace",
+        "move": "walking",
+        "walking": "walking",
+        "go": "walking",
+        "walk": "walking",
+    }
+    key = cost_verb or verb or ""
+    if key in labels:
+        return labels[key]
+    return (key or "that").replace("_", " ")
+
+
+def energy_short_message(cost_verb: str, cost: int, energy: int, verb: str | None = None) -> str:
+    label = energy_action_label(cost_verb, verb)
+    return f"You're out of energy — {label} needs {cost} and you have {energy}."
+
+
 def energy_cost(action_verb: str, rules: dict | None = None) -> int:
     rules = rules or load_rules()
     costs = rules.get("action_energy") or {}
@@ -360,6 +404,88 @@ def sleeps_in_sleeping_bag(state: dict, player: str, rules: dict | None = None) 
     return (not is_player_in_cabin(state, player)) and player_has_sleeping_bag(state, player, rules)
 
 
+def homesickness_settings(rules: dict | None = None) -> tuple[int, int]:
+    """Return (energy penalty per away night, max cumulative penalty)."""
+    rules = rules or load_rules()
+    cfg = rules.get("homesickness") if isinstance(rules.get("homesickness"), dict) else {}
+    try:
+        step = max(0, int(cfg.get("energy_penalty") or 5))
+    except (TypeError, ValueError):
+        step = 5
+    try:
+        cap = max(0, int(cfg.get("max_penalty") or 50))
+    except (TypeError, ValueError):
+        cap = 50
+    return step, cap
+
+
+def player_homesickness(state: dict, player: str) -> int:
+    """Current cumulative energy penalty from nights away (0..max_penalty)."""
+    try:
+        return max(0, int(player_slot(state, player).get("homesickness") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def heart_is_home_tonight(state: dict, rules: dict | None = None) -> bool:
+    """True when both players sleep away, together on the same mine floor (or the same tile)."""
+    from hills import player_area, AREA_MINE, AREA_CABIN
+    from mine import player_floor
+
+    names = [n for n in known_players() if n]
+    if len(names) < 2:
+        return False
+    spots = []
+    for name in names:
+        if is_player_in_cabin(state, name):
+            return False
+        area = player_area(state, name)
+        row, col = player_where(state, name)
+        floor = player_floor(state, name) if area == AREA_MINE else None
+        spots.append((area, floor, row, col))
+    if len(spots) < 2:
+        return False
+    (a1, f1, r1, c1), (a2, f2, r2, c2) = spots[0], spots[1]
+    # Home is where the heart is: same mine floor is enough, even on different tiles.
+    if a1 == AREA_MINE and a2 == AREA_MINE and f1 and f2 and f1 == f2:
+        return True
+    return a1 == a2 and r1 == r2 and c1 == c2 and f1 == f2
+
+
+def upcoming_homesickness_penalty(state: dict, player: str, rules: dict | None = None) -> tuple[int, int, bool]:
+    """Penalty that would apply if the day turned now.
+
+    Returns (penalty applied tonight, stacks after tonight, heart-is-home).
+    A cabin night clears the stacks. Sleeping together away applies no penalty
+    and leaves the stacks unchanged. Otherwise the penalty grows by one step.
+    """
+    rules = rules or load_rules()
+    step, cap = homesickness_settings(rules)
+    current = player_homesickness(state, player)
+    if is_player_in_cabin(state, player):
+        return 0, 0, False
+    if heart_is_home_tonight(state, rules):
+        return 0, current, True
+    nxt = min(cap, current + step)
+    return nxt, nxt, False
+
+
+def apply_homesickness_for_wake(state: dict, rules: dict | None = None) -> dict:
+    """Adjust wake energies and update per-player homesickness stacks. Call at dawn."""
+    rules = rules or load_rules()
+    heart = heart_is_home_tonight(state, rules)
+    out = {"heart": heart, "penalty": {}, "cleared": {}, "stacks": {}}
+    for name in known_players():
+        current = player_homesickness(state, name)
+        penalty, stacks, _heart = upcoming_homesickness_penalty(state, name, rules)
+        slot = player_slot(state, name)
+        slot["homesickness"] = stacks
+        out["penalty"][name] = penalty
+        out["cleared"][name] = bool(is_player_in_cabin(state, name) and current)
+        out["stacks"][name] = stacks
+    return out
+
+
 def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> int:
     """Energy a player would wake with if the day turned right now."""
     rules = rules or load_rules()
@@ -375,8 +501,11 @@ def preview_wake_energy(state: dict, player: str, rules: dict | None = None) -> 
             cap += comfort_together_bonus(rules)
         return cap
     if sleeps_in_sleeping_bag(state, player, rules):
-        return max_energy(rules)
-    return pass_out_energy(rules)
+        energy = max_energy(rules)
+    else:
+        energy = pass_out_energy(rules)
+    penalty, _stacks, _heart = upcoming_homesickness_penalty(state, player, rules)
+    return max(0, energy - penalty)
 
 
 def player_energy_cap(state: dict, player: str, rules: dict | None = None) -> int:
@@ -1456,6 +1585,15 @@ def is_wet_weather(weather: str) -> bool:
     return weather in WET_WEATHER
 
 
+def weather_pauses_growth(weather: str, rules: dict | None = None) -> bool:
+    """True when this weather wets the soil but crops put on no growth."""
+    rules = rules or load_rules()
+    kinds = (rules.get("weather") or {}).get("no_growth")
+    if not isinstance(kinds, list):
+        kinds = ["snow"]
+    return str(weather or "") in {str(k) for k in kinds}
+
+
 def crop_info(crops: dict, kind: str) -> dict | None:
     table = crops.get("crops", {}) if crops else {}
     if kind in table:
@@ -1770,7 +1908,8 @@ def shop_listing(
     if state is not None:
         from mine import pickaxe_unlocked, pickaxe_in_world
         from inventory import TOOL_PICKAXE
-        if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules) and TOOL_PICKAXE not in items:
+        from mine import pickaxe_count
+        if pickaxe_unlocked(state) and pickaxe_count(state, rules) < 2 and TOOL_PICKAXE not in items:
             items.append(TOOL_PICKAXE)
     return items
 
@@ -2106,7 +2245,7 @@ def weather_arrive_message(weather: str) -> str:
     if weather == "storm":
         return flavor("storm") or "A storm rolls over the farm. Every plot is watered."
     if weather == "snow":
-        return flavor("snow") or "Snow settles on the farm. The soil is wet beneath it."
+        return flavor("snow") or "Snow settles on the farm. The soil stays wet, but crops don't grow today."
     if weather == "cloud":
         return flavor("cloud") or "The sky is overcast. The soil stays as you left it."
     return flavor("clear") or "A clear day dawns over the farm."
@@ -2191,6 +2330,8 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
     names = list(known_players()) or [p for p in (rules.get("players") or [])]
     existing = state.get("players") or {}
     comfort = apply_cabin_comfort(state, rules)
+    # Homesickness is computed from last night's positions, before anyone is moved.
+    homesick = apply_homesickness_for_wake(state, rules)
     slots = {}
     for name in names:
         key = normalize_player(name) or (str(name).strip().lower() if name else None)
@@ -2226,8 +2367,9 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
                 floor = int(prev.get("floor") or 0) or None
             except (TypeError, ValueError):
                 floor = None
-        if (not slept) and (not used_bag) and area == AREA_MINE:
-            from mine import wake_place_after_mine_passout, mine_of
+        season_shifted = False
+        if area == AREA_MINE:
+            from mine import wake_place_after_mine_passout, mine_of, ensure_mine
             mine = mine_of(state)
             crops_now = load_crops()
             new_season = normalize_season(state.get("season")) or "spring"
@@ -2236,12 +2378,18 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
                 mine.get("season") != new_season
                 or int(mine.get("year") or 0) != new_year
             )
-            area, row, col, floor = wake_place_after_mine_passout(
-                state, rules, season_changed=season_changed
-            )
-        elif used_bag and area == AREA_MINE:
-            from mine import ensure_mine
-            ensure_mine(state, rules)
+            if season_changed:
+                # Evict everyone, including sleeping-bag users, before the mine re-rolls.
+                area, row, col, floor = wake_place_after_mine_passout(
+                    state, rules, season_changed=True
+                )
+                season_shifted = True
+            elif (not slept) and (not used_bag):
+                area, row, col, floor = wake_place_after_mine_passout(
+                    state, rules, season_changed=False
+                )
+            elif used_bag:
+                ensure_mine(state, rules)
         from inventory import empty_pack, normalize_pack
         cap_hp = hills_max_hp(rules)
         try:
@@ -2249,14 +2397,19 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             hp_max = int(prev.get("hp_max") or cap_hp)
         except (TypeError, ValueError):
             hp, hp_max = cap_hp, cap_hp
+        from hills import away_hp_restore_cap
         hp = max(0, min(hp_max, hp))
         if slept:
             hp = hp_max
-
+        elif used_bag:
+            limit = min(hp_max, away_hp_restore_cap(rules))
+            if hp < limit:
+                hp = limit
         if key in comfort["wake"]:
             wake = int(comfort["wake"][key])
         else:
             wake = cap if slept else faint
+        wake = max(0, int(wake) - int(homesick["penalty"].get(key) or 0))
         slots[key] = {
             "energy": wake,
             "energy_max": wake if slept else cap,
@@ -2267,8 +2420,12 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
             "hp": hp,
             "hp_max": hp_max,
             "snacks_eaten": 0,
+            "homesickness": int(homesick["stacks"].get(key) or 0),
             "pack": normalize_pack(prev.get("pack")) if prev.get("pack") is not None else empty_pack(),
         }
+        from autopass import normalize_autopass, AUTOPASS_KEY
+        if prev.get(AUTOPASS_KEY) is not None:
+            slots[key][AUTOPASS_KEY] = normalize_autopass(prev.get(AUTOPASS_KEY))
         if (not slept) and area == AREA_MINE and floor:
             slots[key]["floor"] = int(floor)
     for key in known_players():
@@ -2291,6 +2448,12 @@ def apply_new_day_turns(state: dict, rules: dict | None = None) -> None:
     state["players"] = slots
     fallback = next(iter(slots), "player1")
     state["current_player"] = starter if starter in slots else fallback
+    # Re-roll after evictions so a season change never leaves anyone on a wiped floor.
+    # This also clears ground piles left in the mine.
+    from mine import ensure_mine
+    ensure_mine(state, rules)
+    from autopass import mark_turn_started
+    mark_turn_started(state)
 
 
 def migrate_tile_fields(state: dict) -> bool:
@@ -2668,6 +2831,7 @@ def end_turn(
     *,
     as_pass: bool = False,
     request_carry: bool = False,
+    via: str | None = None,
 ) -> tuple[bool, str]:
     rules = rules or load_rules()
     player, err = parse_player(player)
@@ -2699,7 +2863,12 @@ def end_turn(
     here_area = player_area(state, player)
     here_floor = player_floor(state, player) if here_area == AREA_MINE else None
     here = describe_place_where(here_area, *player_where(state, player), floor=here_floor)
-    ready_line = player_ready_line(state, player) or f"{display_name(player)} is ready to end the day"
+    if via == "autopass":
+        ready_line = (
+            f"{display_name(player)} is taking a break, so the farm ended the turn"
+        )
+    else:
+        ready_line = player_ready_line(state, player) or f"{display_name(player)} is ready to end the day"
     if everyone_done:
         rest = _collect_rest_outcomes(state, rules, crops)
         night = " ".join(item["note"] for item in rest)
@@ -2726,9 +2895,13 @@ def end_turn(
             f"It is {display_name(nxt)}'s turn.",
             player,
         )
+        from autopass import mark_turn_started
+        mark_turn_started(state)
         return True, brief
     nxt = other_player(player, rules)
     state["current_player"] = nxt
+    from autopass import mark_turn_started
+    mark_turn_started(state)
     cap = max_energy(rules)
     msg = (
         f"{ready_line}. {outlook}. "
@@ -2773,6 +2946,8 @@ def pass_turn(
     # Waiting to be carried is a silent flag. The partner sees "carry X to bed"
     # when they stand on the same tile; it is not announced in the log or toast.
     state["current_player"] = partner
+    from autopass import mark_turn_started
+    mark_turn_started(state)
     msg = f"{display_name(player)} passes the turn to {display_name(partner)}."
     log_append(state, msg, player)
     return True, msg
@@ -3386,7 +3561,7 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
             False,
             f"The {kind} at {here} is still filling out; it isn't ready to pick yet.",
         )
-    from inventory import pack_space_for, store_item, sync_inventory_view, item_name
+    from inventory import give_or_drop_at_player, store_item, sync_inventory_view, item_name
     growth = int(crop.get("growth") or 0)
     health = int(crop.get("health") or 100)
     harvests = int(crop.get("harvests") or 0)
@@ -3394,18 +3569,24 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         kind, growth, health, int(state.get("day") or 1), r, c, harvests,
         bonus=fertilizer_bonus(tile),
     )
-    if player and not pack_space_for(state, player, kind, yield_n):
-        return False, (
-            f"{display_name(player)}'s backpack is full. "
-            "Drop something at the cabin chest, then come back to harvest."
-        )
-    leftover = store_item(state, kind, yield_n, player, prefer="pack" if player else "chest")
-    if leftover:
-        return False, "There is no room for the harvest."
+    packed, dropped, phrase = (0, 0, "")
+    if player:
+        packed, dropped, phrase = give_or_drop_at_player(state, player, kind, yield_n)
+    else:
+        leftover = store_item(state, kind, yield_n, player, prefer="chest")
+        if leftover:
+            return False, "There is no room for the harvest."
+
+    def _with_overflow(base: str) -> str:
+        if not dropped or not phrase:
+            return base
+        extra = phrase if str(phrase).endswith(".") else f"{phrase}."
+        return f"{base} {extra}"
+
     if crop.get("stage") == "frost_bitten":
         crop["stage"] = "withered"
         noun = crop_name_plural(kind, info, yield_n)
-        msg = (
+        msg = _with_overflow(
             f"{who(player, 'harvest', 'harvests')} {yield_n} frost-bitten {noun} at {here}. "
             "The plant is spent and will need to be cleared."
         )
@@ -3420,14 +3601,14 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
         noun = crop_name_plural(kind, info, yield_n)
         if is_perennial(info) and state.get("season") not in (info.get("seasons") or []):
             crop["stage"] = "dormant"
-            msg = (
+            msg = _with_overflow(
                 f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}. "
                 "It will rest until spring."
             )
         else:
             crop["stage"] = "regrowing"
             again = regrow_days(info) or grow_days(info)
-            msg = (
+            msg = _with_overflow(
                 f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}. "
                 f"It will fruit again in {again} watered day(s) if it is still in season."
             )
@@ -3437,7 +3618,7 @@ def harvest(state: dict, crops: dict, row, col, player: str | None = None) -> tu
     # The bed stays tilled; today's water remains. Till-hold starts (or resets if watered).
     reset_till_hold(tile)
     noun = crop_name_plural(kind, info, yield_n)
-    msg = f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}."
+    msg = _with_overflow(f"{who(player, 'harvest', 'harvests')} {yield_n} {noun} at {here}.")
     log_append(state, msg, player)
     return True, msg
 
@@ -3576,13 +3757,17 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
             return False, (
                 "The shop will sell a pickaxe once someone finds the mine entrance in the hills."
             )
-        if pickaxe_in_world(state):
-            return False, "There's already a pickaxe on the farm."
+        from mine import pickaxe_count
+        have_axes = pickaxe_count(state, load_rules())
+        if have_axes >= 2:
+            return False, "There are already two pickaxes on the farm."
         count, err = _parse_count(n)
         if err:
             return False, err
         if count != 1:
-            return False, "The shop only has one pickaxe."
+            return False, "The shop sells one pickaxe at a time."
+        if have_axes + count > 2:
+            return False, "There are already two pickaxes on the farm."
         price = pickaxe_price()
         gold = int(state["gold"])
         if gold < price:
@@ -3880,6 +4065,7 @@ def _apply_season_to_crop(state: dict, crops: dict, crop: dict, row: int, col: i
             crop["overwintered"] = True
             if crop_can_fruit(crop, info, state, crops) and not crop.get("fruiting_started"):
                 crop["days_grown"] = 0
+                crop["growth"] = 0
                 crop["fruiting_started"] = True
                 crop["stage"] = "regrowing"
             else:
@@ -3903,6 +4089,20 @@ def _apply_season_to_crop(state: dict, crops: dict, crop: dict, row: int, col: i
     return notes
 
 
+def crop_can_send_runner(crop: dict, info: dict, state: dict, crops: dict | None = None) -> bool:
+    """Establishing and first-year runner children do not spread yet."""
+    if not crop or not info:
+        return False
+    stage = crop.get("stage")
+    if stage in {"withered", "dormant", "frost_bitten", "seed", "seedling"}:
+        return False
+    if is_perennial(info) and not crop_can_fruit(crop, info, state, crops):
+        return False
+    if crop.get("runner_from") and not crop.get("overwintered") and not int(crop.get("harvests") or 0):
+        return False
+    return True
+
+
 def _apply_runners(state: dict, crops: dict) -> list[str]:
     """Active perennials may send one runner a season into an adjacent tilled empty plot."""
     notes: list[str] = []
@@ -3923,6 +4123,8 @@ def _apply_runners(state: dict, crops: dict) -> list[str]:
         if season not in (info.get("seasons") or []):
             continue
         if int(crop.get("runner_season") if crop.get("runner_season") is not None else -1) == season_i:
+            continue
+        if not crop_can_send_runner(crop, info, state, crops):
             continue
         parents.append((r, c, crop, info))
     for r, c, crop, info in parents:
@@ -4000,6 +4202,11 @@ def _apply_evening_growth(state: dict, crops: dict, rules: dict | None = None) -
             else:
                 crop["health"] = min(100, int(crop.get("health") or 100) + 4)
             # General fertilizer's one-time health bump is applied when the bag is used.
+            # Snow (and any rules.weather.no_growth kind) keeps the soil wet but
+            # pauses growth, including an establishing perennial's day count.
+            if weather_pauses_growth(state.get("weather"), rules):
+                tile["watered"] = False
+                continue
             can_grow = bool(info) and crop.get("stage") not in {"mature", "frost_bitten"} and not establishing
             if establishing:
                 can_grow = False
@@ -4353,7 +4560,7 @@ def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
                 f"and wakes with {energy} energy."
             )
         elif in_mine:
-            energy = pass_out_energy(rules)
+            energy = preview_wake_energy(state, name, rules)
             wake_area, wr, wc, wfloor = wake_place_after_mine_passout(
                 state, rules, season_changed=next_season_changed
             )
@@ -4363,9 +4570,21 @@ def _collect_rest_outcomes(state: dict, rules: dict, crops: dict) -> list[dict]:
                 f"with {energy} energy."
             )
         else:
-            energy = pass_out_energy(rules)
+            energy = preview_wake_energy(state, name, rules)
             note = (
                 f"{display_name(name)} passed out {where} and wakes with {energy} energy."
+            )
+        penalty, stacks, heart = upcoming_homesickness_penalty(state, name, rules)
+        if heart and not in_cabin:
+            note += " Home is where the heart is — sleeping together keeps homesickness at bay tonight."
+        elif penalty:
+            note += f" Homesick −{penalty} energy."
+        elif in_cabin and player_homesickness(state, name):
+            note += " A night at home clears the homesickness."
+        if in_mine and next_season_changed:
+            note += (
+                f" The mine shifts with the season; {display_name(name)} "
+                "wakes at the mine entrance."
             )
         out.append({
             "player": name,
@@ -4535,10 +4754,14 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
-        return (
-            False,
-            f"Not enough energy. A step costs {cost}; "
-            f"{display_name(player)} has {energy} left.",
+        return False, energy_short_message("move", cost, energy, verb="walking")
+    from hills import AREA_MINE as _MINE
+    from mine import player_floor, slime_parting_hit
+    hit = ""
+    if area == _MINE:
+        hit = slime_parting_hit(
+            state, player, rules,
+            floor=player_floor(state, player) or 1, row=row, col=col, as_you="leave",
         )
     crossing = area_crossing(area, row, col, canonical)
     if crossing:
@@ -4546,10 +4769,12 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
         set_player_place(state, player, dest_area, dest_r, dest_c)
         slot["energy"] = energy - cost
         paid = f" ({cost} energy)" if cost else ""
-        return (
-            True,
-            f"{display_name(player)} walks {word} to {describe_area_place(dest_area, dest_r, dest_c)}{paid}.",
+        msg = (
+            f"{display_name(player)} walks {word} to {describe_area_place(dest_area, dest_r, dest_c)}{paid}."
         )
+        if hit:
+            msg = f"{msg} {hit}"
+        return True, msg
     dest = (row + delta[0], col + delta[1])
     if not in_bounds(*dest):
         from hills import AREA_MINE
@@ -4568,10 +4793,12 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
     set_player_place(state, player, area, dest[0], dest[1])
     slot["energy"] = energy - cost
     paid = f" ({cost} energy)" if cost else ""
-    return (
-        True,
-        f"{display_name(player)} walks {word} to {describe_area_place(area, dest[0], dest[1])}{paid}.",
+    msg = (
+        f"{display_name(player)} walks {word} to {describe_area_place(area, dest[0], dest[1])}{paid}."
     )
+    if hit:
+        msg = f"{msg} {hit}"
+    return True, msg
 
 
 def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tuple[bool, str]:
@@ -4591,24 +4818,27 @@ def move_to(state: dict, player: str, row, col, rules: dict | None = None) -> tu
     slot = player_slot(state, player)
     energy = int(slot["energy"])
     if cost > energy:
-        return (
-            False,
-            f"Not enough energy. Walking to {describe_area_place(area, *dest)} is "
-            f"{steps_phrase(len(steps))} ({cost} energy); "
-            f"{display_name(player)} has {energy} left.",
+        return False, energy_short_message("move", cost, energy, verb="walking")
+    from hills import AREA_MINE as _MINE
+    from mine import player_floor, slime_parting_hit
+    hit = ""
+    if area == _MINE:
+        hit = slime_parting_hit(
+            state, player, rules,
+            floor=player_floor(state, player) or 1, row=src[0], col=src[1], as_you="leave",
         )
     set_player_place(state, player, area, dest_r, dest_c)
     slot["energy"] = energy - cost
     if cost == 0:
-        return (
-            True,
-            f"{display_name(player)} walks to {describe_area_place(area, *dest)}.",
+        msg = f"{display_name(player)} walks to {describe_area_place(area, *dest)}."
+    else:
+        msg = (
+            f"{display_name(player)} walks to {describe_area_place(area, *dest)} "
+            f"({steps_phrase(len(steps))}, {cost} energy)."
         )
-    return (
-        True,
-        f"{display_name(player)} walks to {describe_area_place(area, *dest)} "
-        f"({steps_phrase(len(steps))}, {cost} energy).",
-    )
+    if hit:
+        msg = f"{msg} {hit}"
+    return True, msg
 
 
 def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -5722,8 +5952,6 @@ def legal_actions(
         if actor and slime_in_reach(state, actor, rules):
             if energy >= energy_cost("strike", rules):
                 actions.append("strike")
-            if energy >= energy_cost("flee", rules):
-                actions.append("flee")
         if tile.get("drop"):
             # Legacy mine loot; migrate_ground folds this into the ground map.
             from inventory import migrate_ground
@@ -5818,17 +6046,18 @@ def legal_actions(
             # Always list equipment, even if gold is short, so the store can show the price.
             actions.append(f"buy {item} 1")
         from inventory import TOOL_PICKAXE, item_count, item_label
-        if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules):
+        from mine import pickaxe_count
+        if pickaxe_unlocked(state) and pickaxe_count(state, rules) < 2:
             # Always list it once the entrance is found, even if gold is short,
-            # so the store, look, and CLI can show the price.
+            # so the store, look, and CLI can show the price. Up to two pickaxes.
             actions.append("buy pickaxe 1")
     if at_forge and actor and energy >= energy_cost("forge", rules):
-        from inventory import TOOL_PICKAXE, item_count
+        from inventory import TOOL_PICKAXE, item_count, pack_has
         for tool in FORGE_TOOLS:
-            nxt = next_tool_tier(tool_tier(state, tool))
+            nxt = next_tool_tier(tool_tier(state, tool, player=actor))
             if not nxt:
                 continue
-            if tool == TOOL_PICKAXE and not pickaxe_in_world(state, rules):
+            if tool == TOOL_PICKAXE and not pack_has(state, actor, TOOL_PICKAXE, 1, rules):
                 continue
             if tool != TOOL_PICKAXE and item_count(state, tool, rules) < 1:
                 continue
@@ -6036,13 +6265,21 @@ def humanize_action_command(command: str, crops: dict | None = None, rules: dict
         if kind and info:
             return f"{prefix}{stock_label(kind, info, 1)}".strip()
         return f"{prefix}{kind}".strip()
+    display_verb = verb
+    if verb == "pick" and args and args[0].lower() == "up":
+        display_verb = "pick up"
+        verb = "take"
+        args = args[1:]
+    elif verb == "pickup":
+        display_verb = "pick up"
+        verb = "take"
     if verb in {"take", "drop", "sell"}:
         if not args:
-            return verb
+            return display_verb
         count = args[-1] if args[-1].isdigit() or args[-1].lower() == "all" else None
         item = " ".join(args[:-1] if count is not None else args)
         phrase = action_item_phrase(item, crops, rules, _phrase_count(count), state=state)
-        return f"{verb} {phrase} {count}" if count is not None else f"{verb} {phrase}"
+        return f"{display_verb} {phrase} {count}" if count is not None else f"{display_verb} {phrase}"
     if verb == "eat":
         from_chest = bool(args and args[-1].lower() == "chest")
         item = " ".join(args[:-1] if from_chest else args)
@@ -6507,9 +6744,17 @@ def do_action(
     if err or not actor:
         return False, "Say who is acting with --player " + " or --player ".join(known_players()) + "."
 
+    from autopass import maybe_apply_autopass, player_is_back
+
     current = normalize_player(state.get("current_player"))
     if current != actor:
-        return False, f"It's {display_name(current)}'s turn right now."
+        maybe_apply_autopass(state, crops, rules)
+        current = normalize_player(state.get("current_player"))
+        if current != actor:
+            return False, f"It's {display_name(current)}'s turn right now."
+
+    # Any action by this player ends a break and counts as being back.
+    player_is_back(state, actor)
 
     is_end, note = parse_end_turn_command(raw)
     if is_end:
@@ -6580,11 +6825,7 @@ def do_action(
         cost = energy_cost(verb, rules)
         energy = int(player_slot(state, actor)["energy"])
         if cost > energy:
-            return (
-                False,
-                f"Not enough energy. {verb} costs {cost}; "
-                f"{display_name(actor)} has {energy} left.",
-            )
+            return False, energy_short_message(verb, cost, energy)
         if verb == "craft":
             if not args:
                 return False, "Usage: craft <recipe>   example: craft strawberry jam"
@@ -6656,11 +6897,6 @@ def do_action(
             if stood:
                 return False, stood
 
-    if verb in FARM_PLOT_VERBS:
-        refused = farm_action_refused(state, actor, verb)
-        if refused:
-            return False, refused
-
     cost_verb = verb
     if verb == "fuel" or verb == "load":
         target = " ".join(args).strip().lower()
@@ -6699,12 +6935,12 @@ def do_action(
         cost = energy_cost(cost_verb, rules)
     energy = int(player_slot(state, actor)["energy"])
     if cost > energy:
-        label = "fuel fireplace" if verb == "fuel" else verb
-        return (
-            False,
-            f"Not enough energy. {label} costs {cost}; "
-            f"{display_name(actor)} has {energy} left.",
-        )
+        return False, energy_short_message(cost_verb, cost, energy, verb=verb)
+
+    if verb in FARM_PLOT_VERBS:
+        refused = farm_action_refused(state, actor, verb)
+        if refused:
+            return False, refused
 
     if verb == "till":
         ok, msg = till(state, crops, r, c, actor)
@@ -6833,7 +7069,7 @@ def do_action(
         return (
             False,
             "Unknown action. Try look, move, go cabin, go town, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
-            "strike, flee, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
+            "strike, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
             "eat, buy, sell, sell now, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
         )
 

@@ -90,7 +90,7 @@ waitFor(() => {
   if (!box) return false;
   const text = box.textContent || "";
   if (mode === "entrance") return /enter mine/i.test(text);
-  if (mode === "inside") return /climb|leave mine|mine|rest|strike|flee/i.test(text);
+  if (mode === "inside") return /climb|leave mine|mine|rest|strike/i.test(text);
   if (mode === "noturn") {
     const input = dom.window.document.getElementById("debug-cmd");
     const status = dom.window.document.getElementById("debug-cmd-status");

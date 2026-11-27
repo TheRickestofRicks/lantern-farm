@@ -42,6 +42,9 @@
       "storm",
       "snow"
     ],
+    "no_growth": [
+      "snow"
+    ],
     "forecast": {
       "days": 7,
       "near": 0.9,
@@ -247,6 +250,11 @@
   },
   "max_hp": 100,
   "hp_faint_energy": 25,
+  "away_hp_restore_cap": 50,
+  "homesickness": {
+    "energy_penalty": 5,
+    "max_penalty": 50
+  },
   "hills": {
     "tree_days": {
       "sapling": 3,

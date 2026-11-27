@@ -37,12 +37,8 @@ def runner_vine_visible(crop: dict | None) -> bool:
     return str(crop.get("stage") or "") in VINE_STAGES
 
 
-def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | None = None) -> str | None:
-    """Direction of the parent from this plot, or None if the vine is gone."""
-    if not runner_vine_visible(crop) or row is None or col is None:
-        return None
-    pr, pc = parse_runner_from(crop)
-    dr, dc = pr - int(row), pc - int(col)
+def _vine_cardinal(dr: int, dc: int) -> str | None:
+    """Map a row/col delta to a named vine direction."""
     if dr == 0 and dc == 0:
         return None
     ns = "north" if dr < 0 else ("south" if dr > 0 else "")
@@ -51,7 +47,57 @@ def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | 
     return name if name in set(VINE_DIRECTIONS) else None
 
 
-def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None, floor: int | None = None) -> str:
+def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | None = None) -> str | None:
+    """Direction of the parent from this plot, or None if the vine is gone."""
+    if not runner_vine_visible(crop) or row is None or col is None:
+        return None
+    pr, pc = parse_runner_from(crop)
+    return _vine_cardinal(pr - int(row), pc - int(col))
+
+
+def runner_vine_out_directions(state: dict | None, row: int | None, col: int | None) -> list[str]:
+    """Directions toward children still joined by a visible vine, mother to child."""
+    if not state or row is None or col is None:
+        return []
+    parent = (int(row), int(col))
+    found: list[str] = []
+    for r, rowt in enumerate(state.get("tiles") or []):
+        for c, tile in enumerate(rowt or []):
+            crop = (tile or {}).get("crop")
+            if not runner_vine_visible(crop):
+                continue
+            if parse_runner_from(crop) != parent:
+                continue
+            name = _vine_cardinal((r + 1) - parent[0], (c + 1) - parent[1])
+            if name and name not in found:
+                found.append(name)
+    return found
+
+
+# Plant sits near (80, 100). Complementary tiles share the same edge coordinate
+# so a mother's outgoing half meets the child's incoming half.
+# y=110 on the west/east edges, x=80 on the north/south edges.
+_INCOMING_STEMS = {
+    "west": [(0, 110), (28, 108), (52, 104), (70, 101), (80, 100)],
+    "east": [(160, 110), (132, 108), (108, 104), (90, 101), (80, 100)],
+    "north": [(80, 0), (79, 24), (78, 48), (79, 76), (80, 100)],
+    "south": [(80, 160), (81, 140), (80, 124), (80, 110), (80, 100)],
+    "northwest": [(0, 0), (24, 24), (48, 52), (66, 78), (80, 100)],
+    "northeast": [(160, 0), (136, 24), (112, 52), (94, 78), (80, 100)],
+    "southwest": [(0, 160), (24, 136), (48, 124), (66, 110), (80, 100)],
+    "southeast": [(160, 160), (136, 136), (112, 124), (94, 110), (80, 100)],
+}
+
+
+def vine_stem_points(direction: str, outgoing: bool = False) -> list[tuple[float, float]]:
+    """Polyline for a vine half: incoming from that edge, or outgoing toward it."""
+    pts = list(_INCOMING_STEMS.get(direction) or _INCOMING_STEMS["west"])
+    if outgoing:
+        pts = list(reversed(pts))
+    return pts
+
+
+def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None, floor: int | None = None, state: dict | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     typ = (tile or {}).get("type")
     if typ in {"town_grass", "town_stall", "town_store", "town_forge"}:
@@ -140,6 +186,8 @@ def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, c
     vine = runner_vine_direction(crop, row, col)
     if vine:
         key += f"_vine_{vine}"
+    for direction in runner_vine_out_directions(state, row, col):
+        key += f"_vine_out_{direction}"
     return key
 
 
@@ -237,6 +285,17 @@ def parse_sprite_key(key: str) -> dict:
     snow = False
     fertilizer = None
     vine = None
+    vine_out: list[str] = []
+    changed = True
+    while changed:
+        changed = False
+        for direction in VINE_DIRECTIONS:
+            suffix = "_vine_out_" + direction
+            if key.endswith(suffix):
+                vine_out.append(direction)
+                key = key[: -len(suffix)]
+                changed = True
+                break
     for direction in VINE_DIRECTIONS:
         suffix = "_vine_" + direction
         if key.endswith(suffix):
@@ -265,7 +324,7 @@ def parse_sprite_key(key: str) -> dict:
         "soil_wet": {"tilled": False, "watered": True},
     }
     if key in soil_keys:
-        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine, **soil_keys[key]}
+        return {"kind": "soil", "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine, "vine_out": vine_out, **soil_keys[key]}
     parts = key.split("_")
     if len(parts) >= 3 and parts[-1] in {"wet", "dry"}:
         moist = parts[-1]
@@ -281,10 +340,11 @@ def parse_sprite_key(key: str) -> dict:
             "snow": snow,
             "fertilizer": fertilizer,
             "vine": vine,
+            "vine_out": vine_out,
         }
     if weed or weedy:
-        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine}
-    return {"kind": "unknown", "raw": key, "snow": snow, "fertilizer": fertilizer, "vine": vine}
+        return {"kind": "unknown", "raw": key, "weed": weed, "weedy": weedy, "snow": snow, "fertilizer": fertilizer, "vine": vine, "vine_out": vine_out}
+    return {"kind": "unknown", "raw": key, "snow": snow, "fertilizer": fertilizer, "vine": vine, "vine_out": vine_out}
 
 
 # Warm, slightly dusk palette — lantern light on earth.
@@ -1064,62 +1124,74 @@ def _weed_overlay(weedy: bool = False) -> str:
     return left + "\n" + _weed_clump(138, 136, fuller=False, flip=True)
 
 
-def _vine_overlay(direction: str) -> str:
-    """A strawberry runner vine entering from the edge that faces the parent."""
-    # Plant sits near (80, 100). Stop short of that centre.
-    stems = {
-        "west": [(0, 110), (24, 108), (44, 102), (58, 98)],
-        "east": [(160, 110), (136, 108), (116, 102), (102, 98)],
-        "north": [(80, 0), (78, 24), (79, 48), (80, 64)],
-        "south": [(80, 160), (81, 140), (80, 124), (80, 112)],
-        "northwest": [(0, 0), (24, 24), (44, 44), (58, 58)],
-        "northeast": [(160, 0), (136, 24), (116, 44), (102, 58)],
-        "southwest": [(0, 160), (24, 136), (44, 116), (58, 104)],
-        "southeast": [(160, 160), (136, 136), (116, 116), (102, 104)],
-    }
-    pts = stems.get(direction) or stems["west"]
+def vine_leaf_elements(pts: list[tuple[float, float]], direction: str) -> list[dict]:
+    """Upright (never rotated) leaf marks along a stem, in 160-space.
+
+    Each element is either
+    ``{"type": "ellipse", "cx", "cy", "rx", "ry", "fill", "opacity"}``
+    or ``{"type": "path", "d", "stroke", "width", "opacity"}``.
+    Vertical runners get clusters beside the stem; all leaflets point up.
+    """
+    vertical = direction in {"north", "south"}
+    interior = pts[1:-1] if len(pts) > 2 else list(pts)
+    if not interior:
+        return []
+    picks = [interior[0], interior[-1]] if len(interior) >= 2 else interior
+    leaf = P["leaf3"]
+    mid = P["leaf"]
+    elements: list[dict] = []
+    for i, (x, y) in enumerate(picks[:2]):
+        if vertical:
+            side = -1 if i % 2 == 0 else 1
+            cx, cy = x + side * 11, y
+            flip = side
+        else:
+            cx, cy = x, y - 1
+            flip = 1 if i % 2 == 0 else -1
+        s = 1.0 if i == 0 else 0.86
+        elements.extend([
+            {"type": "ellipse", "cx": cx, "cy": cy - 7.2 * s, "rx": 4.1 * s, "ry": 7.4 * s, "fill": leaf, "opacity": 1.0},
+            {"type": "ellipse", "cx": cx - 6.4 * flip * s, "cy": cy - 4.2 * s, "rx": 3.4 * s, "ry": 6.0 * s, "fill": mid, "opacity": 1.0},
+            {"type": "ellipse", "cx": cx + 6.2 * flip * s, "cy": cy - 4.6 * s, "rx": 3.2 * s, "ry": 5.6 * s, "fill": leaf, "opacity": 0.95},
+            {"type": "path", "d": f"M{cx:.1f},{cy - 1.5 * s:.1f} L{cx:.1f},{cy - 12.2 * s:.1f}", "stroke": "#3a5a28", "width": 0.7 * s, "opacity": 0.55},
+            {"type": "path", "d": f"M{cx + 8.5 * flip * s:.1f},{cy - 5.5 * s:.1f} C{cx + 10.5 * flip * s:.1f},{cy - 10.0 * s:.1f} {cx + 10.0 * flip * s:.1f},{cy - 13.5 * s:.1f} {cx + 12.5 * flip * s:.1f},{cy - 15.5 * s:.1f}", "stroke": "#4a5a20", "width": 1.05 * s, "opacity": 1.0},
+        ])
+    return elements
+
+
+def _vine_leaf_bits(pts: list[tuple[float, float]], direction: str) -> str:
+    bits = []
+    for el in vine_leaf_elements(pts, direction):
+        if el["type"] == "ellipse":
+            op = "" if el.get("opacity", 1) >= 0.999 else f' opacity="{el["opacity"]}"'
+            bits.append(
+                f'<ellipse cx="{el["cx"]:.1f}" cy="{el["cy"]:.1f}" '
+                f'rx="{el["rx"]:.1f}" ry="{el["ry"]:.1f}" fill="{el["fill"]}"{op}/>'
+            )
+        else:
+            bits.append(
+                f'<path d="{el["d"]}" fill="none" stroke="{el["stroke"]}" '
+                f'stroke-width="{el["width"]:.2f}" stroke-linecap="round" '
+                f'opacity="{el["opacity"]}"/>'
+            )
+    return "".join(bits)
+
+
+def _vine_overlay(direction: str, outgoing: bool = False) -> str:
+    """A strawberry runner vine: stem follows mother-to-child; leaves always face up."""
+    pts = vine_stem_points(direction, outgoing=outgoing)
     path = " ".join(
         ("M" if i == 0 else "L") + f"{x:.0f},{y:.0f}" for i, (x, y) in enumerate(pts)
     )
-    # Leaves sit along the stem, slightly off to the side, strawberry-sprout colours.
-    leaf = P["leaf3"]
-    mid = P["leaf"]
-    leaves = []
-    # Pick 2–3 leaf positions from the polyline.
-    picks = [1, 2] if len(pts) >= 3 else [0]
-    angles = {
-        "west": (-28, 26),
-        "east": (28, -26),
-        "north": (-40, 40),
-        "south": (40, -40),
-        "northwest": (-20, 30),
-        "northeast": (20, -30),
-        "southwest": (20, -30),
-        "southeast": (-20, 30),
-    }.get(direction, (-28, 26))
-    for i, idx in enumerate(picks):
-        x, y = pts[idx]
-        rot = angles[i % len(angles)]
-        rx, ry = (8, 4.4) if i == 0 else (7, 3.8)
-        fill = leaf if i == 0 else mid
-        leaves.append(
-            f'<ellipse cx="{x + (6 if i == 0 else -5)}" cy="{y - 6}" '
-            f'rx="{rx}" ry="{ry}" fill="{fill}" '
-            f'transform="rotate({rot} {x} {y})"/>'
-        )
-    # A smaller tip leaflet near the end of the vine.
-    tx, ty = pts[-1]
-    leaves.append(
-        f'<ellipse cx="{tx}" cy="{ty - 5}" rx="5.5" ry="3.2" fill="{leaf}" '
-        f'opacity="0.95"/>'
-    )
+    leaves = _vine_leaf_bits(pts, direction)
     stem = (
         f'<path d="{path}" fill="none" stroke="#4a5a20" stroke-width="2.4" '
         f'stroke-linecap="round" stroke-linejoin="round"/>'
         f'<path d="{path}" fill="none" stroke="#8a8a38" stroke-width="1.1" '
         f'stroke-linecap="round" opacity="0.7"/>'
     )
-    return f'<g id="vine-{direction}">\n  {stem}\n  {"".join(leaves)}\n</g>'
+    ident = f"vine-out-{direction}" if outgoing else f"vine-{direction}"
+    return f'<g id="{ident}">\n  {stem}\n  {leaves}\n</g>'
 
 
 
@@ -1655,10 +1727,12 @@ def svg_for_key(key: str) -> str:
         layers.append(_snow_ground_overlay(tilled))
     if info.get("fertilizer"):
         layers.append(_fertilizer_overlay(info.get("fertilizer")))
+    if info.get("vine"):
+        layers.append(_vine_overlay(info["vine"], outgoing=False))
+    for direction in info.get("vine_out") or []:
+        layers.append(_vine_overlay(direction, outgoing=True))
     if kind and kind != "soil" and info.get("stage"):
         layers.append(_crop_layer(kind, info["stage"]))
-    if info.get("vine"):
-        layers.append(_vine_overlay(info["vine"]))
     if info.get("weedy") or info.get("weed"):
         layers.append(_weed_overlay(bool(info.get("weedy"))))
     return _svg("\n".join(layers))

@@ -361,10 +361,14 @@ def ensure_mine(state: dict, rules: dict | None = None, crops: dict | None = Non
         mine["checkpoints"] = []
         mine["deepest"] = 0
         mine["rests"] = {}
+        from inventory import clear_mine_ground
+        clear_mine_ground(state)
         changed = True
     mine.setdefault("floors", {})
     if not isinstance(mine["floors"], dict):
         mine["floors"] = {}
+        from inventory import clear_mine_ground
+        clear_mine_ground(state)
         changed = True
     if not isinstance(mine.get("checkpoints"), list):
         mine["checkpoints"] = []
@@ -475,11 +479,35 @@ def pickaxe_in_world(state: dict, rules: dict | None = None) -> bool:
     return stack_count(stall_of(state), TOOL_PICKAXE) >= 1
 
 
+def pickaxe_count(state: dict, rules: dict | None = None) -> int:
+    """Pickaxes in backpacks, the chest, on the ground, and in the stall."""
+    from inventory import item_count, ground_item_count, TOOL_PICKAXE, stack_count
+    from town import stall_of
+
+    return (
+        item_count(state, TOOL_PICKAXE, rules)
+        + ground_item_count(state, TOOL_PICKAXE, rules)
+        + stack_count(stall_of(state), TOOL_PICKAXE)
+    )
+
+
 def pickaxe_unlocked(state: dict) -> bool:
     return bool(state.get("mine_entrance_found"))
 
 
-def tool_tier(state: dict, tool: str) -> str:
+def tool_tier(state: dict, tool: str, player: str | None = None) -> str:
+    """Forge tier for a tool. Pickaxe tiers live on the item in the player's pack."""
+    from inventory import TOOL_PICKAXE, pack_of, stack_tool_tier, normalize_item
+
+    if tool == TOOL_PICKAXE and player:
+        for slot in pack_of(state, player) or []:
+            if not isinstance(slot, dict):
+                continue
+            if normalize_item(slot.get("item")) == TOOL_PICKAXE:
+                if slot.get("tier"):
+                    return stack_tool_tier(slot, default="basic")
+                break
+        # No per-item tier: fall back to the farm-wide table (older saves).
     tiers = state.get("tool_tiers")
     if not isinstance(tiers, dict):
         return "basic"
@@ -519,7 +547,7 @@ def tool_action_cost(state: dict, player: str | None, verb: str, rules: dict | N
     tool = mapping.get(verb)
     if not tool:
         return base
-    tier = tool_tier(state, tool)
+    tier = tool_tier(state, tool, player=player)
     if tier == "basic":
         return base
     return tool_tier_energy(tier, rules)
@@ -605,9 +633,12 @@ def climb_up(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     tile = get_mine_tile(state, floor, row, col, rules)
     if not tile.get("exit"):
         return False, "Climb up from the shaft you arrived through."
+    hit = slime_parting_hit(state, player, rules, floor=floor, row=row, col=col, as_you="leave")
     if floor <= 1:
         place_on(state, player, AREA_HILLS, MINE_ENTRANCE[0], MINE_ENTRANCE[1])
         msg = f"{display_name(player)} climbs up and leaves the mine at the entrance in the hills."
+        if hit:
+            msg = f"{msg} {hit}"
         log_append(state, msg, player)
         return True, msg
     dest = floor - 1
@@ -628,6 +659,8 @@ def climb_up(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
         f"{display_name(player)} climbs up to floor {dest} "
         f"({describe_place(AREA_MINE, dest_row, dest_col, floor=dest)})."
     )
+    if hit:
+        msg = f"{msg} {hit}"
     log_append(state, msg, player)
     return True, msg
 
@@ -647,11 +680,14 @@ def climb_down(state: dict, player: str, rules: dict | None = None) -> tuple[boo
     if tile.get("ladder") != "open":
         return False, "There is no open ladder down on this tile."
     dest = floor + 1
+    hit = slime_parting_hit(state, player, rules, floor=floor, row=row, col=col, as_you="leave")
     dest_row, dest_col = _enter_floor(state, player, dest, rules)
     msg = (
         f"{display_name(player)} climbs down to floor {dest} "
         f"({describe_place(AREA_MINE, dest_row, dest_col, floor=dest)})."
     )
+    if hit:
+        msg = f"{msg} {hit}"
     log_append(state, msg, player)
     return True, msg
 
@@ -693,26 +729,22 @@ def mine_rock(state: dict, player: str, rules: dict | None = None) -> tuple[bool
         roll = mine_hash(seed, season, year, floor, row, col, 5502) % 100
         if roll < quartz_chance(rules):
             item = "quartz"
-    what = "the stone" if rock == "stone" and item != "quartz" else (
-        "the quartz" if item == "quartz" else "the ore"
-    )
-    if not pack_space_for(state, player, item, got, rules):
-        return False, f"No room in the backpack for {what}. Drop something at the cabin first."
-    leftover = add_to_pack(state, player, item, got, rules)
-    if leftover:
-        return False, f"No room in the backpack for {what}. Drop something at the cabin first."
-    sync_inventory_view(state, rules)
+    from inventory import give_or_drop_at_player
+    packed, dropped, phrase = give_or_drop_at_player(state, player, item, got, rules)
     tile["rock"] = None
     revealed = tile.get("ladder") == "hidden"
     if revealed:
         tile["ladder"] = "open"
-    bits = [f"and packs {item_name(item, got)}."]
-    if revealed:
-        bits[-1] = bits[-1][:-1] + ", uncovering a ladder down."
-    msg = (
-        f"{who(player, 'break', 'breaks')} the rock at "
-        f"{describe_place(AREA_MINE, row, col, floor=floor)} {bits[0]}"
-    )
+    here = describe_place(AREA_MINE, row, col, floor=floor)
+    if dropped and not packed:
+        msg = f"{who(player, 'break', 'breaks')} the rock at {here}. {phrase}"
+    else:
+        msg = f"{who(player, 'break', 'breaks')} the rock at {here} {phrase}."
+        if revealed:
+            msg = msg[:-1] + ", uncovering a ladder down."
+    hit = slime_parting_hit(state, player, rules, floor=floor, row=row, col=col, as_you="break the rock")
+    if hit:
+        msg = f"{msg} {hit}"
     log_append(state, msg, player)
     return True, msg
 
@@ -805,12 +837,16 @@ def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules
     raw = normalize_item(tool) or str(tool or "").strip().lower().replace(" ", "_")
     if raw not in FORGE_TOOLS:
         return False, "You can forge the hoe, watering can, axe, or pickaxe."
-    if raw == TOOL_PICKAXE and not pickaxe_in_world(state, rules):
-        return False, "There is no pickaxe on the farm to upgrade yet. Buy one from the shop first."
-    # The tool must exist in the world (shared tools).
-    if raw != TOOL_PICKAXE and item_count(state, raw, rules) < 1:
+    if raw == TOOL_PICKAXE:
+        from inventory import pack_has
+        if not pack_has(state, player, TOOL_PICKAXE, 1, rules):
+            return False, (
+                "Carry the pickaxe in your backpack to upgrade it at the forge. "
+                "Buy one from the shop if you do not have one yet."
+            )
+    elif item_count(state, raw, rules) < 1:
         return False, f"There is no {item_label(raw)} on the farm to upgrade."
-    current = tool_tier(state, raw)
+    current = tool_tier(state, raw, player=player)
     nxt = next_tool_tier(current)
     if not nxt:
         return False, f"The {item_label(raw)} is already gold-tier."
@@ -829,7 +865,18 @@ def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules
             f"You have {have}."
         )
     take_available(state, ore, need, player, pack_only=False, rules=rules)
-    set_tool_tier(state, raw, nxt)
+    if raw == TOOL_PICKAXE:
+        from inventory import pack_of, normalize_item
+        upgraded = False
+        for slot in pack_of(state, player) or []:
+            if isinstance(slot, dict) and normalize_item(slot.get("item")) == TOOL_PICKAXE:
+                slot["tier"] = nxt
+                upgraded = True
+                break
+        if not upgraded:
+            set_tool_tier(state, raw, nxt)
+    else:
+        set_tool_tier(state, raw, nxt)
     cost = tool_tier_energy(nxt, rules)
     msg = (
         f"{display_name(player)} forges the {item_label(raw)} to {nxt} at the cabin. "
@@ -1149,11 +1196,49 @@ def _give_or_drop(state: dict, player: str, floor: int, row: int, col: int,
         add_to_ground(state, AREA_MINE, row, col, item, left, floor=floor, rules=rules)
         if packed:
             return (
-                f" and packs {item_name(item, packed)}, "
-                f"leaving {item_name(item, left)} on the ground"
+                f" and packs {item_name(item, packed)}. "
+                f"Your pack is full, so {item_name(item, left)} "
+                f"land{'s' if left == 1 else ''} at your feet"
             )
-        return f", leaving {item_name(item, left)} on the ground"
+        if left == 1:
+            bare = item_name(item, 1).split(" ", 1)[-1]
+            return f". Your pack is full, so the {bare} lands at your feet"
+        return (
+            f". Your pack is full, so {item_name(item, left)} land at your feet"
+        )
     return f" and packs {item_name(item, packed or n)}"
+
+
+def slime_parting_hit(
+    state: dict,
+    player: str,
+    rules: dict | None = None,
+    *,
+    floor: int | None = None,
+    row: int | None = None,
+    col: int | None = None,
+    as_you: str = "leave",
+) -> str:
+    """A live slime on the given (or current) tile lashes out. Returns a log clause or ''."""
+    from hills import hurt_hp, player_hp, faint_from_hp
+    from engine import player_where
+
+    if floor is None or row is None or col is None:
+        if player_area(state, player) != AREA_MINE:
+            return ""
+        floor = player_floor(state, player) or 1
+        row, col = player_where(state, player)
+    slime = slime_at(state, int(floor), int(row), int(col), rules)
+    if not slime:
+        return ""
+    lost = hurt_hp(state, player, slime_damage_amount(rules), rules)
+    kind = slime.get("kind") or SLIME_KIND
+    phrase = f"The {kind} slime lashes out as you {as_you}: -{lost} HP"
+    hp, _cap = player_hp(state, player, rules)
+    if hp <= 0:
+        faint = faint_from_hp(state, player, rules)
+        return f"{phrase}. {faint}"
+    return phrase
 
 
 def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -1196,28 +1281,11 @@ def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[b
 
 
 def flee_slime(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
-    from engine import player_where, display_name, log_append
-
-    slime = slime_in_reach(state, player, rules)
-    if not slime:
-        return False, "There is no slime here to flee from. Stand on the slime."
-    floor = player_floor(state, player) or 1
-    row, col = player_where(state, player)
-    exit_row, exit_col = arrival_tile(state, floor, rules)
-    if (row, col) != (exit_row, exit_col):
-        set_player_place(state, player, AREA_MINE, exit_row, exit_col, floor=floor)
-        msg = (
-            f"{display_name(player)} flees to the shaft on floor {floor} "
-            f"({describe_place(AREA_MINE, exit_row, exit_col, floor=floor)})."
-        )
-        log_append(state, msg, player)
-        return True, msg
-    ok, climb_msg = climb_up(state, player, rules)
-    if not ok:
-        return False, climb_msg
-    msg = f"{display_name(player)} flees up the shaft. {climb_msg}"
-    # climb_up already logged its own line; add a short flee note.
-    return True, msg
+    """Flee is no longer a separate action; walking off the tile is the way out."""
+    return False, (
+        "There's no separate flee action. Walk off the tile — "
+        "the slime will lash out as you leave."
+    )
 
 
 def try_take_mine_drop(state: dict, player: str, args: list, rules: dict | None = None):

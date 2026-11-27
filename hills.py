@@ -586,6 +586,41 @@ def hp_faint_energy(rules: dict | None = None) -> int:
         return 25
 
 
+def away_hp_restore_cap(rules: dict | None = None) -> int:
+    """Max HP restored by a sleeping bag or a mid-day faint (cabin sleep is full)."""
+    from engine import load_rules
+
+    rules = rules or load_rules()
+    try:
+        return max(0, int(rules.get("away_hp_restore_cap") or 50))
+    except (TypeError, ValueError):
+        return 50
+
+
+def restore_hp_after_rest(
+    state: dict,
+    player: str,
+    rules: dict | None = None,
+    *,
+    in_cabin: bool,
+    used_bag: bool,
+) -> None:
+    """Cabin sleep fills HP. A sleeping bag restores up to away_hp_restore_cap, never lowering it."""
+    from engine import player_slot
+
+    slot = player_slot(state, player)
+    hp, cap = player_hp(state, player, rules)
+    if in_cabin:
+        slot["hp"] = cap
+        slot["hp_max"] = cap
+        return
+    if used_bag:
+        limit = min(cap, away_hp_restore_cap(rules))
+        if hp < limit:
+            slot["hp"] = limit
+        slot["hp_max"] = cap
+
+
 def player_hp(state: dict, player: str, rules: dict | None = None) -> tuple[int, int]:
     from engine import player_slot
 
@@ -1087,18 +1122,16 @@ def chop(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str
     from mine import yield_with_upgrade
     from inventory import TOOL_AXE
     wood_n = yield_with_upgrade(state, TOOL_AXE, chop_wood_count(rules), rules)
-    if not pack_space_for(state, player, "wood", wood_n, rules):
-        return False, "No room in the backpack for the wood. Drop something at the cabin first."
-    leftover = add_to_pack(state, player, "wood", wood_n, rules)
-    if leftover:
-        return False, "No room in the backpack for the wood. Drop something at the cabin first."
-    sync_inventory_view(state, rules)
+    from inventory import give_or_drop_at_player
+    packed, dropped, phrase = give_or_drop_at_player(state, player, "wood", wood_n, rules)
     tile["tree"] = make_tree("stump", planted_day=int(state.get("day") or 1), days_grown=0)
-    pack_verb = "pack" if not player else "packs"
-    msg = (
-        f"{who(player, 'chop', 'chops')} the tree at {describe_place(area, row, col)} "
-        f"and {pack_verb} {wood_n} wood."
-    )
+    if dropped and not packed:
+        msg = f"{who(player, 'chop', 'chops')} the tree at {describe_place(area, row, col)}. {phrase}"
+    else:
+        msg = (
+            f"{who(player, 'chop', 'chops')} the tree at {describe_place(area, row, col)} "
+            f"{phrase}."
+        )
     from mine import tool_tier
     if player and tool_tier(state, TOOL_AXE) == "gold":
         extra = _gold_axe_splash(state, player, row, col, rules)
@@ -1171,15 +1204,15 @@ def forage(state: dict, player: str, rules: dict | None = None) -> tuple[bool, s
     if not has_forage(tile):
         return False, "There's nothing to forage here."
     kind = tile["forage"]["kind"]
-    if not pack_space_for(state, player, kind, 1, rules):
-        return False, "No room in the backpack. Drop something at the cabin first."
-    leftover = add_to_pack(state, player, kind, 1, rules)
-    if leftover:
-        return False, "No room in the backpack. Drop something at the cabin first."
-    sync_inventory_view(state, rules)
+    from inventory import give_or_drop_at_player
+    packed, dropped, phrase = give_or_drop_at_player(state, player, kind, 1, rules)
     tile["forage"] = None
     label = forage_label(kind)
-    msg = f"{who(player, 'forage', 'forages')} a {label} at {describe_place(area, row, col)}."
+    here = describe_place(area, row, col)
+    if dropped and not packed:
+        msg = f"{who(player, 'forage', 'forages')} a {label} at {here}. {phrase}"
+    else:
+        msg = f"{who(player, 'forage', 'forages')} a {label} at {here} {phrase}."
     log_append(state, msg, player)
     return True, msg
 
@@ -1209,7 +1242,8 @@ def faint_from_hp(state: dict, player: str, rules: dict | None = None) -> str:
     cap = max_hp(rules)
     energy = hp_faint_energy(rules)
     slot["energy"] = energy
-    slot["hp"] = cap
+    # Passing out from wounds caps restored HP; it never fills past the away cap.
+    slot["hp"] = min(cap, away_hp_restore_cap(rules))
     slot["hp_max"] = cap
     msg = (
         f"{display_name(player)} passes out from their wounds and wakes at the "

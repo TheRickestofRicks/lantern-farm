@@ -39,7 +39,7 @@
   "flavor": {
     "intro_log": "A small farm. The cabin lantern in the top-right is already lit.",
     "rain": "Rain falls over the farm. Every plot is watered.",
-    "snow": "Snow settles on the farm. The soil is wet beneath it.",
+    "snow": "Snow settles on the farm. The soil stays wet, but crops don\u2019t grow today.",
     "clear": "A clear day dawns over the farm.",
     "cabin": "the cabin. A warm lantern glows in the window.",
     "cabin_short": "the cabin, lantern lit in the window.",

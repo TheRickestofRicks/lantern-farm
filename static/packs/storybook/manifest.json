@@ -201,7 +201,15 @@
     "town_forge": "overlays/town_forge.png",
     "mine_rock_runestone": "overlays/mine_rock_runestone.png",
     "mine_slime_grey": "overlays/mine_slime_grey.png",
-    "mine_drop_goo": "overlays/mine_drop_goo.png"
+    "mine_drop_goo": "overlays/mine_drop_goo.png",
+    "vine_out_west": "overlays/vine_out_west.png",
+    "vine_out_east": "overlays/vine_out_east.png",
+    "vine_out_north": "overlays/vine_out_north.png",
+    "vine_out_south": "overlays/vine_out_south.png",
+    "vine_out_northwest": "overlays/vine_out_northwest.png",
+    "vine_out_northeast": "overlays/vine_out_northeast.png",
+    "vine_out_southwest": "overlays/vine_out_southwest.png",
+    "vine_out_southeast": "overlays/vine_out_southeast.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

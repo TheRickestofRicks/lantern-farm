@@ -58,7 +58,7 @@ WEATHER_WORDS = {
     "cloud": "overcast",
     "rain": "rain (every plot is watered this morning)",
     "storm": "a storm (every plot is watered this morning)",
-    "snow": "snow (the soil is wet beneath it)",
+    "snow": "snow (soil stays wet, but crops don't grow today)",
 }
 
 FORECAST_WORDS = {
@@ -66,7 +66,7 @@ FORECAST_WORDS = {
     "cloud": "overcast",
     "rain": "rain",
     "storm": "storm",
-    "snow": "snow",
+    "snow": "snow (soil stays wet, but crops don't grow)",
 }
 
 INVENTORY_ORDER = [
@@ -328,7 +328,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     tile = get_tile(state, row, col)
     here = position_name(row, col)
     weather = str(state.get("weather") or "sun")
-    key = sprite_key(tile, weather, row, col)
+    key = sprite_key(tile, weather, row, col, state=state)
     who_here = players_at(state, row, col)
     who_bit = ""
     if who_here:
@@ -493,7 +493,15 @@ def turn_header_lines(state: dict, crops: dict | None = None, viewer: str | None
         slot = player_slot(state, name)
         energy = int(slot.get("energy", 0))
         hp, cap_hp = player_hp(state, name, rules)
-        bits.append(f"{display_name(name)} {energy}/{cap} energy, {hp}/{cap_hp} HP")
+        homesick = 0
+        try:
+            homesick = max(0, int(slot.get("homesickness") or 0))
+        except (TypeError, ValueError):
+            homesick = 0
+        line = f"{display_name(name)} {energy}/{cap} energy, {hp}/{cap_hp} HP"
+        if homesick:
+            line += f", homesick −{homesick}"
+        bits.append(line)
     lines = [
         flavor("title_line") or "Lantern Farm  🏮",
         f"Day {day}  ·  {season.capitalize()} (day {within} of {total})  ·  "
@@ -621,8 +629,9 @@ def describe_state(
 
     lines.append("")
     lines.append(
-        "Notes: a crop puts on growth only if it was watered (or rained/snowed on) "
-        "that day. Look at a plant for a gentle hint about how it's doing — it will "
+        "Notes: a crop puts on growth only if it was watered (or rained on) "
+        "that day. Snow keeps the soil wet — no drought, and empty tilled plots stay open — "
+        "but crops do not grow that day, even if you hand-water them. Dormant plants are unaffected. Look at a plant for a gentle hint about how it's doing — it will "
         "not print numbers. You can pick a little early, but a healthier, fully grown "
         "plant is more likely to give a fuller harvest (strawberries 1–3, kabocha and "
         "roots 1–2, always at least one). Plants only wither after a long drought if "
@@ -645,14 +654,20 @@ def describe_state(
         "market town (entrance row 1 col 1): the stall is row 1 col 2, the honour "
         "store row 2 col 1, and the forge row 2 col 3. In the hills, `chop` a grown tree "
         "(axe, 10 energy) or `forage` a wild plant (5 energy). "
-        "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
-        "Ending it anywhere else is passing out (half energy tomorrow, where you fell), "
+        "Ending your turn in the cabin is sleep (full energy and full HP tomorrow, in the cabin). "
+        "Ending it anywhere else is passing out (half energy tomorrow, where you fell; HP stays as it is), "
         "unless you are carrying a sleeping bag: then you sleep in the bag and wake "
-        "on the same spot with 100 energy and no comfort bonuses, including in the mine. "
+        "on the same spot with 100 energy and no comfort bonuses, including in the mine, "
+        "and HP is restored up to 50 (already-higher HP is left alone). "
+        "Nights away from the cabin build homesickness: −5 energy each morning, cumulative, capped at −50. "
+        "A night in the cabin clears it. If both of you sleep on the same mine floor (or the same tile elsewhere), "
+        "home is where the heart is — neither of you takes the penalty that night. "
+        "A mid-day faint at 0 HP still wakes at the mine entrance with 25 energy, and HP is restored only up to 50. "
         "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "
         "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
         "carry it home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). "
         "Anywhere else except the market stall, `drop <item> 1` or `drop <item> all` leaves items on the tile you stand on, and `take` or `pick up` retrieves them (`take stone all` takes as many as will fit). "
+        "Items left in the mine disappear when the mine resets (a new season, or any time the floors are regenerated). Drops on the farm, in the hills, and in town stay put. "
         "Buy at the honour store in town (`buy`, coins come straight from the purse), "
         "including a sleeping bag. "
         "Sell at the market stall: drop goods there and they sell when the day ends, "
@@ -672,7 +687,8 @@ def describe_state(
         "for +10 energy tomorrow if you sleep in the cabin). "
         "Till, plant, and water cost energy (see rules.json); crafting at the kitchen costs 5. Harvest, buy, sell, take, drop, and eat are free. "
         "The day advances when both players are ready to end the turn. "
-        "A player who is ready can still take the turn back if the other player passes."
+        "A player who is ready can still take the turn back if the other player passes. "
+        "In the web UI, Settings (top right) can take a break from farming for you: after a timeout the farm ends that idle turn and passes it on, up to a maximum, and any action of yours counts as being back."
     )
     return "\n".join(lines) + "\n"
 

@@ -411,6 +411,15 @@ class GrowthRules(unittest.TestCase):
 
         a = play()
         b = play()
+        from autopass import TURN_STARTED_AT
+        # The autopass idle stamp is wall-clock, so two runs a second apart
+        # may differ only there. The farm itself must still match.
+        self.assertTrue(a.get(TURN_STARTED_AT))
+        self.assertTrue(b.get(TURN_STARTED_AT))
+        a = dict(a)
+        b = dict(b)
+        a.pop(TURN_STARTED_AT)
+        b.pop(TURN_STARTED_AT)
         self.assertEqual(a, b)
 
     def test_cannot_plant_on_cabin(self):
@@ -960,11 +969,12 @@ class SeasonalWeatherAndForecast(unittest.TestCase):
         self.assertIn("snow", msg.lower())
         crop = state["tiles"][0][0]["crop"]
         self.assertNotEqual(crop["stage"], "withered")
-        # The snow morning counts as water into the next evening.
+        # Snow keeps the plot wet but pauses growth that evening.
         ok, msg = sleep(state, self.crops, no_weed_rules())
         self.assertTrue(ok, msg)
         crop = state["tiles"][0][0]["crop"]
-        self.assertEqual(crop["days_grown"], 1)
+        self.assertEqual(int(crop["days_grown"] or 0), 0)
+        self.assertEqual(int(crop.get("dry_days") or 0), 0)
         self.assertNotEqual(crop["stage"], "withered")
 
     def test_migrate_keeps_todays_weather(self):
@@ -1595,7 +1605,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.state["players"][P1]["energy"] = 5
         ok, msg = do_action(self.state, self.crops, "move to 3 1", player=P1)
         self.assertFalse(ok)
-        self.assertIn("Walking to bottom-left, row 3 col 1 is 2 steps (10 energy)", msg)
+        self.assertIn("You're out of energy — walking needs 10 and you have 5.", msg)
         self.assertNotIn("step(s)", msg)
 
     def test_sleep_in_cabin_and_pass_out_in_the_field(self):
@@ -1611,7 +1621,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "end turn", player=P2)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["day"], 2)
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
         self.assertEqual(player_where(self.state, P1), (3, 1))
         self.assertEqual(self.state["players"][P2]["energy"], 100)
         self.assertTrue(is_player_in_cabin(self.state, P2))
@@ -2084,6 +2094,10 @@ class SpringCropsAndShop(unittest.TestCase):
         till(self.state, self.crops, 2, 3)
         till(self.state, self.crops, 3, 2)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
+        crop["overwintered"] = True
+        crop["fruiting_started"] = True
+        crop["stage"] = "growing"
+        crop["days_grown"] = 3
         info = dict(self.crops["crops"]["strawberry"])
         info["runner_chance"] = 1.0
         # Force the roll by temporarily setting chance on the live info used by crop_info.
@@ -2618,10 +2632,13 @@ class ArtPackAndPage(unittest.TestCase):
         self.assertEqual([layer["role"] for layer in fert], ["ground", "fertilizer"])
         self.assertIn("fertilizer_general", fert[1]["file"])
         vine = layers_for_key("strawberry_sprouting_wet_vine_west", man)
-        self.assertEqual([layer["role"] for layer in vine], ["ground", "crop", "vine"])
-        self.assertIn("vine_west", vine[2]["file"])
+        self.assertEqual([layer["role"] for layer in vine], ["ground", "vine", "crop"])
+        self.assertIn("vine_west", vine[1]["file"])
         both = layers_for_key("strawberry_sprouting_wet_weed_fert_general_vine_west", man)
-        self.assertEqual([layer["role"] for layer in both], ["ground", "fertilizer", "crop", "vine", "weed"])
+        self.assertEqual([layer["role"] for layer in both], ["ground", "fertilizer", "vine", "crop", "weed"])
+        mother = layers_for_key("strawberry_mature_wet_vine_out_east", man)
+        self.assertEqual([layer["role"] for layer in mother], ["ground", "vine", "crop"])
+        self.assertIn("vine_out_east", mother[1]["file"])
         cabin = layers_for_key("cabin", man)
         self.assertEqual([layer["role"] for layer in cabin], ["cabin"])
         self.assertTrue(cabin[0]["file"].endswith("cabin.png"))
@@ -3038,18 +3055,13 @@ class PackChestAndCraft(unittest.TestCase):
         tile["crop"]["days_grown"] = 9
         stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "harvest", player=P1)
-        self.assertFalse(ok)
-        self.assertIn("backpack is full", msg.lower())
-        self.assertEqual(tile["crop"]["stage"], "mature")
-        # Make room and harvest.
-        stand(self.state, P1, CABIN_ROW, CABIN_COL)
-        inside(self.state, P1, 'chest')
-        ok, msg = do_action(self.state, self.crops, "drop carrot", player=P1)
         self.assertTrue(ok, msg)
-        stand(self.state, P1, 1, 1)
-        ok, msg = do_action(self.state, self.crops, "harvest", player=P1)
-        self.assertTrue(ok, msg)
-        self.assertTrue(pack_has(self.state, P1, "turnip", 1))
+        self.assertIn("at your feet", msg.lower())
+        self.assertFalse(pack_has(self.state, P1, "turnip", 1))
+        self.assertIsNone(tile.get("crop"))
+        from inventory import ground_counts
+        from hills import AREA_FARM
+        self.assertTrue(ground_counts(self.state, AREA_FARM, 1, 1).get("turnip"))
 
     def test_buy_sell_take_drop_and_craft_are_cabin_only(self):
         stand(self.state, P1, 1, 1)
@@ -3605,10 +3617,16 @@ class RunnerVines(unittest.TestCase):
         self.assertEqual(runner_vine_direction(tile["crop"], 1, 2), "west")
         svg = svg_for_key(key)
         self.assertIn('id="vine-west"', svg)
-        # Crop marks (sprout ellipses) are painted before the vine group.
+        # Vine is under the crop so the stem tucks into the plant.
         vine_at = svg.find('id="vine-west"')
         self.assertGreater(vine_at, 0)
-        self.assertLess(svg.find("<ellipse"), vine_at)
+        crop_at = svg.find('d="M80,114')  # sprout stem starts at the plant
+        if crop_at < 0:
+            crop_at = svg.rfind("<ellipse")
+        self.assertGreater(crop_at, vine_at)
+        vine_end = svg.find("</g>", vine_at)
+        vine_svg = svg[vine_at:vine_end]
+        self.assertNotIn("rotate(", vine_svg)
         # Look text names the parent and the vine.
         line = describe_tile(self.state, self.crops, 1, 2)
         self.assertIn("a runner from", line.lower())
@@ -3649,6 +3667,46 @@ class RunnerVines(unittest.TestCase):
         }
         key = sprite_key(tile, "sun", 3, 3)
         self.assertTrue(key.endswith("_vine_west"), key)
+
+    def test_mother_tile_shows_an_outgoing_vine_toward_the_child(self):
+        from sprites import sprite_key, parse_sprite_key, svg_for_key, vine_stem_points
+        child = self._runner_tile("sprouting", parent=(1, 1), row=1, col=2)
+        self.state["tiles"][0][1] = child
+        mother = self.state["tiles"][0][0]
+        mother["crop"] = {
+            "kind": "strawberry",
+            "stage": "mature",
+            "overwintered": True,
+            "watered": True,
+        }
+        mother["tilled"] = True
+        mother["watered"] = True
+        key = sprite_key(mother, "sun", 1, 1, state=self.state)
+        self.assertIn("_vine_out_east", key, key)
+        parsed = parse_sprite_key(key)
+        self.assertEqual(parsed.get("vine_out"), ["east"])
+        self.assertFalse(parsed.get("vine"))
+        svg = svg_for_key(key)
+        self.assertIn('id="vine-out-east"', svg)
+        vine_at = svg.find('id="vine-out-east"')
+        vine_svg = svg[vine_at:svg.find("</g>", vine_at)]
+        self.assertNotIn("rotate(", vine_svg)
+        # Child still has the incoming half; the two halves meet at the shared edge.
+        child_key = sprite_key(child, "sun", 1, 2, state=self.state)
+        self.assertTrue(child_key.endswith("_vine_west"), child_key)
+        out_end = vine_stem_points("east", outgoing=True)[-1]
+        in_start = vine_stem_points("west", outgoing=False)[0]
+        self.assertEqual(out_end, (160, 110))
+        self.assertEqual(in_start, (0, 110))
+        self.assertEqual(out_end[1], in_start[1])
+        # Vertical halves also meet, and their leaves stay unrotated.
+        south_end = vine_stem_points("south", outgoing=True)[-1]
+        north_start = vine_stem_points("north", outgoing=False)[0]
+        self.assertEqual(south_end, (80, 160))
+        self.assertEqual(north_start, (80, 0))
+        vertical = svg_for_key("strawberry_sprouting_wet_vine_south")
+        v_at = vertical.find('id="vine-south"')
+        self.assertNotIn("rotate(", vertical[v_at:vertical.find("</g>", v_at)])
 
     def test_migrate_records_the_existing_runner_from_the_parent_to_the_left(self):
         from engine import migrate_runner_from
@@ -4792,11 +4850,10 @@ class HillsPhaseOne(unittest.TestCase):
         sync_inventory_view(self.state, self.rules)
         self.assertTrue(pack_has(self.state, P1, TOOL_AXE, 1, self.rules))
         ok, msg = do_action(self.state, self.crops, "chop", player=P1, rules=self.rules)
-        self.assertFalse(ok)
+        self.assertTrue(ok, msg)
         self.assertTrue(str(msg).strip())
-        self.assertIn("backpack", msg.lower())
-        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "grown")
-        self.assertIn("chop", legal_actions(self.state, self.crops, P1, self.rules))
+        self.assertIn("at your feet", msg.lower())
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "stump")
 
     def test_cli_chop_without_do_prints_on_stdout(self):
         import contextlib
@@ -5084,7 +5141,7 @@ class HillsPhaseOne(unittest.TestCase):
         hp, cap = player_hp(self.state, P1, self.rules)
         self.assertEqual(hp, 40)
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
 
     def test_zero_hp_wakes_at_the_mine_entrance(self):
         from hills import faint_from_hp, player_area, AREA_HILLS, MINE_ENTRANCE, player_hp
@@ -5095,7 +5152,7 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertEqual(self.state["players"][P1]["energy"], 25)
-        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 50)
         self.assertIn("mine entrance", msg.lower())
         self.assertTrue(self.state.get("mine_entrance_found"))
 
@@ -5675,6 +5732,12 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["gold"], 40)
         self.assertTrue(pack_has(self.state, P1, TOOL_PICKAXE, 1, self.rules))
+        # A second pickaxe is allowed (one per player).
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], 0)
+        self.assertTrue(pack_has(self.state, P1, TOOL_PICKAXE, 2, self.rules))
+        self.state["gold"] = 40
         ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
         self.assertFalse(ok)
         self.assertIn("already", msg.lower())
@@ -5728,8 +5791,13 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertIn("40", line)
         self.assertIn("11", line)
 
-        # Gone from the shop once one is already on the farm.
+        # Still in the shop after the first pickaxe; gone once two are on the farm.
         from inventory import add_to_pack, TOOL_PICKAXE, sync_inventory_view
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertIn("pickaxe", payload.get("tools") or {})
+        self.assertIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
         add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
         sync_inventory_view(self.state, self.rules)
         payload = web.api_payload(self.state, self.crops, player=P1)
@@ -5871,7 +5939,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertIsNone(self.state["players"][P1].get("floor"))
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
         self.assertIn("passed out in the mine", msg.lower())
 
         # Season change at dawn also wakes them at the hills entrance.
@@ -5893,7 +5961,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertIsNone(self.state["players"][P1].get("floor"))
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
 
     def test_zero_hp_still_wakes_at_the_hills_entrance_with_25_energy(self):
         from hills import faint_from_hp, player_area, AREA_HILLS, MINE_ENTRANCE, set_player_place, AREA_MINE
@@ -5907,7 +5975,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertIsNone(self.state["players"][P1].get("floor"))
         self.assertEqual(self.state["players"][P1]["energy"], 25)
-        self.assertEqual(self.state["players"][P1]["hp"], 100)
+        self.assertEqual(self.state["players"][P1]["hp"], 50)
         self.assertIn("entrance", msg.lower())
 
     def test_forge_upgrades_reduce_tool_energy(self):
@@ -6081,10 +6149,10 @@ class MinePhaseTwo(unittest.TestCase):
         set_player_place(self.state, P1, AREA_MINE, r, c, floor=6)
         self.state["players"][P1]["energy"] = 100
         ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
-        self.assertFalse(ok)
-        self.assertIn("room", msg.lower())
-        self.assertEqual(self.state["players"][P1]["energy"], 100)
-        self.assertTrue(get_mine_tile(self.state, 6, r, c, self.rules).get("rock"))
+        self.assertTrue(ok, msg)
+        self.assertIn("at your feet", msg.lower())
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        self.assertFalse(get_mine_tile(self.state, 6, r, c, self.rules).get("rock"))
 
         at_town(self.state, P1, "stall")
         gold = int(self.state["gold"] or 0)
@@ -7026,7 +7094,7 @@ class MinePhaseThree(unittest.TestCase):
         set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         actions = legal_actions(self.state, self.crops, P1, self.rules)
         self.assertIn("strike", actions)
-        self.assertIn("flee", actions)
+        self.assertNotIn("flee", actions)
         key = sprite_key(data["tiles"][1][1], floor=6)
         self.assertIn("slime_grey", key)
         self.assertEqual(parse_sprite_key(key).get("slime"), "grey")
@@ -7046,23 +7114,22 @@ class MinePhaseThree(unittest.TestCase):
         self.assertEqual(player_hp(self.state, P1, self.rules)[0], 92)  # no counter on the killing blow
         self.assertNotIn("strike", legal_actions(self.state, self.crops, P1, self.rules))
 
-        # Flee to the shaft. Fresh slime on floor 6; must stand on it.
+        # Walking off the slime tile is how you leave; the slime lashes out.
         data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
         _sync_slime_tile(data)
-        from mine import arrival_tile
-        exit_r, exit_c = arrival_tile(self.state, 6, self.rules)
-        # If the exit is the slime tile, move the slime aside.
-        if (exit_r, exit_c) == (2, 2):
-            data["slimes"][0]["row"], data["slimes"][0]["col"] = 3, 3
-            _sync_slime_tile(data)
-            set_player_place(self.state, P1, AREA_MINE, 3, 3, floor=6)
-        else:
-            set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        self.state["players"][P1]["hp"] = 100
         ok, msg = do_action(self.state, self.crops, "flee", player=P1, rules=self.rules)
+        self.assertFalse(ok, msg)
+        self.assertIn("walk", msg.lower())
+        # Step to a neighbouring tile (not out of bounds).
+        dest = (2, 3) if 1 <= 3 <= 3 else (2, 1)
+        ok, msg = do_action(self.state, self.crops, f"move to {dest[0]} {dest[1]}", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
-        self.assertEqual(player_where(self.state, P1), (exit_r, exit_c))
-        self.assertIn("shaft", msg.lower())
-        # 0 HP from a strike wakes at the hills entrance with 25 energy and full HP.
+        self.assertEqual(player_where(self.state, P1), dest)
+        self.assertIn("lashes out", msg.lower())
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 92)
+        # 0 HP from a strike wakes at the hills entrance with 25 energy and HP up to 50.
         data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
         _sync_slime_tile(data)
         set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
@@ -7073,7 +7140,7 @@ class MinePhaseThree(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertEqual(self.state["players"][P1]["energy"], 25)
-        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 50)
         self.assertIn("mine entrance", msg.lower())
 
     def test_multiple_slimes_have_independent_hp_and_goo(self):
@@ -7198,7 +7265,7 @@ class MinePhaseThree(unittest.TestCase):
         set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
         payload = web.api_payload(self.state, self.crops, player=P1)
         self.assertIn("strike", payload.get("actions") or [])
-        self.assertIn("flee", payload.get("actions") or [])
+        self.assertNotIn("flee", payload.get("actions") or [])
         html = web.render_page(viewer=P1)
         # Reuse the mine jsdom runner in inside mode.
         import shutil, subprocess, tempfile, os, json
@@ -7222,9 +7289,9 @@ class MinePhaseThree(unittest.TestCase):
             data_js = json.loads(proc.stdout)
         joined = " ".join(data_js["tileButtons"]).lower()
         self.assertIn("strike", joined)
-        self.assertIn("flee", joined)
+        self.assertNotIn("flee", joined)
         self.assertRegex(data_js["keysText"], r"\bK\b")
-        self.assertRegex(data_js["keysText"], r"\bF\b")
+        self.assertNotRegex(data_js["keysText"], r"\bF\b\s+flee")
 
 
 class MineActionsWeb(unittest.TestCase):
@@ -7692,7 +7759,7 @@ class CabinComfort(unittest.TestCase):
         self.assertIn("50", sleep_outlook(self.state, P1, self.rules))
         # P2 is still in the cabin, so the laid fire warms them.
         _msg1, msg2 = self._end_both()
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
         self.assertEqual(self.state["players"][P1].get("energy_max"), 100)
         self.assertEqual(self.state["players"][P2]["energy"], 110)
         # Fuel now comes from the pack; the chest wood is untouched.
@@ -7714,8 +7781,8 @@ class CabinComfort(unittest.TestCase):
         set_player_place(self.state, P2, AREA_HILLS, 3, 3)
         _msg1, msg2 = self._end_both()
         self.assertEqual(stack_count(chest_of(self.state, self.rules), "wood"), 1)
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
-        self.assertEqual(self.state["players"][P2]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
+        self.assertEqual(self.state["players"][P2]["energy"], 45)
         self.assertNotIn("fire crackled", msg2)
         self.assertIn("passed out", msg2)
         self.assertFalse(self.state.get("fireplace_fueled"))
@@ -7799,7 +7866,7 @@ class CabinComfort(unittest.TestCase):
         self.assertIn("50", sleep_outlook(self.state, P1, self.rules))
         self.assertNotIn("110", sleep_outlook(self.state, P1, self.rules))
         _msg1, msg2 = self._end_both()
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
         self.assertEqual(self.state["players"][P1].get("energy_max"), 100)
 
     def test_herbal_tea_from_the_chest_at_the_cabin(self):
@@ -8158,7 +8225,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["day"]), 2)
         self.assertIn("passed out", msg)
-        self.assertEqual(self.state["players"][P2]["energy"], 50)
+        self.assertEqual(self.state["players"][P2]["energy"], 45)
         self.assertFalse(is_player_in_cabin(self.state, P2))
 
     def test_partner_ending_without_carrying_lets_them_pass_out(self):
@@ -8175,7 +8242,7 @@ class PassTurnAndWalkHome(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(int(self.state["day"]), 2)
         self.assertIn("passed out", msg)
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
         self.assertFalse(is_player_in_cabin(self.state, P1))
 
     def test_pass_turn_in_the_cabin_does_not_set_a_carry_request(self):
@@ -8475,7 +8542,7 @@ class TogetherRest(unittest.TestCase):
         _m1, msg2 = self._end_both()
         self.assertIn("passed out", msg2)
         self.assertEqual(self.state["players"][P1]["energy"], 100)
-        self.assertEqual(self.state["players"][P2]["energy"], 50)
+        self.assertEqual(self.state["players"][P2]["energy"], 45)
 
     def test_carried_player_at_zero_qualifies_if_the_carrier_ends_in_the_cabin_above_10(self):
         from hills import set_player_place, AREA_HILLS, HILLS_GATE
@@ -9575,7 +9642,7 @@ class SleepingBagAndMineDifficulty(unittest.TestCase):
         self.assertEqual(self.state["day"], 2)
         self.assertEqual(player_area(self.state, P1), AREA_FARM)
         self.assertEqual(player_where(self.state, P1), (3, 1))
-        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
         self.assertEqual(self.state["players"][P1]["energy_max"], 100)
         self.assertGreaterEqual(self.state["players"][P2]["energy"], 100)
         self.assertIn("slept in the sleeping bag", msg2.lower())
@@ -9624,7 +9691,7 @@ class SleepingBagAndMineDifficulty(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_MINE)
         self.assertEqual(player_floor(self.state, P1), 6)
         self.assertEqual(player_where(self.state, P1), (2, 2))
-        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self.state["current_player"] = P1
         give_item(self.state, "pickaxe", 1, player=P1, where="pack")
@@ -9638,7 +9705,7 @@ class SleepingBagAndMineDifficulty(unittest.TestCase):
         self._end_both()
         self.assertEqual(player_area(self.state, P1), AREA_HILLS)
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
-        self.assertEqual(self.state["players"][P1]["energy"], 50)
+        self.assertEqual(self.state["players"][P1]["energy"], 45)
 
 
 
@@ -9745,8 +9812,9 @@ class GroundDropsChestMergeAndTakeAll(unittest.TestCase):
         from town import TOWN_STALL
         self.assertFalse(ground_counts(self.state, AREA_TOWN, *TOWN_STALL, rules=self.rules))
 
-    def test_mine_ground_persists_when_floors_reroll(self):
-        from hills import set_player_place, AREA_MINE
+    def test_mine_ground_is_cleared_when_floors_reroll(self):
+        from hills import set_player_place, AREA_MINE, AREA_FARM, AREA_HILLS, AREA_TOWN
+        from town import TOWN_ENTRANCE
         from mine import ensure_mine, get_floor, mine_of
         from inventory import add_to_pack, add_to_ground, ground_counts, sync_inventory_view
         self._clear_pack()
@@ -9763,18 +9831,20 @@ class GroundDropsChestMergeAndTakeAll(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "drop stone all", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(ground_counts(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules).get("stone"), 4)
-        # Season change wipes generated floors; ground items stay on that floor and tile.
+        # Drops outside the mine must survive a mine reset.
+        add_to_ground(self.state, AREA_FARM, 2, 2, "wood", 2, rules=self.rules)
+        add_to_ground(self.state, AREA_HILLS, 1, 1, "wild_onion", 1, rules=self.rules)
+        add_to_ground(self.state, AREA_TOWN, *TOWN_ENTRANCE, "copper_ore", 1, rules=self.rules)
+        # Season change wipes generated floors and every mine ground pile.
         mine = mine_of(self.state)
         mine["season"] = "winter" if mine.get("season") != "winter" else "spring"
         self.assertTrue(ensure_mine(self.state, self.rules))
         self.assertEqual(mine_of(self.state).get("floors"), {})
         get_floor(self.state, 2, self.rules)
-        self.assertEqual(ground_counts(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules).get("stone"), 4)
-        # Taking still works on the new layout.
-        ok, msg = do_action(self.state, self.crops, "take stone all", player=P1, rules=self.rules)
-        self.assertTrue(ok, msg)
-        from inventory import pack_of, stack_count
-        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 4)
+        self.assertFalse(ground_counts(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules))
+        self.assertEqual(ground_counts(self.state, AREA_FARM, 2, 2, rules=self.rules).get("wood"), 2)
+        self.assertEqual(ground_counts(self.state, AREA_HILLS, 1, 1, rules=self.rules).get("wild_onion"), 1)
+        self.assertEqual(ground_counts(self.state, AREA_TOWN, *TOWN_ENTRANCE, rules=self.rules).get("copper_ore"), 1)
 
     def test_legacy_mine_tile_drop_migrates_and_can_be_picked_up(self):
         from hills import set_player_place, AREA_MINE
@@ -9828,3 +9898,526 @@ class LeaveCabinFromAnywhere(unittest.TestCase):
         self.assertEqual(player_area(self.state, P1), AREA_FARM)
         self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
         self.assertEqual(self.state["players"][P1]["energy"], 0)
+
+
+class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 100
+        self.state["players"][P2]["energy"] = 100
+
+    def _end_day(self):
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        self.state["players"][P2]["ended_turn"] = False
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.state["current_player"] = P2
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P2, rules=self.rules)
+        self.assertTrue(ok, msg)
+        return msg
+
+    def test_snow_pauses_growth_but_keeps_soil_wet(self):
+        from engine import weather_pauses_growth, _apply_evening_growth
+        self.assertTrue(weather_pauses_growth("snow", self.rules))
+        self.assertFalse(weather_pauses_growth("rain", self.rules))
+        till(self.state, self.crops, 1, 1)
+        give_seeds(self.state, "carrot", 1)
+        ok, msg = plant(self.state, self.crops, 1, 1, "carrot")
+        self.assertTrue(ok, msg)
+        self.state["weather"] = "snow"
+        self.state["tiles"][0][0]["watered"] = True
+        notes = _apply_evening_growth(self.state, self.crops, self.rules)
+        crop = self.state["tiles"][0][0]["crop"]
+        self.assertEqual(int(crop["days_grown"] or 0), 0)
+        self.assertEqual(float(crop.get("growth") or 0), 0)
+        self.assertFalse(self.state["tiles"][0][0]["watered"])
+        self.assertEqual(int(crop.get("dry_days") or 0), 0)
+
+    def test_shop_sells_a_second_pickaxe_and_forge_upgrades_the_one_in_the_pack(self):
+        from inventory import TOOL_PICKAXE, pack_has, pack_of, stack_tool_tier, add_to_pack, add_to_ground
+        from mine import pickaxe_count, tool_tier, forge_tool
+        from hills import set_player_place, AREA_FARM
+        self.state["mine_entrance_found"] = True
+        self.state["gold"] = 80
+        at_town(self.state, P1, "store")
+        self.assertEqual(pickaxe_count(self.state, self.rules), 0)
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(pickaxe_count(self.state, self.rules), 2)
+        self.state["gold"] = 40
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("two pickaxes", msg.lower())
+        # Move one pickaxe to the ground so each player can hold one, then forge P1's.
+        # Start from a clean pack with a single basic pickaxe for P1.
+        self.state["players"][P1]["pack"] = []
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules, tier="basic")
+        give_item(self.state, "copper_ore", 5, player=P1, where="pack")
+        at_town(self.state, P1, "forge")
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "forge pickaxe", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(tool_tier(self.state, TOOL_PICKAXE, player=P1), "copper")
+        # A second basic pickaxe on the ground (or in P2's pack) stays basic.
+        add_to_pack(self.state, P2, TOOL_PICKAXE, 1, self.rules, tier="basic")
+        self.assertEqual(tool_tier(self.state, TOOL_PICKAXE, player=P2), "basic")
+
+    def test_drop_and_take_messages_use_display_names(self):
+        from inventory import add_to_pack, SLEEPING_BAG
+        from hills import set_player_place, AREA_FARM
+        from engine import described_legal_actions
+        set_player_place(self.state, P1, AREA_FARM, 2, 2)
+        add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        ok, msg = do_action(self.state, self.crops, "drop sleeping_bag 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("sleeping bag", msg.lower())
+        self.assertNotIn("sleeping_bag", msg)
+        ok, msg = do_action(self.state, self.crops, "pick up sleeping bag 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("sleeping bag", msg.lower())
+        self.assertNotIn("sleeping_bag", msg)
+        listed = described_legal_actions(self.state, self.crops, P1, self.rules)
+        # After pick-up, drop should be offered with a display name.
+        drop_lines = [line for line in listed if "drop" in line.lower() and "sleeping" in line.lower()]
+        self.assertTrue(drop_lines, listed)
+        self.assertTrue(all("sleeping_bag" not in line for line in drop_lines), drop_lines)
+
+    def test_season_change_evicts_a_sleeping_bag_miner_to_the_entrance(self):
+        from hills import set_player_place, AREA_MINE, AREA_HILLS, MINE_ENTRANCE, player_area
+        from mine import ensure_mine, mine_of, player_floor
+        from inventory import add_to_pack, SLEEPING_BAG, add_to_ground
+        ensure_mine(self.state, self.rules)
+        # Last day of winter, year 1: day 60. Next dawn is spring and the mine re-rolls.
+        self.state["day"] = 60
+        self.state["season"] = "winter"
+        self.state["weather"] = "snow"
+        mine = mine_of(self.state)
+        mine["season"] = "winter"
+        mine["year"] = 1
+        add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 1, floor=8)
+        add_to_ground(self.state, AREA_MINE, 2, 1, "stone", 1, floor=8, rules=self.rules)
+        inside(self.state, P2, "bed")
+        msg = self._end_day()
+        self.assertEqual(self.state["day"], 61)
+        self.assertEqual(self.state["season"], "spring")
+        self.assertEqual(player_area(self.state, P1), AREA_HILLS)
+        self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
+        self.assertIsNone(self.state["players"][P1].get("floor"))
+        # Bag energy 100, minus first-night homesickness of 5.
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        joined = " ".join(
+            str(e.get("text") or "") for e in (self.state.get("log") or [])
+            if int(e.get("day") or 0) == 61
+        )
+        self.assertIn("mine shifts with the season", joined.lower())
+        self.assertIn("mine entrance", joined.lower())
+        # Ground left in the cave is gone after the seasonal reset.
+        from inventory import ground_item_count
+        self.assertEqual(ground_item_count(self.state, "stone", self.rules), 0)
+
+    def test_mining_with_no_energy_says_so_before_nothing_here(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import ensure_mine, get_mine_tile
+        from inventory import add_to_pack, TOOL_PICKAXE
+        ensure_mine(self.state, self.rules)
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=2)
+        tile = get_mine_tile(self.state, 2, 2, 2, self.rules)
+        tile["rock"] = "stone"
+        self.state["players"][P1]["energy"] = 0
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("out of energy", msg.lower())
+        self.assertIn("breaking rock", msg.lower())
+        self.assertIn("needs 10", msg)
+        self.assertIn("have 0", msg)
+        self.assertNotIn("nothing to mine", msg.lower())
+        self.assertEqual(tile.get("rock"), "stone")
+
+    def test_everbearing_wake_resets_growth_so_regrow_takes_a_full_cycle(self):
+        from engine import _apply_season_to_crop, _apply_evening_growth
+        till(self.state, self.crops, 1, 1)
+        crop = {
+            "kind": "everbearing",
+            "planted_day": 26,
+            "days_grown": 7,
+            "stage": "dormant",
+            "growth": 100,
+            "health": 100,
+            "harvests": 1,
+            "days_established": 10,
+            "overwintered": True,
+        }
+        self.state["tiles"][0][0]["crop"] = crop
+        self.state["day"] = 61
+        self.state["season"] = "spring"
+        notes = _apply_season_to_crop(self.state, self.crops, crop, 1, 1)
+        self.assertEqual(crop["stage"], "regrowing")
+        self.assertEqual(int(crop["days_grown"] or 0), 0)
+        self.assertEqual(float(crop.get("growth") or 0), 0)
+        self.state["weather"] = "sun"
+        self.state["tiles"][0][0]["watered"] = True
+        _apply_evening_growth(self.state, self.crops, self.rules)
+        crop = self.state["tiles"][0][0]["crop"]
+        self.assertNotEqual(crop.get("stage"), "mature")
+        self.assertLess(float(crop.get("growth") or 0), 100)
+
+    def test_establishing_first_year_runner_does_not_spread(self):
+        from engine import _apply_runners
+        # Established overwintered parent at 2,3; a new first-year runner at 2,2.
+        till(self.state, self.crops, 2, 2)
+        till(self.state, self.crops, 2, 3)
+        till(self.state, self.crops, 1, 2)
+        self.state["tiles"][2 - 1][3 - 1]["crop"] = {
+            "kind": "strawberry",
+            "planted_day": 21,
+            "days_grown": 1,
+            "stage": "sprouting",
+            "growth": 0,
+            "health": 100,
+            "overwintered": True,
+            "fruiting_started": True,
+            "runner_season": 4,  # already sent one this season
+        }
+        self.state["tiles"][2 - 1][2 - 1]["crop"] = {
+            "kind": "strawberry",
+            "planted_day": 61,
+            "days_grown": 0,
+            "stage": "seed",
+            "growth": 0,
+            "health": 100,
+            "runner_from": [2, 3],
+            "days_established": 1,
+        }
+        self.crops["crops"]["strawberry"]["runner_chance"] = 1.0
+        self.state["day"] = 62
+        self.state["season"] = "spring"
+        notes = _apply_runners(self.state, self.crops)
+        self.assertFalse(any("runner" in n.lower() for n in notes), notes)
+        self.assertIsNone(self.state["tiles"][1 - 1][2 - 1].get("crop"))
+        self.crops["crops"]["strawberry"]["runner_chance"] = 0.10
+
+    def test_mining_with_a_full_pack_drops_ore_at_your_feet(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import ensure_mine, get_mine_tile
+        from inventory import add_to_pack, TOOL_PICKAXE, pack_has, ground_of
+        from inventory import SLEEPING_BAG
+        ensure_mine(self.state, self.rules)
+        # Fill the 4-slot pack with unique items so ore cannot stack in.
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        add_to_pack(self.state, P1, "wood", 8, self.rules)
+        add_to_pack(self.state, P1, "stone", 8, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=2)
+        tile = get_mine_tile(self.state, 2, 2, 2, self.rules)
+        tile["rock"] = "copper_ore"
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("at your feet", msg.lower())
+        self.assertNotIn("cabin first", msg.lower())
+        self.assertIsNone(tile.get("rock"))
+        self.assertFalse(pack_has(self.state, P1, "copper_ore", 1, self.rules))
+        ground = ground_of(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules)
+        self.assertTrue(any((s or {}).get("item") == "copper_ore" for s in ground), ground)
+
+    def test_breaking_a_rock_on_a_slime_tile_gives_a_free_hit(self):
+        from hills import set_player_place, AREA_MINE, player_hp
+        from mine import ensure_mine, get_mine_tile, get_floor, _sync_slime_tiles
+        from inventory import add_to_pack, TOOL_PICKAXE
+        ensure_mine(self.state, self.rules)
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        data = get_floor(self.state, 6, self.rules)
+        data["slimes"] = [{"kind": "grey", "hp": 20, "row": 2, "col": 2}]
+        _sync_slime_tiles(data)
+        tile = get_mine_tile(self.state, 6, 2, 2, self.rules)
+        tile["rock"] = "stone"
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        self.state["players"][P1]["hp"] = 100
+        ok, msg = do_action(self.state, self.crops, "mine", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("lashes out", msg.lower())
+        self.assertIn("-8 HP", msg)
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 92)
+        self.assertTrue(data["slimes"])  # slime is still there
+
+    def test_sleeping_bag_hp_caps_at_fifty_and_cabin_fills(self):
+        from hills import set_player_place, AREA_HILLS, player_hp
+        from inventory import add_to_pack, SLEEPING_BAG
+        # Cabin fills HP.
+        inside(self.state, P1, "bed")
+        inside(self.state, P2, "bed")
+        self.state["players"][P1]["hp"] = 20
+        self._end_day()
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 100)
+        # Bag restores up to 50.
+        add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        inside(self.state, P2, "bed")
+        self.state["players"][P1]["hp"] = 20
+        self._end_day()
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 50)
+        # Already above 50 is left alone.
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        inside(self.state, P2, "bed")
+        self.state["players"][P1]["hp"] = 80
+        self._end_day()
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 80)
+        # Overnight pass-out (no bag) keeps current HP.
+        from inventory import remove_from_pack
+        # Ensure no bag.
+        self.state["players"][P1]["pack"] = [
+            s for s in (self.state["players"][P1].get("pack") or [])
+            if (s or {}).get("item") != SLEEPING_BAG
+        ]
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        inside(self.state, P2, "bed")
+        self.state["players"][P1]["hp"] = 40
+        self._end_day()
+        self.assertEqual(player_hp(self.state, P1, self.rules)[0], 40)
+
+    def test_homesickness_stacks_clears_in_the_cabin_and_heart_is_home_in_the_mine(self):
+        from hills import set_player_place, AREA_MINE, AREA_HILLS, player_area
+        from mine import ensure_mine
+        from inventory import add_to_pack, SLEEPING_BAG
+        from describe import turn_header_lines
+        import web
+        ensure_mine(self.state, self.rules)
+        add_to_pack(self.state, P1, SLEEPING_BAG, 1, self.rules)
+        add_to_pack(self.state, P2, SLEEPING_BAG, 1, self.rules)
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        inside(self.state, P2, "bed")
+        self._end_day()
+        self.assertEqual(self.state["players"][P1]["homesickness"], 5)
+        self.assertEqual(self.state["players"][P1]["energy"], 95)
+        header = " ".join(turn_header_lines(self.state, self.crops, viewer=P1))
+        self.assertIn("homesick", header.lower())
+        self.assertIn("5", header)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual((payload.get("homesickness") or {}).get(P1), 5)
+        # Second night away alone: −10.
+        set_player_place(self.state, P1, AREA_HILLS, 3, 3)
+        inside(self.state, P2, "bed")
+        self._end_day()
+        self.assertEqual(self.state["players"][P1]["homesickness"], 10)
+        self.assertEqual(self.state["players"][P1]["energy"], 90)
+        # Same mine floor together: no penalty, stacks stay, full bag energy.
+        set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=8)
+        set_player_place(self.state, P2, AREA_MINE, 3, 3, floor=8)
+        msg = self._end_day()
+        self.assertEqual(self.state["players"][P1]["homesickness"], 10)
+        self.assertEqual(self.state["players"][P1]["energy"], 100)
+        self.assertEqual(self.state["players"][P2]["energy"], 100)
+        joined = " ".join(
+            str(e.get("text") or "") for e in (self.state.get("log") or [])
+            if int(e.get("day") or 0) == int(self.state["day"])
+        )
+        self.assertIn("heart is", joined.lower())
+        # Different mine floors: penalty applies again.
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=6)
+        set_player_place(self.state, P2, AREA_MINE, 2, 2, floor=8)
+        self._end_day()
+        self.assertEqual(self.state["players"][P1]["homesickness"], 15)
+        self.assertEqual(self.state["players"][P1]["energy"], 85)
+        # A night in the cabin clears it.
+        inside(self.state, P1, "bed")
+        inside(self.state, P2, "bed")
+        self._end_day()
+        self.assertEqual(self.state["players"][P1]["homesickness"], 0)
+        self.assertGreaterEqual(self.state["players"][P1]["energy"], 100)
+        header = " ".join(turn_header_lines(self.state, self.crops, viewer=P1))
+        self.assertNotIn("homesick", header.lower())
+
+    def test_web_ui_has_legal_actions_collapsible_and_ground_drop_buttons(self):
+        import web
+        html = web.render_page(viewer=P1)
+        self.assertIn("LEGAL_OPEN_KEY", html)
+        self.assertIn("LEGAL ACTIONS", html)
+        self.assertIn("legalActionsIsOpen", html)
+        self.assertIn("Drop 1", html)
+        self.assertIn("Take 1", html)
+        self.assertIn("itemName", html)
+        self.assertIn("open-settings", html)
+        self.assertIn("Settings", html)
+        self.assertIn("Taking a break from farming", html)
+        self.assertIn("Maximum turns autopassed", html)
+        self.assertIn("Time until autopass", html)
+        self.assertIn("/api/settings", html)
+
+
+class AutopassTurns(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        stand(self.state, P2, CABIN_ROW, CABIN_COL)
+
+    def test_defaults_are_off_three_turns_and_thirty_minutes(self):
+        from autopass import public_autopass, DEFAULT_ENABLED, DEFAULT_MAX_TURNS, DEFAULT_TIMEOUT_MINUTES
+        import web
+        cfg = public_autopass(self.state, P1)
+        self.assertFalse(cfg["enabled"])
+        self.assertFalse(DEFAULT_ENABLED)
+        self.assertEqual(cfg["max_turns"], 3)
+        self.assertEqual(cfg["timeout_minutes"], 30)
+        self.assertEqual(DEFAULT_MAX_TURNS, 3)
+        self.assertEqual(DEFAULT_TIMEOUT_MINUTES, 30)
+        self.assertEqual(cfg["turns_used"], 0)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertEqual(payload["autopass"]["enabled"], False)
+        self.assertEqual(payload["autopass"]["max_turns"], 3)
+        self.assertEqual(payload["autopass"]["timeout_minutes"], 30)
+        self.assertEqual(payload["away_summary"], "")
+
+    def test_unknown_keys_are_not_stored_with_settings(self):
+        from autopass import normalize_autopass, AUTOPASS_KEY
+        dirty = {
+            "enabled": True,
+            "max_turns": 4,
+            "timeout_minutes": 15,
+            "token": "secret-should-never-be-kept",
+            "webhook": "https://example.invalid/hook",
+        }
+        clean = normalize_autopass(dirty)
+        self.assertTrue(clean["enabled"])
+        self.assertEqual(clean["max_turns"], 4)
+        self.assertNotIn("token", clean)
+        self.assertNotIn("webhook", clean)
+        self.state["players"][P1][AUTOPASS_KEY] = clean
+        self.assertNotIn("token", self.state["players"][P1][AUTOPASS_KEY])
+
+    def test_idle_timeout_ends_the_day_for_them_and_passes_the_turn(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import (
+            set_autopass_settings, mark_turn_started, maybe_apply_autopass, autopass_of,
+        )
+        from hills import AREA_FARM
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=3, timeout_minutes=30)
+        mark_turn_started(self.state, now=start)
+        tile = self.state["tiles"][0][0]
+        tile["tilled"] = True
+        tile["watered"] = False
+        # Not yet due.
+        applied, _, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=start + timedelta(minutes=29)
+        )
+        self.assertFalse(applied)
+        self.assertIsNone(who)
+        self.assertEqual(self.state["current_player"], P1)
+        self.assertFalse(self.state["players"][P1]["ended_turn"])
+        # Due: vote end-day and hand the turn over. No other action.
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=start + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(who, P1)
+        self.assertEqual(self.state["current_player"], P2)
+        self.assertTrue(self.state["players"][P1]["ended_turn"])
+        self.assertFalse(self.state["players"][P2]["ended_turn"])
+        self.assertFalse(tile["watered"])
+        self.assertEqual(autopass_of(self.state, P1)["turns_used"], 1)
+        self.assertIn("taking a break", " ".join(
+            str(e.get("text") or "") for e in (self.state.get("log") or [])
+        ).lower())
+
+    def test_autopass_stops_after_the_maximum_and_an_action_cancels_it(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import (
+            set_autopass_settings, mark_turn_started, maybe_apply_autopass,
+            autopass_of, format_away_summary,
+        )
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=2, timeout_minutes=30)
+        now = start
+        for i in range(2):
+            self.state["current_player"] = P1
+            self.state["players"][P1]["ended_turn"] = False
+            self.state["players"][P2]["ended_turn"] = False
+            mark_turn_started(self.state, now=now)
+            applied, msg, who = maybe_apply_autopass(
+                self.state, self.crops, self.rules, now=now + timedelta(minutes=30)
+            )
+            self.assertTrue(applied, msg)
+            self.assertEqual(who, P1)
+            self.assertEqual(autopass_of(self.state, P1)["turns_used"], i + 1)
+            now = now + timedelta(minutes=31)
+        # Turn comes back; a further timeout does not fire.
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        self.state["players"][P2]["ended_turn"] = False
+        mark_turn_started(self.state, now=now)
+        applied, _, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=now + timedelta(minutes=30)
+        )
+        self.assertFalse(applied)
+        self.assertIsNone(who)
+        self.assertEqual(self.state["current_player"], P1)
+        self.assertTrue(autopass_of(self.state, P1)["enabled"])
+        self.assertEqual(autopass_of(self.state, P1)["turns_used"], 2)
+        summary = format_away_summary(self.state, P1)
+        self.assertTrue(summary.startswith("While you were away:"), summary)
+        self.assertIn("maximum of 2", summary.lower())
+        # Any action counts as being back and turns it off.
+        self.state["current_player"] = P1
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        cfg = autopass_of(self.state, P1)
+        self.assertFalse(cfg["enabled"])
+        self.assertEqual(cfg["turns_used"], 0)
+        self.assertTrue(cfg["away_pending"])
+        self.assertTrue(cfg["away_log"])
+
+    def test_works_the_same_for_the_other_player(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import set_autopass_settings, mark_turn_started, maybe_apply_autopass
+        start = datetime(2026, 11, 27, 9, 0, tzinfo=timezone.utc)
+        self.state["current_player"] = P2
+        set_autopass_settings(self.state, P2, enabled=True, max_turns=3, timeout_minutes=10)
+        mark_turn_started(self.state, now=start)
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=start + timedelta(minutes=10)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(who, P2)
+        self.assertEqual(self.state["current_player"], P1)
+        self.assertTrue(self.state["players"][P2]["ended_turn"])
+
+    def test_autopass_keeps_the_count_when_the_day_advances(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import set_autopass_settings, mark_turn_started, maybe_apply_autopass, autopass_of
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=3, timeout_minutes=30)
+        self.state["current_player"] = P1
+        self.state["players"][P2]["ended_turn"] = True
+        mark_turn_started(self.state, now=start)
+        day = self.state["day"]
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=start + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(who, P1)
+        self.assertEqual(self.state["day"], day + 1)
+        cfg = autopass_of(self.state, P1)
+        self.assertEqual(cfg["turns_used"], 1)
+        self.assertTrue(cfg["enabled"])
+        self.assertTrue(any("dawns" in line for line in cfg["away_log"]), cfg["away_log"])
+
+    def test_look_does_not_cancel_a_break_but_a_move_does(self):
+        from autopass import set_autopass_settings, autopass_of
+        set_autopass_settings(self.state, P1, enabled=True)
+        ok, msg = do_action(self.state, self.crops, "look", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(autopass_of(self.state, P1)["enabled"])
+        ok, msg = do_action(self.state, self.crops, "move down", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertFalse(autopass_of(self.state, P1)["enabled"])

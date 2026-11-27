@@ -890,26 +890,32 @@ def indefinite(noun: str) -> str:
     return f"{article} {text}"
 
 
-def tool_display_noun(item: str, count: int = 1, state: dict | None = None) -> str:
-    """Tool noun, with a copper/iron/gold prefix when the farm has forged that tool."""
+def tool_display_noun(item: str, count: int = 1, state: dict | None = None, tier: str | None = None) -> str:
+    """Tool noun, with a copper/iron/gold prefix when that tool is forged."""
     info = TOOLS.get(item) or {}
     noun = info.get("name") if count == 1 else (info.get("name_plural") or info.get("name") or item)
     noun = noun or item.replace("_", " ")
-    if not state:
-        return noun
     from mine import FORGE_TOOLS, tool_tier
     if item not in FORGE_TOOLS:
         return noun
-    tier = tool_tier(state, item)
+    if tier is None and state is not None:
+        tier = tool_tier(state, item)
     if tier and tier not in {"basic", ""}:
         return f"{tier} {noun}"
     return noun
 
 
-def item_name(item: str, count: int = 1, crops: dict | None = None, rules: dict | None = None, state: dict | None = None) -> str:
+def item_name(
+    item: str,
+    count: int = 1,
+    crops: dict | None = None,
+    rules: dict | None = None,
+    state: dict | None = None,
+    tier: str | None = None,
+) -> str:
     item = item or ""
     if item in TOOLS:
-        noun = tool_display_noun(item, count, state)
+        noun = tool_display_noun(item, count, state, tier=tier)
         return f"{count} {noun}"
     if item in EQUIPMENT:
         info = equipment_info(item, rules) or EQUIPMENT[item]
@@ -1086,6 +1092,25 @@ def empty_pack(rules: dict | None = None) -> list:
     return [None] * pack_slots(rules)
 
 
+def stack_tool_tier(slot, default: str | None = None) -> str:
+    """Forge tier on a tool stack. 'basic' (or missing) is the starting tier."""
+    if isinstance(slot, dict):
+        raw = slot.get("tier")
+    else:
+        raw = slot
+    text = str(raw or default or "basic").strip().lower()
+    return text if text else "basic"
+
+
+def _with_tier(item: str, count: int, tier: str | None = None) -> dict:
+    slot = {"item": item, "count": int(count)}
+    if is_tool(item):
+        t = stack_tool_tier(tier)
+        if t != "basic":
+            slot["tier"] = t
+    return slot
+
+
 def _clean_stack(slot, *, in_chest: bool = False, rules: dict | None = None) -> dict | None:
     if not slot or not isinstance(slot, dict):
         return None
@@ -1099,7 +1124,7 @@ def _clean_stack(slot, *, in_chest: bool = False, rules: dict | None = None) -> 
     if count <= 0:
         return None
     cap = max_stack_for(item, in_chest=in_chest, rules=rules)
-    return {"item": item, "count": min(count, cap) if in_chest or is_tool(item) else min(count, cap)}
+    return _with_tier(item, min(count, cap), slot.get("tier"))
 
 
 def normalize_pack(raw, rules: dict | None = None) -> list:
@@ -1151,17 +1176,24 @@ def normalize_chest(raw, rules: dict | None = None) -> list:
         if count > 0:
             # Push un-capped so leftover over the stack limit splits,
             # and same-item partial stacks merge on load.
-            _push_stacks(out, item, count, in_chest=True, rules=rules)
+            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"))
     return out
 
 
-def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: dict | None = None) -> int:
-    """Add as many as will fit. Returns the leftover count."""
+def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: dict | None = None, tier: str | None = None) -> int:
+    """Add as many as will fit. Returns the leftover count.
+
+    Pickaxes (and other tooled stacks with a forge tier) only merge with the
+    same tier, so a copper pickaxe never folds into a basic one.
+    """
     if count <= 0:
         return 0
     cap = max_stack_for(item, in_chest=in_chest, rules=rules)
+    want = stack_tool_tier(tier) if is_tool(item) else None
     for slot in dest:
         if not slot or slot.get("item") != item:
+            continue
+        if is_tool(item) and stack_tool_tier(slot) != want:
             continue
         room = cap - int(slot.get("count") or 0)
         if room <= 0:
@@ -1173,7 +1205,7 @@ def _push_stacks(dest: list, item: str, count: int, *, in_chest: bool, rules: di
             return 0
     while count > 0:
         take = min(cap, count)
-        dest.append({"item": item, "count": take})
+        dest.append(_with_tier(item, take, want))
         count -= take
     return 0
 
@@ -1186,11 +1218,12 @@ def stack_count(slots: Iterable, item: str) -> int:
     return total
 
 
-def _remove_from_slots(slots: list, item: str, count: int) -> int:
-    """Remove up to count, later slots first. Returns how many were removed."""
-    removed = 0
+def _remove_stacks_from_slots(slots: list, item: str, count: int) -> list[dict]:
+    """Remove up to count, later slots first. Returns the stacks taken (with tier)."""
+    taken: list[dict] = []
     if count <= 0:
-        return 0
+        return taken
+    removed = 0
     for i in range(len(slots) - 1, -1, -1):
         slot = slots[i]
         if not slot or slot.get("item") != item:
@@ -1199,14 +1232,19 @@ def _remove_from_slots(slots: list, item: str, count: int) -> int:
         take = min(have, count - removed)
         have -= take
         removed += take
+        taken.append(_with_tier(item, take, slot.get("tier")))
         if have <= 0:
             slots[i] = None
         else:
             slot["count"] = have
         if removed >= count:
             break
-    # Compact None holes in a chest list (not a fixed pack).
-    return removed
+    return taken
+
+
+def _remove_from_slots(slots: list, item: str, count: int) -> int:
+    """Remove up to count, later slots first. Returns how many were removed."""
+    return sum(int(s.get("count") or 0) for s in _remove_stacks_from_slots(slots, item, count))
 
 
 def compact_chest(chest: list) -> list:
@@ -1266,7 +1304,7 @@ def _normalize_ground_stacks(raw, rules: dict | None = None) -> list:
         except (TypeError, ValueError):
             count = 0
         if count > 0:
-            _push_stacks(out, item, count, in_chest=True, rules=rules)
+            _push_stacks(out, item, count, in_chest=True, rules=rules, tier=slot.get("tier"))
     return compact_chest(out)
 
 
@@ -1297,11 +1335,12 @@ def add_to_ground(
     n: int = 1,
     floor: int | None = None,
     rules: dict | None = None,
+    tier: str | None = None,
 ) -> None:
     if n <= 0 or not item:
         return
     stacks = ground_of(state, area, row, col, floor, rules)
-    _push_stacks(stacks, item, n, in_chest=True, rules=rules)
+    _push_stacks(stacks, item, n, in_chest=True, rules=rules, tier=tier)
     key = ground_key(area, row, col, floor)
     store = ground_map(state)
     store[key] = compact_chest(stacks)
@@ -1350,6 +1389,19 @@ def ground_counts(
     return totals
 
 
+def clear_mine_ground(state: dict) -> int:
+    """Remove every ground pile on mine tiles. Farm, hills, and town are left alone.
+
+    Called when the mine resets (a new season, or any other floor regen).
+    Returns how many mine tiles were cleared.
+    """
+    store = ground_map(state)
+    keys = [key for key in list(store) if str(key).startswith("mine:")]
+    for key in keys:
+        store.pop(key, None)
+    return len(keys)
+
+
 def ground_item_count(state: dict, item: str, rules: dict | None = None) -> int:
     """Count one item across every ground tile. Used for world-unique tools."""
     total = 0
@@ -1370,7 +1422,17 @@ def ground_look_phrase(
     stacks = ground_of(state, area, row, col, floor, rules)
     if not stacks:
         return ""
-    bits = [item_name(slot["item"], int(slot.get("count") or 0), crops, rules, state=state) for slot in stacks]
+    bits = [
+        item_name(
+            slot["item"],
+            int(slot.get("count") or 0),
+            crops,
+            rules,
+            state=state,
+            tier=slot.get("tier"),
+        )
+        for slot in stacks
+    ]
     if len(bits) == 1:
         body = bits[0]
     elif len(bits) == 2:
@@ -1457,6 +1519,67 @@ def migrate_ground(state: dict, rules: dict | None = None) -> bool:
     return changed
 
 
+
+def give_or_drop_at_player(
+    state: dict,
+    player: str | None,
+    item: str,
+    n: int,
+    rules: dict | None = None,
+    *,
+    tier: str | None = None,
+) -> tuple[int, int, str]:
+    """Pack as much as fits; leftover goes on this tile's ground.
+
+    Returns (packed, dropped, phrase). The phrase is a complete sentence when
+    nothing was packed ('Your pack is full, so the copper ore lands at your
+    feet.') or a clause starting with 'and packs …' otherwise.
+    """
+    packed = 0
+    left = max(0, int(n or 0))
+    if player and left:
+        room = pack_space_count(state, player, item, rules)
+        take = min(room, left)
+        if take:
+            leftover = add_to_pack(state, player, item, take, rules, tier=tier)
+            packed = take - leftover
+            left = left - packed
+    if left:
+        place = player_ground_place(state, player) if player else None
+        if place:
+            area, row, col, floor = place
+            add_to_ground(state, area, row, col, item, left, floor=floor, rules=rules, tier=tier)
+        else:
+            # No tile to drop on — should not happen for mine/hills/farm work.
+            left = 0
+    from engine import load_crops
+    crops = None
+    try:
+        crops = load_crops()
+    except Exception:
+        crops = None
+    noun_one = item_name(item, 1, crops, rules, state=state, tier=tier)
+    noun = item_name(item, packed or left or n, crops, rules, state=state, tier=tier)
+    bare_one = noun_one.split(" ", 1)[-1] if noun_one else item.replace("_", " ")
+    sync_inventory_view(state, rules)
+    if packed and not left:
+        return packed, 0, f"and packs {item_name(item, packed, crops, rules, state=state, tier=tier)}"
+    if packed and left:
+        rest = item_name(item, left, crops, rules, state=state, tier=tier)
+        return packed, left, (
+            f"and packs {item_name(item, packed, crops, rules, state=state, tier=tier)}. "
+            f"Your pack is full, so {rest} land{'s' if left == 1 else ''} at your feet"
+        )
+    if left:
+        if left == 1:
+            return 0, left, f"Your pack is full, so the {bare_one} lands at your feet."
+        return 0, left, (
+            f"Your pack is full, so {item_name(item, left, crops, rules, state=state, tier=tier)} "
+            "land at your feet."
+        )
+    return 0, 0, f"and packs {item_name(item, n, crops, rules, state=state, tier=tier)}"
+
+
 def pack_of(state: dict, player: str | None, rules: dict | None = None) -> list:
     from engine import player_slot
 
@@ -1501,15 +1624,18 @@ def pack_space_for(state: dict, player: str | None, item: str, n: int = 1, rules
     return pack_space_count(state, player, item, rules) >= n
 
 
-def add_to_pack(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> int:
+def add_to_pack(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None, tier: str | None = None) -> int:
     """Add to the player's pack. Returns leftover that did not fit."""
     if not player or n <= 0:
         return max(0, n)
     pack = pack_of(state, player, rules)
     cap = max_stack_for(item, in_chest=False, rules=rules)
     left = n
+    want = stack_tool_tier(tier) if is_tool(item) else None
     for i, slot in enumerate(pack):
         if slot and slot.get("item") == item:
+            if is_tool(item) and stack_tool_tier(slot) != want:
+                continue
             room = cap - int(slot.get("count") or 0)
             if room <= 0:
                 continue
@@ -1521,7 +1647,7 @@ def add_to_pack(state: dict, player: str | None, item: str, n: int = 1, rules: d
     for i, slot in enumerate(pack):
         if slot is None:
             take = min(cap, left)
-            pack[i] = {"item": item, "count": take}
+            pack[i] = _with_tier(item, take, want)
             left -= take
             if left <= 0:
                 return 0
@@ -1536,11 +1662,18 @@ def remove_from_pack(state: dict, player: str | None, item: str, n: int = 1, rul
     return _remove_from_slots(pack, item, n)
 
 
-def add_to_chest(state: dict, item: str, n: int = 1, rules: dict | None = None) -> None:
+def remove_stacks_from_pack(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> list[dict]:
+    if not player or n <= 0:
+        return []
+    pack = pack_of(state, player, rules)
+    return _remove_stacks_from_slots(pack, item, n)
+
+
+def add_to_chest(state: dict, item: str, n: int = 1, rules: dict | None = None, tier: str | None = None) -> None:
     if n <= 0:
         return
     chest = chest_of(state, rules)
-    _push_stacks(chest, item, n, in_chest=True, rules=rules)
+    _push_stacks(chest, item, n, in_chest=True, rules=rules, tier=tier)
     state["chest"] = compact_chest(chest)
 
 
@@ -1551,6 +1684,83 @@ def remove_from_chest(state: dict, item: str, n: int = 1, rules: dict | None = N
     removed = _remove_from_slots(chest, item, n)
     state["chest"] = compact_chest(chest)
     return removed
+
+
+def remove_stacks_from_chest(state: dict, item: str, n: int = 1, rules: dict | None = None) -> list[dict]:
+    if n <= 0:
+        return []
+    chest = chest_of(state, rules)
+    taken = _remove_stacks_from_slots(chest, item, n)
+    state["chest"] = compact_chest(chest)
+    return taken
+
+
+def remove_stacks_from_ground(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    item: str,
+    n: int = 1,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> list[dict]:
+    if n <= 0 or not item:
+        return []
+    stacks = ground_of(state, area, row, col, floor, rules)
+    taken = _remove_stacks_from_slots(stacks, item, n)
+    key = ground_key(area, row, col, floor)
+    store = ground_map(state)
+    stacks = compact_chest(stacks)
+    if stacks:
+        store[key] = stacks
+    else:
+        store.pop(key, None)
+    return taken
+
+
+def add_stacks_to_pack(state: dict, player: str | None, stacks: list, rules: dict | None = None) -> list[dict]:
+    """Add transferred stacks, preserving forge tiers. Returns leftovers."""
+    leftover = []
+    for slot in stacks or []:
+        if not slot:
+            continue
+        item = slot.get("item")
+        n = int(slot.get("count") or 0)
+        if not item or n <= 0:
+            continue
+        left = add_to_pack(state, player, item, n, rules, tier=slot.get("tier"))
+        if left:
+            leftover.append(_with_tier(item, left, slot.get("tier")))
+    return leftover
+
+
+def add_stacks_to_chest(state: dict, stacks: list, rules: dict | None = None) -> None:
+    for slot in stacks or []:
+        if not slot:
+            continue
+        item = slot.get("item")
+        n = int(slot.get("count") or 0)
+        if item and n > 0:
+            add_to_chest(state, item, n, rules, tier=slot.get("tier"))
+
+
+def add_stacks_to_ground(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    stacks: list,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> None:
+    for slot in stacks or []:
+        if not slot:
+            continue
+        item = slot.get("item")
+        n = int(slot.get("count") or 0)
+        if item and n > 0:
+            add_to_ground(state, area, row, col, item, n, floor=floor, rules=rules, tier=slot.get("tier"))
 
 
 def all_stores(state: dict, rules: dict | None = None) -> list[dict]:

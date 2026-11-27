@@ -287,17 +287,21 @@ def layers_for_key(key: str, manifest: dict | None) -> list[dict] | None:
                 return None
             layers.append({"role": "crop", "file": ffile})
         return layers
+    vine = parsed.get("vine")
+    if vine:
+        vfile = _pack_file(manifest, overlays.get(f"vine_{vine}") or "")
+        if vfile:
+            layers.append({"role": "vine", "file": vfile})
+    for direction in parsed.get("vine_out") or []:
+        vfile = _pack_file(manifest, overlays.get(f"vine_out_{direction}") or "")
+        if vfile:
+            layers.append({"role": "vine", "file": vfile})
     ckey = crop_overlay_key(parsed)
     if ckey:
         cfile = _pack_file(manifest, overlays.get(ckey) or "")
         if not cfile:
             return None
         layers.append({"role": "crop", "file": cfile})
-    vine = parsed.get("vine")
-    if vine:
-        vfile = _pack_file(manifest, overlays.get(f"vine_{vine}") or "")
-        if vfile:
-            layers.append({"role": "vine", "file": vfile})
     wkey = weed_overlay_key(parsed)
     if wkey:
         wfile = _pack_file(manifest, overlays.get(wkey) or "")

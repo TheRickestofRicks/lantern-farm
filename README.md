@@ -39,19 +39,27 @@ tile to come home. Trees grow there on their own (sapling, young, grown);
 `chop` a grown tree with an axe in your backpack (10 energy) for wood. Wild
 plants can be `forage`d (5 energy) in season. Find the boarded mine
 entrance on the north-centre hill (row 1 col 2); the shop then sells a
-pickaxe (40G, one in the world). `enter mine` with the pickaxe in your
+pickaxe (40G, up to two on the farm). `enter mine` with the pickaxe in your
 pack pries the boards. Floors 1–25 re-roll each season. Break rocks
 for copper, iron, gold, and runestone ore as you go deeper (the ladder
 down is hidden under a rock). Plain stone on floors 1–4 can drop
 quartz. Every fifth floor has a lantern (`rest` once a day). Grey
 slimes appear from floor 6 on, never on safe floors; a floor can have
-several. `strike` or `flee` when you stand on the same tile as one.
+several. `strike` when you stand on the same tile as one. Walking off that
+tile, or breaking a rock on it, gives the slime a free hit (its normal 8
+damage). There is no separate flee action.
 The forge in town upgrades the
 hoe, watering can, axe, and pickaxe with 5 ore of the next tier.
 `go cabin` does not work from inside the mine — climb out first.
 Ending a turn in the mine wakes at the hills entrance with 50 energy,
 or on the same floor and tile with 100 energy if you are carrying a
-sleeping bag; 0 HP still wakes at the hills entrance with 25 energy.
+sleeping bag. HP only fills completely after a night in the cabin; a
+sleeping bag restores HP up to 50 (and never lowers it). A mid-day faint
+at 0 HP still wakes at the hills entrance with 25 energy, with HP restored
+only up to 50. Nights away from the cabin build homesickness (−5 energy
+each morning, cumulative, capped at −50); a night at home clears it, and
+if both of you sleep on the same mine floor together, home is where the
+heart is and neither of you takes the penalty that night.
 The honour store sells a sleeping bag for 120G.
 
 `look` always names the area you are in, summarises the other areas,
@@ -66,7 +74,7 @@ wake with **100 energy**. Till, plant, and water cost **10** each (5 once
 the tool is copper or better); each step (including a diagonal) costs
 **5**. Crafting at the kitchen and forging at the town forge cost **5**.
 Entering the mine costs **5**, climbing down **5**, climbing up **5**,
-and strike or flee **5**. Harvest, buy, sell, take, drop, and eat are free.
+and strike **5**. Harvest, buy, sell, take, drop, and eat are free.
 Costs live in `rules.json` (`action_energy`) so they can be changed without
 editing the engine.
 
@@ -141,7 +149,7 @@ python3 web.py
 Then open http://127.0.0.1:8790. The server always binds localhost. If
 `config.local.json` lists `bind.extra_hosts`, or if a tailnet IPv4 is
 available on the machine, it binds those too. Click a tile for its actions.
-Use **End turn** from the side panel (above Recent notes), open the shop with the Shop button or `S`, and open the journal with the Journal button or `J`. The Journal window only opens when you ask for it. Recent notes start folded away so the farm can be shown without them; this browser remembers whether you left them open. The cabin chest in the right-hand panel appears only while you are in the cabin; click the heading to fold it away (this browser remembers that), and drag items to rearrange the shared chest. The pictures start as the original procedural SVG tiles; the Art menu in the side panel can switch to the Storybook pack (painted ground, strawberry, weed, and cabin tiles, including snowy ground when the weather is snow) and remembers that choice in this browser. Tiles the pack does not paint yet keep the original art. The page polls the JSON
+Use **End turn** from the side panel (above Recent notes), open Settings at the top right to take a break from farming (idle turns are ended for you after a timeout), open the shop with the Shop button or `S`, and open the journal with the Journal button or `J`. The Journal window only opens when you ask for it. Recent notes start folded away so the farm can be shown without them; this browser remembers whether you left them open. The cabin chest in the right-hand panel appears only while you are in the cabin; click the heading to fold it away (this browser remembers that), and drag items to rearrange the shared chest. The pictures start as the original procedural SVG tiles; the Art menu in the side panel can switch to the Storybook pack (painted ground, strawberry, weed, and cabin tiles, including snowy ground when the weather is snow) and remembers that choice in this browser. Tiles the pack does not paint yet keep the original art. The page polls the JSON
 state, so if someone acts from the CLI, the pictures update on their own.
 
 The web page is locked to the same machine (or an allowed host). Requests must
@@ -282,9 +290,9 @@ configured.
   button (or `J`) and the `farm_journal` MCP tool (or `python3 cli.py journal`)
   open a whole season. Older years are archived locally and are not shown.
   Notes are always labelled as untrusted player text.
-- A crop grows **1 day only if it was watered that day** (by you, or by rain/snow).
+- A crop grows **1 day only if it was watered that day** (by you, or by rain). Snow keeps the soil wet (no drought, tilled plots stay open) but crops do not grow that day, even if you hand-water them.
 - A crop **withers only in extremes**: a long drought when it is already struggling, or several days out of season. Look at a plant for a gentle hint (thirsty, thriving, struggling) — growth and health stay hidden. You can harvest a little early; a healthier, fully grown plant is more likely to yield more (berries, peas, beans, tomatoes, rhubarb and asparagus 1–3, potatoes 2–3, squash and most roots 1–2, always at least the crop's minimum).
-- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till), a shovel (needed to unearth a plant and return the plot to plain soil; key U), and a watering can (needed to water) each take a slot. One hoe, one shovel, and two cans start in the shared cabin chest. Carry harvests home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest; at the market stall they list or retrieve goods for sale. Anywhere else, `drop <item> 1` or `drop <item> all` leaves items on the tile you stand on, and `take` or `pick up` retrieves them (`take stone all` takes as many as the backpack can hold). Items left in the mine stay on that floor and tile even if the mine re-rolls for a new season. Buy at the honour store in town, sell at the stall, and craft at the cabin kitchen. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, kabocha cream soup, rhubarb strawberry jam, garden salad, roasted potatoes, and pumpkin soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
+- You must till before you plant. An empty tilled bed reverts to untilled after five days if it is left unwatered and unplanted; watering (or a wet morning) resets that countdown so a cared-for plot stays open for runners. Harvest a mature crop to put it in your backpack. Each player has a 4-slot backpack; a hoe (needed to till), a shovel (needed to unearth a plant and return the plot to plain soil; key U), and a watering can (needed to water) each take a slot. One hoe, one shovel, and two cans start in the shared cabin chest. Carry harvests home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest; at the market stall they list or retrieve goods for sale. Anywhere else, `drop <item> 1` or `drop <item> all` leaves items on the tile you stand on, and `take` or `pick up` retrieves them (`take stone all` takes as many as the backpack can hold). Items left in the mine disappear when the mine resets (a new season, or any time the floors are regenerated); drops on the farm, in the hills, and in town stay put. Buy at the honour store in town, sell at the stall, and craft at the cabin kitchen. Recipes: strawberry jam (3 berries) and kabocha soup (1 kabocha) start in the recipe book; root stew, bread and butter, jam toast, strawberry milk, buttered kabocha, kabocha cream soup, rhubarb strawberry jam, garden salad, roasted potatoes, and pumpkin soup are learned when you have all the ingredients at the cabin, or when you cook them. `recipes` (CLI), the recipe book panel, and the MCP `farm_recipes` tool list discovered recipes. Only cookable discovered recipes appear as craft actions. The shop sells bread (8G), butter (10G), and milk (8G) year-round, and general, yield-boost, and growth-boost fertilizer in spring and summer (15G, 25G, 20G). Fertilize the plot you are standing on (`fertilize` / key F) with a bag in your backpack; one application per plot per season.
 - Withered plants can be cleared with `harvest` or `till`.
 - At day turn, a planted or tilled plot may sprout a gentle weed. Which plots,
   and whether 1 or 2 new weeds appear, is a pure function of the day and the
@@ -346,8 +354,8 @@ are active they have a 10% deterministic chance to send a runner into an
 orthogonally adjacent tilled, empty plot, at most once per plant per season:
 about a 3-in-4 chance of a new plant each growing season if there is space,
 without filling the farm in a week. A new runner still looks like a seed or
-sprout, with a vine reaching from the edge that faces its parent, until it
-grows into the next stage. A berry sells for 25G and snacks for +30
+sprout, with a vine running from the parent plant across the shared edge to
+the new plant (leaves always face up), until it grows into the next stage. A berry sells for 25G and snacks for +30
 energy (more than a kabocha). Two pickings in the fruiting year are not a
 fortune; the joy is the patch, the snack, and the runners.
 

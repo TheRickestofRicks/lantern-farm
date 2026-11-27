@@ -266,9 +266,61 @@ PAGE = r"""<!DOCTYPE html>
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem 1.2rem;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
     }
+    .header-right {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.45rem 0.8rem;
+    }
+    .settings-form {
+      display: grid;
+      gap: 0.8rem;
+      margin: 0.5rem 0 0;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .settings-form fieldset {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.7rem 0.85rem 0.85rem;
+    }
+    .settings-form fieldset:disabled { opacity: 0.55; }
+    .settings-form legend { color: var(--gold); padding: 0 0.3rem; }
+    .settings-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin: 0.45rem 0 0;
+    }
+    .settings-row input[type="number"] {
+      width: 5.2rem;
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #140f0c;
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 0.3rem 0.4rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .settings-help, .settings-status { color: var(--muted); margin: 0; }
+    .away-banner {
+      margin: 0 0 0.7rem;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid var(--gold);
+      border-radius: 12px;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .away-banner[hidden] { display: none !important; }
+    .away-banner h3 { margin: 0 0 0.35rem; color: var(--gold); font-size: 1rem; }
+    .away-banner p { margin: 0 0 0.5rem; }
     h1 {
       margin: 0;
       font-weight: 600;
@@ -1007,7 +1059,10 @@ PAGE = r"""<!DOCTYPE html>
 <body>
   <header>
     <h1><span>🏮</span> __TITLE__</h1>
-    <div class="status" id="status">Loading the farm…</div>
+    <div class="header-right">
+      <div class="status" id="status">Loading the farm…</div>
+      <button class="btn" id="open-settings" type="button">Settings</button>
+    </div>
   </header>
   <main>
     <section class="farm">
@@ -1033,11 +1088,12 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>E</kbd> enter or interact (cabin, mine)
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn
         &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)
-        &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth
+        &middot; <kbd>Esc</kbd> closes the shop, journal, saves, or settings, or cancels unearth
       </p>
     </section>
     <aside class="panel">
       <div class="toast" id="toast"></div>
+      <div id="away-summary" class="away-banner" hidden></div>
       <div class="inv" id="inv"></div>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button" hidden>Shop <kbd>S</kbd></button>
@@ -1129,9 +1185,37 @@ PAGE = r"""<!DOCTYPE html>
       </div>
     </div>
   </div>
+  <div id="settings-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="settings-backdrop"></div>
+    <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="shop-head">
+        <h2 id="settings-title">Settings</h2>
+        <button type="button" class="btn" id="settings-close">Close</button>
+      </div>
+      <form class="settings-form" id="settings-form">
+        <label>
+          <input type="checkbox" id="settings-autopass" name="autopass">
+          Taking a break from farming
+        </label>
+        <p class="settings-help">When this is on and your turn sits idle, the farm ends the day for you and passes the turn. No other action is taken on your behalf. After the maximum, it waits for you. Doing anything on the farm turns this off and counts as being back.</p>
+        <fieldset id="settings-autopass-options">
+          <legend>Autopass</legend>
+          <div class="settings-row">
+            <label for="settings-autopass-max">Maximum turns autopassed</label>
+            <input type="number" id="settings-autopass-max" min="1" max="30" step="1" value="3">
+          </div>
+          <div class="settings-row">
+            <label for="settings-autopass-timeout">Time until autopass</label>
+            <span><input type="number" id="settings-autopass-timeout" min="1" max="1440" step="1" value="30"> minutes</span>
+          </div>
+          <p class="settings-status" id="settings-autopass-status"></p>
+        </fieldset>
+      </form>
+    </div>
+  </div>
   <script>
-    const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow"};
-    const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow"};
+    const weatherWord = {sun: "clear and sunny", cloud: "overcast", rain: "rain", storm: "a storm", snow: "snow (soil stays wet, but crops don't grow today)"};
+    const forecastWord = {sun: "clear", cloud: "overcast", rain: "rain", storm: "storm", snow: "snow (soil stays wet, but crops don't grow)"};
     const PLAYERS = __PLAYERS_JSON__;
     const ROWS = __ROWS__;
     const COLS = __COLS__;
@@ -1154,6 +1238,7 @@ PAGE = r"""<!DOCTYPE html>
     let shopOpen = false;
     let journalOpen = false;
     let savesOpen = false;
+    let settingsOpen = false;
     let savesSwitch = null;
     let savesRenameId = null;
     let journalSeason = "spring";
@@ -1344,7 +1429,21 @@ PAGE = r"""<!DOCTYPE html>
         return {kind: "cabin", weather: weather, fire: fire};
       }
       let weedy = false, weed = false, snow = false, fertilizer = null, vine = null;
+      const vineOut = [];
       const vineDirs = ["northwest","northeast","southwest","southeast","north","south","east","west"];
+      let stripped = true;
+      while (stripped) {
+        stripped = false;
+        for (let i = 0; i < vineDirs.length; i++) {
+          const suffix = "_vine_out_" + vineDirs[i];
+          if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
+            vineOut.push(vineDirs[i]);
+            key = key.slice(0, -suffix.length);
+            stripped = true;
+            break;
+          }
+        }
+      }
       for (let i = 0; i < vineDirs.length; i++) {
         const suffix = "_vine_" + vineDirs[i];
         if (key.length >= suffix.length && key.slice(-suffix.length) === suffix) {
@@ -1380,7 +1479,7 @@ PAGE = r"""<!DOCTYPE html>
         soil_wet: {tilled: false, watered: true}
       };
       if (soilKeys[key]) {
-        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine};
+        const out = {kind: "soil", weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine, vineOut: vineOut};
         out.tilled = soilKeys[key].tilled;
         out.watered = soilKeys[key].watered;
         return out;
@@ -1397,11 +1496,12 @@ PAGE = r"""<!DOCTYPE html>
           weedy: weedy,
           snow: snow,
           fertilizer: fertilizer,
-          vine: vine
+          vine: vine,
+          vineOut: vineOut
         };
       }
-      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine};
-      return {kind: "unknown", raw: key, snow: snow, fertilizer: fertilizer, vine: vine};
+      if (weed || weedy) return {kind: "unknown", raw: key, weed: weed, weedy: weedy, snow: snow, fertilizer: fertilizer, vine: vine, vineOut: vineOut};
+      return {kind: "unknown", raw: key, snow: snow, fertilizer: fertilizer, vine: vine, vineOut: vineOut};
     }
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
@@ -1531,6 +1631,15 @@ PAGE = r"""<!DOCTYPE html>
         }
         return layers;
       }
+      if (parsed.vine) {
+        const vfile = pack.overlays && pack.overlays["vine_" + parsed.vine];
+        if (vfile) layers.push("/static/packs/" + pack.id + "/" + vfile);
+      }
+      const vineOuts = parsed.vineOut || [];
+      for (let i = 0; i < vineOuts.length; i++) {
+        const vfile = pack.overlays && pack.overlays["vine_out_" + vineOuts[i]];
+        if (vfile) layers.push("/static/packs/" + pack.id + "/" + vfile);
+      }
       if (parsed.kind && parsed.kind !== "soil" && parsed.stage) {
         const overlays = pack.overlays || {};
         let crop = overlays[parsed.kind + "_" + parsed.stage];
@@ -1539,10 +1648,6 @@ PAGE = r"""<!DOCTYPE html>
         }
         if (!crop) return null;
         layers.push("/static/packs/" + pack.id + "/" + crop);
-      }
-      if (parsed.vine) {
-        const vfile = pack.overlays && pack.overlays["vine_" + parsed.vine];
-        if (vfile) layers.push("/static/packs/" + pack.id + "/" + vfile);
       }
       if (parsed.weedy || parsed.weed) {
         const wkey = parsed.weedy ? "weedy" : "weed";
@@ -2015,6 +2120,8 @@ PAGE = r"""<!DOCTYPE html>
     function render(data) {
       lastData = data;
       if (data && data.viewer) PLAYER = data.viewer;
+      if (!settingsOpen) fillSettingsForm(data);
+      renderAwayBanner(data);
       renderForecast(data);
       renderKeys(data);
       syncLocationLaunch(data);
@@ -2039,11 +2146,17 @@ PAGE = r"""<!DOCTYPE html>
         const readyBit = (data.ready_labels && data.ready_labels[name])
           ? " <span class='ready'>" + data.ready_labels[name] + "</span>"
           : "";
+        const homesick = Number(slot.homesickness || (data.homesickness && data.homesickness[name]) || 0);
+        const homeBit = homesick > 0
+          ? " <span class='stat homesick' title='Homesickness' aria-label='Homesick minus " + homesick + " energy'>"
+            + "homesick −" + homesick + "</span>"
+          : "";
         return displayName(name)
           + " <span class='stat energy" + (over ? " over-max" : "") + "' title='Energy' aria-label='Energy " + en + " of " + capBase + "'>"
           + energyIcon() + "<b>" + en + "/" + capBase + "</b></span>"
           + " <span class='stat hp' title='HP' aria-label='HP " + hpPair[0] + " of " + hpPair[1] + "'>"
           + hpIcon() + "<b>" + hpPair[0] + "/" + hpPair[1] + "</b></span>"
+          + homeBit
           + readyBit;
       }
       const energyBits = PLAYERS.map(function (p) { return "<span>" + energyBit(p.id) + "</span>"; }).join("");
@@ -2213,9 +2326,29 @@ PAGE = r"""<!DOCTYPE html>
           box.hidden = true;
           return;
         }
+        const here = !!(stand && focus && stand.r === focus.r && stand.c === focus.c && data.your_turn);
         stacks.forEach(function (s) {
           const li = document.createElement("li");
-          li.textContent = itemName(s.item, s.count || 1);
+          const label = document.createElement("span");
+          label.textContent = itemName(s.item, s.count || 1);
+          li.appendChild(label);
+          if (here && s.item) {
+            const n = s.count || 1;
+            const bare = itemName(s.item, 1).replace(/^1\s+/, "");
+            function takeBtn(text, cmd) {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "btn";
+              btn.textContent = text;
+              btn.addEventListener("click", function () { actCmd(cmd); });
+              li.appendChild(btn);
+            }
+            if (n <= 1) takeBtn("Take " + bare, "take " + s.item + " 1");
+            else {
+              takeBtn("Take 1 " + bare, "take " + s.item + " 1");
+              takeBtn("Take all " + itemName(s.item, n).replace(/^\d+\s+/, ""), "take " + s.item + " all");
+            }
+          }
           list.appendChild(li);
         });
         box.hidden = false;
@@ -2247,6 +2380,27 @@ PAGE = r"""<!DOCTYPE html>
         walk.addEventListener("click", function () { actCmd("move to " + r + " " + c); });
         box.appendChild(walk);
       }
+      const legalWrap = document.createElement("div");
+      legalWrap.className = "chest-section legal-actions-section";
+      const legalOpen = legalActionsIsOpen();
+      if (!legalOpen) legalWrap.classList.add("is-collapsed");
+      const legalTitle = document.createElement("button");
+      legalTitle.type = "button";
+      legalTitle.className = "recipe-book-head chest-toggle";
+      legalTitle.textContent = "LEGAL ACTIONS";
+      legalTitle.setAttribute("aria-expanded", legalOpen ? "true" : "false");
+      const legalBody = document.createElement("div");
+      legalBody.className = "chest-section-body actions";
+      if (!legalOpen) legalBody.hidden = true;
+      legalTitle.addEventListener("click", function () {
+        const next = legalBody.hidden;
+        legalBody.hidden = !next;
+        legalTitle.setAttribute("aria-expanded", next ? "true" : "false");
+        legalWrap.classList.toggle("is-collapsed", !next);
+        setLegalActionsOpen(next);
+      });
+      legalWrap.appendChild(legalTitle);
+      legalWrap.appendChild(legalBody);
       const workR = stand.r, workC = stand.c;
       const prefix = [
         "till " + workR + " " + workC,
@@ -2269,8 +2423,7 @@ PAGE = r"""<!DOCTYPE html>
         "fuel stove",
         "mine",
         "rest",
-        "strike",
-        "flee"
+        "strike"
       ];
       const plantPrefix = "plant " + workR + " " + workC + " ";
       const fertPrefix = "fertilize " + workR + " " + workC;
@@ -2294,7 +2447,6 @@ PAGE = r"""<!DOCTYPE html>
         if (act === "mine") return "M";
         if (act === "rest") return "R";
         if (act === "strike") return "K";
-        if (act === "flee") return "F";
         return "";
       }
       function isTileAction(act) {
@@ -2336,8 +2488,9 @@ PAGE = r"""<!DOCTYPE html>
           if (act.indexOf("unearth ") === 0) { keyUnearth(false); return; }
           actCmd(act);
         });
-        box.appendChild(b);
+        legalBody.appendChild(b);
       }
+      if (legalBody.childNodes.length) box.appendChild(legalWrap);
       // Walk-here descriptor when looking at another tile
       if (stand && (stand.r !== r || stand.c !== c)) {
         const walkCmd = "move to " + r + " " + c;
@@ -2477,9 +2630,103 @@ PAGE = r"""<!DOCTYPE html>
         return "<li>" + formatNoteHtml(entry) + "</li>";
       }).join("");
     }
+    function fillSettingsForm(data) {
+      const ap = (data && data.autopass) || {};
+      const enabled = !!ap.enabled;
+      const maxTurns = (ap.max_turns != null) ? ap.max_turns : 3;
+      const timeout = (ap.timeout_minutes != null) ? ap.timeout_minutes : 30;
+      const box = $("settings-autopass");
+      const maxBox = $("settings-autopass-max");
+      const timeBox = $("settings-autopass-timeout");
+      const opts = $("settings-autopass-options");
+      const status = $("settings-autopass-status");
+      if (box) box.checked = enabled;
+      if (maxBox) maxBox.value = String(maxTurns);
+      if (timeBox) timeBox.value = String(timeout);
+      if (opts) opts.disabled = !enabled;
+      if (status) {
+        const used = Number(ap.turns_used || 0);
+        status.textContent = enabled
+          ? (used + " of " + maxTurns + " turns autopassed")
+          : "";
+      }
+    }
+    function settingsPayload() {
+      const box = $("settings-autopass");
+      const maxBox = $("settings-autopass-max");
+      const timeBox = $("settings-autopass-timeout");
+      return {
+        autopass: {
+          enabled: !!(box && box.checked),
+          max_turns: maxBox ? maxBox.value : 3,
+          timeout_minutes: timeBox ? timeBox.value : 30
+        }
+      };
+    }
+    async function saveSettings(extra) {
+      const body = settingsPayload();
+      if (extra && extra.acknowledge_away) body.acknowledge_away = true;
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body)
+        });
+        if (res.status === 401 || res.status === 403) {
+          showAuthNeeded();
+          return;
+        }
+        const data = await res.json();
+        lastSig = JSON.stringify(data.state);
+        try { render(data); } catch (err) { console.error("Could not draw the farm:", err); }
+      } catch (err) {
+        console.error("Could not save settings:", err);
+        showToast("Could not save settings.", false);
+      }
+    }
+    function openSettings() {
+      closeShop();
+      closeJournal();
+      closeSaves();
+      settingsOpen = true;
+      const modal = $("settings-modal");
+      if (modal) modal.hidden = false;
+      if (lastData) fillSettingsForm(lastData);
+    }
+    function closeSettings() {
+      settingsOpen = false;
+      const modal = $("settings-modal");
+      if (modal) modal.hidden = true;
+    }
+    function renderAwayBanner(data) {
+      const el = $("away-summary");
+      if (!el) return;
+      const text = (data && data.away_summary) ? String(data.away_summary) : "";
+      if (!text) {
+        el.hidden = true;
+        el.innerHTML = "";
+        return;
+      }
+      el.hidden = false;
+      el.innerHTML = "";
+      const h = document.createElement("h3");
+      h.textContent = "While you were away";
+      const p = document.createElement("p");
+      p.textContent = text.replace(/^While you were away:\s*/i, "");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn";
+      btn.textContent = "Dismiss";
+      btn.addEventListener("click", function () { saveSettings({acknowledge_away: true}); });
+      el.appendChild(h);
+      el.appendChild(p);
+      el.appendChild(btn);
+    }
     function openJournal() {
       closeShop();
       closeSaves();
+      closeSettings();
       journalOpen = true;
       const modal = $("journal-modal");
       if (modal) modal.hidden = false;
@@ -2499,6 +2746,7 @@ PAGE = r"""<!DOCTYPE html>
     function openSaves() {
       closeShop();
       closeJournal();
+      closeSettings();
       savesOpen = true;
       const modal = $("saves-modal");
       if (modal) modal.hidden = false;
@@ -2700,6 +2948,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       closeSaves();
       closeJournal();
+      closeSettings();
       shopOpen = true;
       const modal = $("shop-modal");
       if (modal) modal.hidden = false;
@@ -2934,6 +3183,19 @@ PAGE = r"""<!DOCTYPE html>
     function setChestSectionOpen(open) {
       try { localStorage.setItem(CHEST_OPEN_KEY, open ? "1" : "0"); } catch (err) {}
     }
+    const LEGAL_OPEN_KEY = "lanternFarm.legalActionsOpen";
+    function legalActionsIsOpen() {
+      try {
+        const raw = localStorage.getItem(LEGAL_OPEN_KEY);
+        if (raw === null) return false;
+        return raw !== "0" && raw !== "false";
+      } catch (err) {
+        return false;
+      }
+    }
+    function setLegalActionsOpen(open) {
+      try { localStorage.setItem(LEGAL_OPEN_KEY, open ? "1" : "0"); } catch (err) {}
+    }
     function enableChestSort(listEl) {
       const cards = function () { return Array.from(listEl.querySelectorAll(".chest-card")); };
       let dragging = null;
@@ -3114,6 +3376,15 @@ PAGE = r"""<!DOCTYPE html>
         else {
           addBtn("Drop 1", "drop " + slot.item + " 1", true);
           addBtn("Drop all", "drop " + slot.item + " all", true);
+        }
+      }
+      if (opts.drop && yourTurn && !atChest && !atStall) {
+        const noun1 = itemName(slot.item, 1);
+        const bare = noun1.replace(/^1\s+/, "");
+        if (count <= 1) addBtn("Drop " + bare, "drop " + slot.item + " 1", true);
+        else {
+          addBtn("Drop 1 " + bare, "drop " + slot.item + " 1", true);
+          addBtn("Drop all " + itemName(slot.item, count).replace(/^\d+\s+/, ""), "drop " + slot.item + " all", true);
         }
       }
       const rec = recipeInfo(slot.item, opts.data);
@@ -3648,7 +3919,7 @@ PAGE = r"""<!DOCTYPE html>
         + ' &middot; <kbd>E</kbd> enter or interact'
         + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
         + ' &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)'
-        + ' &middot; <kbd>Esc</kbd> closes the shop or journal, or cancels unearth';
+        + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, or settings, or cancels unearth';
       let work;
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
@@ -3659,8 +3930,7 @@ PAGE = r"""<!DOCTYPE html>
         work = ' &middot; <kbd>E</kbd> climb'
           + ' &middot; <kbd>M</kbd> mine'
           + ' &middot; <kbd>R</kbd> rest'
-          + ' &middot; <kbd>K</kbd> strike'
-          + ' &middot; <kbd>F</kbd> flee';
+          + ' &middot; <kbd>K</kbd> strike';
       } else if (area === "cabin") {
         work = ' &middot; <kbd>E</kbd> leave or interact';
       } else if (area === "town") {
@@ -3938,6 +4208,10 @@ PAGE = r"""<!DOCTYPE html>
 
       if (key === "Escape") {
         ev.preventDefault();
+        if (settingsOpen) {
+          closeSettings();
+          return;
+        }
         if (shopOpen) {
           closeShop();
           return;
@@ -4091,10 +4365,6 @@ PAGE = r"""<!DOCTYPE html>
         unearthConfirm = false;
         plantPick = null;
         if (!needTurn()) return;
-        if (firstLegalCommand(["flee"])) {
-          actCmd("flee");
-          return;
-        }
         keyFertilize();
         return;
       }
@@ -4193,6 +4463,18 @@ PAGE = r"""<!DOCTYPE html>
     if (closeSavesBtn) closeSavesBtn.addEventListener("click", function () { closeSaves(); });
     const savesBackdrop = $("saves-backdrop");
     if (savesBackdrop) savesBackdrop.addEventListener("click", function () { closeSaves(); });
+    const openSettingsBtn = $("open-settings");
+    if (openSettingsBtn) openSettingsBtn.addEventListener("click", function () { openSettings(); });
+    const closeSettingsBtn = $("settings-close");
+    if (closeSettingsBtn) closeSettingsBtn.addEventListener("click", function () { closeSettings(); });
+    const settingsBackdrop = $("settings-backdrop");
+    if (settingsBackdrop) settingsBackdrop.addEventListener("click", function () { closeSettings(); });
+    const autopassBox = $("settings-autopass");
+    if (autopassBox) autopassBox.addEventListener("change", function () { saveSettings(); });
+    const autopassMax = $("settings-autopass-max");
+    if (autopassMax) autopassMax.addEventListener("change", function () { saveSettings(); });
+    const autopassTimeout = $("settings-autopass-timeout");
+    if (autopassTimeout) autopassTimeout.addEventListener("change", function () { saveSettings(); });
     const newSaveBtn = $("saves-new");
     if (newSaveBtn) newSaveBtn.addEventListener("click", function () { startNewFarm(); });
     const newSaveName = $("saves-new-name");
@@ -4338,7 +4620,7 @@ def _recipe_catalog(rules: dict | None = None) -> dict:
 
 def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
     """Shop tools and equipment that should appear in the Tools section of the web shop."""
-    from mine import pickaxe_unlocked, pickaxe_in_world, pickaxe_price
+    from mine import pickaxe_unlocked, pickaxe_count, pickaxe_price
     from inventory import (
         TOOL_PICKAXE,
         TOOLS,
@@ -4365,7 +4647,7 @@ def _tool_shop_catalog(state: dict, rules: dict | None = None) -> dict:
         "unique": False,
         "description": bag.get("description") or "",
     }
-    if not pickaxe_unlocked(state) or pickaxe_in_world(state, rules):
+    if not pickaxe_unlocked(state) or pickaxe_count(state, rules) >= 2:
         return out
     price = pickaxe_price(rules)
     info = TOOLS.get(TOOL_PICKAXE) or {}
@@ -4574,6 +4856,8 @@ def api_payload(
     message: str = "",
     player: str | None = None,
 ) -> dict:
+    from autopass import public_autopass, format_away_summary, autopass_of
+
     rules = load_rules()
     migrate_state(state, rules)
     viewer = _web_player(player)
@@ -4610,7 +4894,7 @@ def api_payload(
             view_area = AREA_FARM
     view_tiles = _payload_view_tiles(view_tiles, crops, state=state, area=view_area, floor=view_floor)
     sprites = [
-        [sprite_key(tile, sky, r + 1, c + 1, floor=view_floor if view_area == AREA_MINE else None) for c, tile in enumerate(row)]
+        [sprite_key(tile, sky, r + 1, c + 1, floor=view_floor if view_area == AREA_MINE else None, state=state) for c, tile in enumerate(row)]
         for r, row in enumerate(view_tiles)
     ]
     actions = legal_actions(state, crops, player=viewer, rules=rules)
@@ -4622,6 +4906,12 @@ def api_payload(
         floor = player_floor(state, name)
         places[name] = describe_area_where(player_area(state, name), prow, pcol, floor=floor)
         hp_map[name] = list(player_hp(state, name, rules))
+    homesick_map = {}
+    for name, slot in (state.get("players") or {}).items():
+        try:
+            homesick_map[name] = max(0, int((slot or {}).get("homesickness") or 0))
+        except (TypeError, ValueError):
+            homesick_map[name] = 0
     return {
         "ok": ok,
         "message": message,
@@ -4638,6 +4928,7 @@ def api_payload(
         "exit_summary": exit_summary(view_area),
         "places": places,
         "hp": hp_map,
+        "homesickness": homesick_map,
         "max_hp": hills_max_hp(rules),
         "actions": actions,
         "action_lines": {
@@ -4683,7 +4974,35 @@ def api_payload(
         "discovered_recipes": discovered_recipe_ids(state, rules),
         "year": year_for_day(int(state.get("day") or 1), crops),
         "recent_notes": recent_notes(state),
+        "autopass": public_autopass(state, viewer) if viewer else None,
+        "away_summary": (
+            format_away_summary(state, viewer)
+            if viewer and autopass_of(state, viewer).get("away_pending")
+            else ""
+        ),
     }
+
+
+def run_autopass_if_due(path=None, notify: bool = True):
+    """End an idle, autopass-enabled turn if its timeout has elapsed.
+
+    Saves only when a turn is actually ended, so a poll or tick does not
+    rewrite the farm on every check.
+    """
+    from autopass import autopass_due, maybe_apply_autopass
+    from engine import session
+
+    with session(write=False, path=path) as (state, crops):
+        if not autopass_due(state):
+            return False, ""
+    applied = False
+    msg = ""
+    ended_for = None
+    with session(write=True, path=path) as (state, crops):
+        applied, msg, ended_for = maybe_apply_autopass(state, crops)
+    if applied and notify:
+        maybe_notify_after_end_turn(ended_for, state, True, state_path=path)
+    return applied, msg
 
 
 class FarmHandler(BaseHTTPRequestHandler):
@@ -4796,6 +5115,7 @@ class FarmHandler(BaseHTTPRequestHandler):
             if not player:
                 self._send(401, "unauthorized\n", "text/plain; charset=utf-8")
                 return
+            run_autopass_if_due()
             with session(write=False) as (state, crops):
                 payload = api_payload(state, crops, player=player)
             self._send(
@@ -4840,7 +5160,7 @@ class FarmHandler(BaseHTTPRequestHandler):
         if self._host_forbidden() or self._origin_forbidden():
             return
         path = unquote(urlparse(self.path).path)
-        if path not in {"/api/do", "/api/saves"}:
+        if path not in {"/api/do", "/api/saves", "/api/settings"}:
             self._send(404, "not found\n", "text/plain; charset=utf-8")
             return
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
@@ -4868,7 +5188,24 @@ class FarmHandler(BaseHTTPRequestHandler):
             self._send(400, "invalid json\n", "text/plain; charset=utf-8")
             return
         # Player comes from the token, never from the body.
-        if path == "/api/saves":
+        if path == "/api/settings":
+            from autopass import set_autopass_settings, acknowledge_away_summary
+            with session(write=True) as (state, crops):
+                raw_ap = data.get("autopass") if isinstance(data.get("autopass"), dict) else {}
+                # Only the documented fields; never store unexpected keys.
+                kwargs = {}
+                if "enabled" in raw_ap:
+                    kwargs["enabled"] = bool(raw_ap.get("enabled"))
+                if "max_turns" in raw_ap:
+                    kwargs["max_turns"] = raw_ap.get("max_turns")
+                if "timeout_minutes" in raw_ap:
+                    kwargs["timeout_minutes"] = raw_ap.get("timeout_minutes")
+                if kwargs:
+                    set_autopass_settings(state, player, **kwargs)
+                if data.get("acknowledge_away"):
+                    acknowledge_away_summary(state, player)
+                payload = api_payload(state, crops, True, "", player=player)
+        elif path == "/api/saves":
             import saves
             saves.maybe_migrate_live()
             action = str(data.get("action") or data.get("command") or "list").strip().lower()
@@ -4954,7 +5291,11 @@ def serve(port: int = PORT) -> None:
     sys.stdout.flush()
     try:
         while True:
-            time.sleep(3600)
+            try:
+                run_autopass_if_due()
+            except Exception:
+                sys.stderr.write("Autopass tick failed\n")
+            time.sleep(30)
     except KeyboardInterrupt:
         sys.stdout.write("\nStopping.\n")
         for _host, httpd in servers:

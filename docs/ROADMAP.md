@@ -29,6 +29,8 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, `docs/granular-growth.md`):
 
+- A mobile-friendly version of the web UI.
+- Swords or other weapons for fighting slimes, and clothing or armor equipment slots. HP is meant as a progression gate even with the sleeping bag.
 - Converting the hills into an orchard, so saplings can be planted there later.
 - Tulips.
 - Yearly wet/dry season variants, with hints so the year-to-year change is readable.
@@ -47,8 +49,15 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Suggestions: it takes about a day to finish so it fits turns; a small chance of a bonus seed; plants left long may flower first.
 - Open questions: how many seeds per crop? Does going to seed replace the harvest (you lose the crop)? How many days after mature until it flowers or goes to seed? Where does the seed maker live (cabin, farm)? Can it take any harvested crop, or only ones that went to seed on the plot?
 
-## Idea: sleeping-bag homesickness (Rick, 2026-11-27)
-- A penalty so the sleeping bag isn't nearly free.
-- Each night slept away from home in the sleeping bag reduces next-morning energy by 5, cumulative, capped at -50.
+## Idea: chest redesign (Rick, 2026-11-27)
+- The chest becomes its own window, like the store, with a draggable grid of rows and columns.
+- Starting size: 12 slots in 1 row, and stacks of 16 in the chest (double the player's pack stack of 8).
+- There is no starting chest. Building one costs 5 wood and is an early goal — it fits, because there's no harvest on Day 1. The chest is also the first decoration/building mechanic.
+- Upgrades go copper, then iron, then gold: each changes the banding colour and raises slots to 24, then 36, then 48.
+
+## In: sleeping-bag homesickness (Rick, 2026-11-27; built 2026-11-27)
+- A penalty so the sleeping bag isn't nearly free. "Home is where the heart is."
+- Each night slept away from the cabin (sleeping bag or passing out) reduces next-morning energy by 5, cumulative, capped at −50. Numbers live in `rules.json` (`homesickness.energy_penalty`, `homesickness.max_penalty`).
 - A night in the cabin clears it.
-- Open questions: does passing out (no bag) also count? Does homesickness show on the status line?
+- If both players sleep on the same mine floor the same night (or on the same tile elsewhere), neither takes the penalty that night and the counter stays put.
+- Homesickness is shown on the look status line and in the web view (e.g. homesick −15).
