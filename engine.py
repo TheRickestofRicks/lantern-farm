@@ -1721,13 +1721,13 @@ def stock_key(kind: str, info: dict | None = None) -> str:
 
 
 def stock_noun(info: dict | None = None, count: int = 1) -> str:
-    """Stock word for display: 'seed'/'crown' when count is 1, plural otherwise.
+    """Stock word for display: 'seed'/'starter'/'crown' when count is 1, plural otherwise.
 
-    Seedlings use the same seed/seeds wording as other packets.
+    Everbearing planting stock is a starter, not a seed packet.
     """
     word = stock_word(info)
     if word == "seedling":
-        word = "seed"
+        word = "starter"
     if count == 1:
         return word
     if word.endswith("s"):
@@ -1736,6 +1736,8 @@ def stock_noun(info: dict | None = None, count: int = 1) -> str:
 
 
 _STOCK_TRAILING = (
+    " starters",
+    " starter",
     " seedlings",
     " seedling",
     " seeds",
@@ -5335,10 +5337,16 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         if err:
             return False, err
         n = count
-    from inventory import prefer_available_stock
-    item = prefer_available_stock(item, [chest_of(state, rules)], crops, rules)
-    have = stack_count(chest_of(state, rules), item)
-    from inventory import pack_space_count
+    from inventory import prefer_available_stock, ground_of, player_ground_place, pack_space_count
+    place = player_ground_place(state, player)
+    ground_stacks = []
+    if place:
+        area_g, row_g, col_g, floor_g = place
+        ground_stacks = ground_of(state, area_g, row_g, col_g, floor_g, rules)
+    item = prefer_available_stock(item, [chest_of(state, rules), ground_stacks], crops, rules)
+    have_chest = stack_count(chest_of(state, rules), item)
+    have_ground = stack_count(ground_stacks, item) if ground_stacks else 0
+    have = have_chest + have_ground
     taking_all = _is_all_count(n)
     if taking_all:
         n = min(have, pack_space_count(state, player, item, rules))
@@ -5349,20 +5357,62 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     if not taking_all and not pack_space_for(state, player, item, n, rules):
         return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
     if have < n:
-        return False, f"The chest only has {item_name(item, have, crops, rules, state=state)}."
-    removed = remove_from_chest(state, item, n, rules)
+        if have_chest and not have_ground:
+            return False, f"The chest only has {item_name(item, have, crops, rules, state=state)}."
+        return False, f"Only {item_name(item, have, crops, rules, state=state)} here."
+    from_chest = min(n, have_chest)
+    from_ground = n - from_chest
+    removed_chest = 0
+    removed_ground = 0
+    if from_chest:
+        removed_chest = remove_from_chest(state, item, from_chest, rules)
+    if from_ground:
+        from inventory import remove_from_ground
+        area_g, row_g, col_g, floor_g = place
+        removed_ground = remove_from_ground(
+            state, area_g, row_g, col_g, item, from_ground, floor=floor_g, rules=rules
+        )
+    removed = removed_chest + removed_ground
     leftover = add_to_pack(state, player, item, removed, rules)
     if leftover:
-        # Should not happen after the space check; put leftover back.
-        from inventory import add_to_chest
-        add_to_chest(state, item, leftover, rules)
+        # Should not happen after the space check; put leftover back, chest first.
+        from inventory import add_to_chest, add_to_ground
+        back_chest = leftover
+        if removed_chest:
+            add_to_chest(state, item, leftover, rules)
+            back_chest = 0
+        elif place:
+            area_g, row_g, col_g, floor_g = place
+            add_to_ground(state, area_g, row_g, col_g, item, leftover, floor=floor_g, rules=rules)
+            back_chest = 0
         removed -= leftover
+        if leftover and removed_ground and back_chest == 0:
+            pass
+        if removed_chest:
+            removed_chest = max(0, removed_chest - leftover)
+        elif removed_ground:
+            removed_ground = max(0, removed_ground - leftover)
     sync_inventory_view(state, rules)
     if removed <= 0:
         return False, "Nothing was taken."
-    msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules, state=state)} from the chest."
+    label = item_name(item, removed, crops, rules, state=state)
+    if removed_chest and removed_ground:
+        msg = (
+            f"{display_name(player)} takes {label} "
+            f"({item_name(item, removed_chest, crops, rules, state=state)} from the chest, "
+            f"{item_name(item, removed_ground, crops, rules, state=state)} from the ground)."
+        )
+    elif removed_ground:
+        msg = f"{display_name(player)} picks up {label}."
+    else:
+        msg = f"{display_name(player)} takes {label} from the chest."
     if taking_all and have > removed:
-        msg += " The rest stays in the chest."
+        if have_chest - removed_chest > 0 and have_ground - removed_ground > 0:
+            msg += " The rest stays here."
+        elif have_chest - removed_chest > 0:
+            msg += " The rest stays in the chest."
+        else:
+            msg += " The rest stays on the ground."
     log_append(state, msg, player)
     return True, msg
 
@@ -6204,9 +6254,15 @@ def legal_actions(
     if actor:
         actions.extend(legal_table_actions(state, actor, rules))
     if player_at_cabin_tile(state, actor, "chest"):
+        from inventory import pack_space_for, ground_counts, player_ground_place
+        take_counts = dict(_counts_by_item(chest_of(state, rules)))
+        place = player_ground_place(state, actor) if actor else None
+        if place:
+            area_g, row_g, col_g, floor_g = place
+            for item, have in ground_counts(state, area_g, row_g, col_g, floor_g, rules).items():
+                take_counts[item] = take_counts.get(item, 0) + have
         if actor:
-            from inventory import pack_space_for
-            for item, have in _counts_by_item(chest_of(state, rules)).items():
+            for item, have in take_counts.items():
                 actions.extend(take_drop_actions(
                     "take",
                     item,
@@ -6216,7 +6272,7 @@ def legal_actions(
             for item, have in _counts_by_item(pack_of(state, actor, rules)).items():
                 actions.extend(take_drop_actions("drop", item, have))
         else:
-            for item, have in _counts_by_item(chest_of(state, rules)).items():
+            for item, have in take_counts.items():
                 actions.extend(take_drop_actions("take", item, have))
     from inventory import can_use_ground, ground_counts, pack_space_for, player_ground_place
     if actor and can_use_ground(state, actor):
@@ -6668,7 +6724,7 @@ def action_descriptor(
         on_ground = bool(actor and can_use_ground(state, actor))
         if at_stall:
             stall_have = inv_stack(stall_of(state), item)
-        if on_ground:
+        if on_ground or at_chest:
             place = player_ground_place(state, actor)
             if place:
                 area_g, row_g, col_g, floor_g = place
@@ -6678,8 +6734,8 @@ def action_descriptor(
                 have = stall_have
                 where = "stall"
             elif at_chest:
-                have = chest_have
-                where = "chest"
+                have = chest_have + ground_have
+                where = "chest" if not ground_have else ("ground" if not chest_have else "chest")
             else:
                 have = ground_have
                 where = "ground"

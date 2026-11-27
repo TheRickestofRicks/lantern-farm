@@ -1861,11 +1861,11 @@ class SpringCropsAndShop(unittest.TestCase):
         self.assertEqual(item_name("asparagus_crown", 2, self.crops, self.rules), "2 asparagus crowns")
         self.assertEqual(
             item_name("everbearing_seedling", 1, self.crops, self.rules),
-            "1 everbearing strawberry seed",
+            "1 everbearing strawberry starter",
         )
         self.assertEqual(
             item_name("everbearing_seedling", 2, self.crops, self.rules),
-            "2 everbearing strawberry seeds",
+            "2 everbearing strawberry starters",
         )
         at_town(self.state, P1, "store")
         self.state["gold"] = 500
@@ -1887,7 +1887,7 @@ class SpringCropsAndShop(unittest.TestCase):
     def test_no_seed_or_crown_display_name_is_bare(self):
         from inventory import item_label, item_name
         from engine import action_item_phrase, shop_name, stock_key, stock_label
-        bare = {"seed", "seeds", "crown", "crowns", "seedling", "seedlings"}
+        bare = {"seed", "seeds", "crown", "crowns", "seedling", "seedlings", "starter", "starters"}
         for kind, info in self.crops["crops"].items():
             label = stock_label(kind, info)
             shop = shop_name(kind, info)
@@ -1904,13 +1904,16 @@ class SpringCropsAndShop(unittest.TestCase):
                 self.assertTrue(words, f"{where} empty for {kind}")
                 self.assertNotIn(words.lower(), bare, f"{where} bare for {kind}: {words!r}")
                 last = words.split()[-1].lower()
-                if (info.get("stock") or "seed") == "crown":
+                stock = (info.get("stock") or "seed")
+                if stock == "crown":
                     self.assertIn(last, {"crown", "crowns"}, f"{where} for {kind}: {words!r}")
+                elif stock == "seedling":
+                    self.assertIn(last, {"starter", "starters"}, f"{where} for {kind}: {words!r}")
                 else:
                     self.assertIn(last, {"seed", "seeds"}, f"{where} for {kind}: {words!r}")
                 self.assertGreaterEqual(len(words.split()), 2, f"{where} for {kind} has no crop name: {words!r}")
         self.assertEqual(item_label("strawberry_seed", self.crops, self.rules), "June-bearing strawberry seed")
-        self.assertEqual(item_label("everbearing_seedling", self.crops, self.rules), "everbearing strawberry seed")
+        self.assertEqual(item_label("everbearing_seedling", self.crops, self.rules), "everbearing strawberry starter")
         self.assertEqual(item_label("lettuce_seed", self.crops, self.rules), "lettuce seed")
         self.assertEqual(item_label("rhubarb_crown", self.crops, self.rules), "rhubarb crown")
         self.assertEqual(item_label("asparagus_crown", self.crops, self.rules), "asparagus crown")
@@ -2289,14 +2292,18 @@ class SpringCropsAndShop(unittest.TestCase):
         gold = self.state["gold"]
         ok, msg = buy(self.state, self.crops, "everbearing", 1)
         self.assertTrue(ok, msg)
-        self.assertIn("everbearing strawberry seed", msg.lower())
+        self.assertIn("everbearing strawberry starter", msg.lower())
         self.assertEqual(self.state["gold"], gold - 40)
         self.assertEqual(self.state["inventory"]["everbearing_seedling"], 1)
+        from inventory import normalize_item
+        self.assertEqual(normalize_item("everbearing strawberry seed"), "everbearing_seedling")
+        self.assertEqual(normalize_item("everbearing strawberry starter"), "everbearing_seedling")
+        self.assertEqual(normalize_item("everbearing seedling"), "everbearing_seedling")
         r, c = 1, 1
         till(self.state, self.crops, r, c)
         ok, msg = plant(self.state, self.crops, r, c, "everbearing")
         self.assertTrue(ok, msg)
-        self.assertIn("everbearing strawberry seed", msg.lower())
+        self.assertIn("everbearing strawberry starter", msg.lower())
         self.assertEqual(self.state["inventory"]["everbearing_seedling"], 0)
         crop = self.state["tiles"][r - 1][c - 1]["crop"]
         self.assertEqual(crop["stage"], "seedling")
@@ -11095,6 +11102,90 @@ class ChestBuildingAndWindow(unittest.TestCase):
         add_to_pack(self.state, P1, "wood", 5)
         ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
         self.assertFalse(ok)
+
+    def test_building_a_chest_moves_floor_drops_into_it(self):
+        from chest import chest_is_built, build_tile
+        from hills import AREA_CABIN
+        from inventory import (
+            add_to_pack, ground_of, stack_count, chest_of,
+            TOOL_HOE, TOOL_CAN, TOOL_SHOVEL, TOOL_AXE,
+        )
+        from engine import legal_actions
+        self.assertFalse(chest_is_built(self.state))
+        row, col = build_tile(self.rules)
+        floor = ground_of(self.state, AREA_CABIN, row, col)
+        self.assertEqual(stack_count(floor, TOOL_HOE), 1)
+        self.assertEqual(stack_count(floor, TOOL_CAN), 2)
+        self.assertEqual(stack_count(floor, TOOL_AXE), 1)
+        self.assertEqual(stack_count(floor, TOOL_SHOVEL), 1)
+        inside(self.state, P1, "chest")
+        add_to_pack(self.state, P1, "wood", 5)
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(chest_is_built(self.state))
+        self.assertIn("floor go into the chest", msg.lower())
+        chest = chest_of(self.state, self.rules)
+        self.assertEqual(stack_count(chest, TOOL_HOE), 1)
+        self.assertEqual(stack_count(chest, TOOL_CAN), 2)
+        self.assertEqual(stack_count(chest, TOOL_AXE), 1)
+        self.assertEqual(stack_count(chest, TOOL_SHOVEL), 1)
+        self.assertEqual(stack_count(chest, "strawberry_seed"), 2)
+        floor = ground_of(self.state, AREA_CABIN, row, col)
+        self.assertEqual(stack_count(floor, TOOL_HOE), 0)
+        self.assertEqual(stack_count(floor, TOOL_CAN), 0)
+        self.assertEqual(stack_count(floor, TOOL_AXE), 0)
+        self.assertEqual(stack_count(floor, TOOL_SHOVEL), 0)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("take hoe 1", actions)
+        ok, msg = do_action(self.state, self.crops, "take hoe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("chest", msg.lower())
+
+    def test_take_at_the_chest_falls_back_to_ground_drops(self):
+        from chest import install_built_chest, build_tile
+        from hills import AREA_CABIN
+        from inventory import add_to_ground, ground_of, stack_count, pack_has, TOOL_HOE, TOOL_AXE
+        from engine import legal_actions
+        install_built_chest(self.state, self.rules)
+        row, col = build_tile(self.rules)
+        # Starting tools are still on the floor; the built chest has not absorbed them.
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), TOOL_HOE), 1)
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), TOOL_AXE), 1)
+        inside(self.state, P1, "chest")
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("take hoe 1", actions)
+        self.assertIn("take axe 1", actions)
+        ok, msg = do_action(self.state, self.crops, "take hoe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, TOOL_HOE, 1, self.rules))
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), TOOL_HOE), 0)
+        ok, msg = do_action(self.state, self.crops, "pick up axe 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, TOOL_AXE, 1, self.rules))
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), TOOL_AXE), 0)
+
+    def test_build_chest_leaves_overflow_on_the_ground(self):
+        from chest import chest_is_built, chest_slot_count, build_tile, absorb_chest_tile_ground
+        from hills import AREA_CABIN
+        from inventory import add_to_ground, add_to_chest, ground_of, stack_count, chest_of
+        from chest import install_built_chest
+        install_built_chest(self.state, self.rules)
+        size = chest_slot_count(self.state, self.rules)
+        fillers = [
+            "wood", "stone", "copper_ore", "iron_ore", "gold_ore",
+            "carrot_seed", "turnip_seed", "kabocha_seed", "radish_seed",
+            "strawberry", "bread", "sugar",
+        ]
+        self.assertGreaterEqual(len(fillers), size)
+        for item in fillers[:size]:
+            add_to_chest(self.state, item, 1, self.rules)
+        row, col = build_tile(self.rules)
+        # Starting hoe is already on this tile; a full chest must leave it there.
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), "hoe"), 1)
+        moved, leftover = absorb_chest_tile_ground(self.state, self.rules)
+        self.assertEqual(moved, 0)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "hoe"), 0)
+        self.assertEqual(stack_count(ground_of(self.state, AREA_CABIN, row, col), "hoe"), 1)
 
     def test_cannot_build_the_chest_from_another_tile(self):
         from inventory import add_to_pack

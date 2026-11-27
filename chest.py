@@ -510,6 +510,56 @@ def migrate_chest(state: dict, crops: dict | None = None, rules: dict | None = N
     return changed
 
 
+def absorb_chest_tile_ground(state: dict, rules: dict | None = None) -> tuple[int, list]:
+    """Move ground drops on the chest tile into a built chest.
+
+    Respects slot count and stack size. Anything that does not fit is
+    left on the ground. Returns (count moved, leftover stacks).
+    """
+    from hills import AREA_CABIN
+    from inventory import (
+        ground_of,
+        ground_key,
+        ground_map,
+        compact_chest,
+        stack_tool_tier,
+        stack_enchant,
+        _with_tier,
+    )
+
+    rules = _load_rules(rules)
+    if not chest_is_built(state):
+        return 0, []
+    row, col = build_tile(rules)
+    stacks = list(ground_of(state, AREA_CABIN, row, col, rules=rules))
+    leftover = []
+    moved = 0
+    for slot in stacks:
+        if not slot:
+            continue
+        item = slot.get("item")
+        try:
+            n = int(slot.get("count") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if not item or n <= 0:
+            continue
+        tier = stack_tool_tier(slot)
+        enchant = stack_enchant(slot)
+        left = add_to_built_chest(state, item, n, rules, tier=tier, allow_overflow=False)
+        moved += n - left
+        if left > 0:
+            leftover.append(_with_tier(item, left, tier, enchant))
+    key = ground_key(AREA_CABIN, row, col)
+    store = ground_map(state)
+    leftover = compact_chest(leftover)
+    if leftover:
+        store[key] = leftover
+    else:
+        store.pop(key, None)
+    return moved, leftover
+
+
 def build_chest(state: dict, player: str, rules: dict | None = None, crops=None) -> tuple[bool, str]:
     """Spend 5 wood at the cabin chest site and place a 12-slot wooden chest."""
     from engine import log_append, display_name
@@ -530,11 +580,16 @@ def build_chest(state: dict, player: str, rules: dict | None = None, crops=None)
         return False, f"Building a chest needs {parts}. {err}"
     _pay_cost(state, player, cost, rules)
     install_built_chest(state, rules, tier=TIER_WOOD)
+    moved, leftover = absorb_chest_tile_ground(state, rules)
     sync_inventory_view(state, rules)
     msg = (
         f"{display_name(player)} builds a wooden chest at the north wall. "
         "It holds 12 slots, with stacks of 16."
     )
+    if moved:
+        msg += " Items on the floor go into the chest."
+        if leftover:
+            msg += " What didn't fit stays on the ground."
     log_append(state, msg, player)
     return True, msg
 

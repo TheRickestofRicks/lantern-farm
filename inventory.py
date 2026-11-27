@@ -784,6 +784,8 @@ def _folded_item_text(text: str) -> str:
 
 
 _STOCK_TEXT_SUFFIXES = (
+    " starters",
+    " starter",
     " seedlings",
     " seedling",
     " seeds",

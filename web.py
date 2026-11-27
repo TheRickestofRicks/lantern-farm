@@ -2146,14 +2146,16 @@ PAGE = r"""<!DOCTYPE html>
       else if (key.endsWith("_seed")) { kind = key.slice(0, -5); stock = "seed"; }
       const info = (data && data.crops && data.crops[kind]) || cropInfo(kind);
       if (stock) {
-        const noun = (stock === "crown") ? (n === 1 ? "crown" : "crowns") : (n === 1 ? "seed" : "seeds");
+        const noun = (stock === "crown") ? (n === 1 ? "crown" : "crowns")
+          : (stock === "seedling") ? (n === 1 ? "starter" : "starters")
+          : (n === 1 ? "seed" : "seeds");
         let prefix = "";
         const shop = (info && info.shop_name) || "";
         if (shop) {
           let s = String(shop).trim();
           const low = s.toLowerCase();
           if (low.startsWith("seed ") && !low.startsWith("seedling")) s = s.slice(5).trim();
-          prefix = s.replace(/\s+(seedlings?|seeds?|crowns?)$/i, "").trim();
+          prefix = s.replace(/\s+(starters?|seedlings?|seeds?|crowns?)$/i, "").trim();
         }
         if (!prefix) prefix = (info && info.name) || spacedName(kind);
         return n + " " + prefix + " " + noun;
