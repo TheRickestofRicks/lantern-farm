@@ -27,7 +27,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 - Proposed: overwintering crops (garlic, spinach, kale, winter onion; wild onion planted in autumn sleeps through winter and wakes in spring).
 - Decoration phase for the cabin: a buildable display case on the reserved interior tile (r1c3), rugs, lanterns, and other home decorating. Constructable decorations include a table (+5 energy when you eat food at it) and a chair (+10 energy for 30 minutes of time).
 - Next week: an action/time-based day-to-night cycle. Each action takes time depending on the action and the tool tier, for example watering is 30 minutes base, 25 with copper, 20 with iron, 15 with gold.
-- Fishing minigame: the centre hills tile becomes a pond. A fishing rod is purchasable (hook and line included), as are bait types with different effectiveness. Bites depend on weather and bait, which affects which fish bite and how often. Overfishing is possible and tracked per species. Late-game activity for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
+- **First feature next week (Rick, 2026-11-27):** fishing minigame. It waits for next week so it gets built properly instead of squeezed into the end of this week's usage. The centre hills tile becomes a pond. A fishing rod is purchasable (hook and line included), as are bait types with different effectiveness. Bites depend on weather and bait, which affects which fish bite and how often. Overfishing is possible and tracked per species. Late-game activity for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
 - Mine depth beyond the first floors.
 - Sleeping bag: sleep inside the mine, wake with 50 energy on the same tile without being booted out. It takes a backpack slot (bulky).
 - More slime types deeper in the mine (grey slimes from floor 6 are in).
@@ -44,7 +44,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 - A mobile-friendly version of the web UI.
 - Swords or other weapons for fighting slimes, and clothing or armor equipment slots. HP is meant as a progression gate even with the sleeping bag.
-- Converting the hills into an orchard, so saplings can be planted there later.
+- Converting the hills into an orchard with purchasable trees (see "Idea: hill orchard" below).
 - Tulips.
 - Yearly wet/dry season variants, with hints so the year-to-year change is readable.
 - Coffee (+40 energy now, with a sleep penalty). Herbal tea is already in the shop.
@@ -70,6 +70,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
+
+## Idea: hill orchard (Rick, 2026-11-27)
+- Trees are purchasable, so players can plant an orchard in the hills.
+- Open to decide when we scope it: which trees, where they're sold, what they cost, how long they take to grow, what they yield by season, and which hills tiles can take one.
 
 ## Idea: fishing minigame (Rick, 2026-11-27)
 - The centre hills tile becomes a pond.
