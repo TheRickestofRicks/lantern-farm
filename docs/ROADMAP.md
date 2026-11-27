@@ -36,3 +36,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Open questions from granular growth: mixed jam berries, fertilizer prices after a season of play, and the pack stack cap.
 - Winter market stall or special order board that occasionally buys a cooked meal.
 - Rune system: runestone ore from the mine can be carved and imbued (ore + a runestone) to (1) enchant tools (Bounty = +1 yield, Shatter = splash), (2) waystones — attune a cleared tile (rocks and items removed) with transcribed runes and teleport back to it for a small energy cost, replacing the removed elevator, and (3) a homeward rune at high levels (teleport home).
+
+## Idea: snow days pause plant growth (Rick, 2026-11-26)
+- On snow days, crops don't advance a growth stage (growth is paused, not lost).
+- Open questions: does watering still count/carry over? Do greenhouse or indoor plants ignore it? Show a "snowed in — growth paused" note on affected tiles.
