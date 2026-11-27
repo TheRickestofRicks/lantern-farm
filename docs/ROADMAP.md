@@ -94,6 +94,13 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - The comfort idea folds into napping in bed: trade time (part of the day) for energy.
 - Open question (Lumen): how much time a nap costs once the action-time day/night cycle exists, and whether the rug adds a small cozy bonus to it.
 
+## Idea: day length, sleep debt and naps (Rick, 2026-11-27)
+- Days run from 5:30 to 21:30.
+- Staying up past 21:30 costs energy the next day.
+- Staying up too long makes you sleep in and builds sleep debt: a stacking debuff that lasts until the sleep is paid back.
+- Napping in bed pays sleep back: 30 minutes for 15 energy, or 1 hour for 30 energy.
+- Open questions (Lumen): how much energy each late hour costs; whether debt is paid back by early nights, naps, or both; and whether the rug or fire gives naps a small bonus.
+
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
