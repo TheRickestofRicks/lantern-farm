@@ -6552,6 +6552,54 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertIn('id="open-chest"', html)
         self.assertIn("Build chest (5 wood)", html)
 
+    def test_chest_button_is_only_visible_on_the_chest_tile(self):
+        import web
+
+        crops = load_crops()
+        rules = load_rules()
+        html = web.render_page(viewer=P1)
+        page = web.PAGE
+        self.assertNotIn("(info.built && data.in_cabin_interior)", page)
+        self.assertIn("data.at_chest || (data.at_chest_site && !info.built)", page)
+
+        # Unbuilt: hidden at the door, visible at the north-wall nook.
+        state = fresh_state(crops, weather_seed=1, rules=rules)
+        state["current_player"] = P1
+        inside(state, P1, "door")
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertFalse((payload.get("chest_info") or {}).get("built"))
+        self.assertTrue(payload.get("in_cabin_interior"))
+        self.assertFalse(payload.get("at_chest"))
+        self.assertFalse(payload.get("at_chest_site"))
+        data = self._run_jsdom(payload, html)
+        self.assertTrue(data.get("openChestHidden"))
+
+        inside(state, P1, "chest")
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertTrue(payload.get("at_chest_site"))
+        self.assertFalse(payload.get("at_chest"))
+        data = self._run_jsdom(payload, html)
+        self.assertFalse(data.get("openChestHidden"))
+        self.assertTrue(data.get("openChestPresent"))
+
+        # Built: hidden on other cabin tiles, visible only at the chest.
+        ensure_test_chest(state, rules)
+        for kind in ("bed", "door", "kitchen"):
+            inside(state, P1, kind)
+            payload = web.api_payload(state, crops, player=P1)
+            self.assertTrue(payload.get("in_cabin_interior"), kind)
+            self.assertFalse(payload.get("at_chest"), kind)
+            self.assertFalse(payload.get("at_chest_site"), kind)
+            data = self._run_jsdom(payload, html)
+            self.assertTrue(data.get("openChestHidden"), kind)
+
+        inside(state, P1, "chest")
+        payload = web.api_payload(state, crops, player=P1)
+        self.assertTrue(payload.get("at_chest"))
+        data = self._run_jsdom(payload, html)
+        self.assertFalse(data.get("openChestHidden"))
+        self.assertTrue(data.get("openChestPresent"))
+
     def test_web_hud_shows_bonus_energy_over_the_base_max(self):
         import web
         from hills import set_player_place, AREA_FARM
@@ -9047,7 +9095,9 @@ class CabinInterior(unittest.TestCase):
         self.assertIn("cabin_door.png", srcs)
         self.assertIn("cabin_kitchen.png", srcs)
         self.assertIn("cabin_fireplace.png", srcs)
-        self.assertTrue(data.get("invChestPresent") or data.get("openChestPresent"))
+        # At the door, the Chest button stays hidden; it only shows on the chest tile.
+        self.assertFalse(data.get("openChestPresent"))
+        self.assertFalse(data.get("invChestPresent"))
         self.assertNotIn("bed", data["labels"])
         self.assertNotIn("floor", data["labels"])
 

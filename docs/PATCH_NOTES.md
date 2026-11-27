@@ -2,6 +2,8 @@
 
 ## 2026-11-27
 
+- The Chest button (and Build chest, before one is built) only appears while you stand on the cabin chest tile (row 1 col 2). It is hidden everywhere else, including other tiles inside the cabin.
+
 - The cabin chest is now a window of its own, like the store, with a draggable grid. There is no starting chest: stand at the north-wall nook (row 1 col 2) in the cabin and `build chest` for 5 wood (the first decoration/building). Base size is 12 slots, stacks of 16. Upgrade at the chest with 8 copper ore (24 slots), then 10 iron ore (36), then 12 gold ore (48); each upgrade changes the banding colour. Copper, iron, and gold chests show tinted metal straps and a latch on the cabin tile and in the chest window header, derived from the wooden chest art. New games put the hoe, shovel, axe, two watering cans, and the starting strawberry seeds on that cabin floor tile. Existing farms that already had a chest are grandfathered as a built wooden chest; if they held more than 12 stacks, the extras stay as overflow and nothing is deleted.
 - Dragging in the chest window pauses auto-refresh, shows the item and its count following the pointer, and sends one transfer when you drop. A drag moves a full stack for the destination (up to 16 in the chest, up to 8 into the backpack, leftover stays in the source). Click an item for Take 1 / Take stack or Put 1 / Put stack; Escape or a click elsewhere cancels the menu.
 - Walk here sits in its own This-tile row above Legal Actions, so it stays reachable when that list is folded away.

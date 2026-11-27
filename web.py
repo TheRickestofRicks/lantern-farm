@@ -3084,7 +3084,7 @@ PAGE = r"""<!DOCTYPE html>
       if (!atStore && shopOpen) closeShop();
       const chestBtn = $("open-chest");
       const info = (data && data.chest_info) || {};
-      const canOpen = !!(data && (data.at_chest || (data.at_chest_site && !info.built) || (info.built && data.in_cabin_interior)));
+      const canOpen = !!(data && (data.at_chest || (data.at_chest_site && !info.built)));
       if (chestBtn) {
         chestBtn.hidden = !canOpen;
         chestBtn.disabled = !canOpen;
