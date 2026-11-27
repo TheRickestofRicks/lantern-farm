@@ -1284,7 +1284,7 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>S</kbd> shop
         &middot; <kbd>J</kbd> journal
         &middot; <kbd>I</kbd> inventory
-        &middot; <kbd>E</kbd> enter or interact (cabin, mine, table)
+        &middot; <kbd>E</kbd> interact
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn
         &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)
         &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, inventory, table, or settings, or cancels unearth
@@ -2708,7 +2708,8 @@ PAGE = r"""<!DOCTYPE html>
         return label + " (" + hint + ")";
       }
       function hotkeyForAction(act) {
-        if (act === "enter cabin" || act === "leave cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace" || act === "fuel stove") return "E";
+        if (act === "enter cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace" || act === "fuel stove") return "E";
+        if (String(act).indexOf("forge ") === 0) return "E";
         if (act === "mine") return "M";
         if (act === "rest") return "R";
         if (act === "strike") return "K";
@@ -4495,8 +4496,9 @@ PAGE = r"""<!DOCTYPE html>
         ? ' &middot; <kbd>S</kbd> shop'
         : '';
       const common = shop
+        + ' &middot; <kbd>I</kbd> inventory'
         + ' &middot; <kbd>J</kbd> journal'
-        + ' &middot; <kbd>E</kbd> enter or interact'
+        + ' &middot; <kbd>E</kbd> interact'
         + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
         + ' &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)'
         + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, inventory, table, or settings, or cancels unearth';
@@ -4504,15 +4506,13 @@ PAGE = r"""<!DOCTYPE html>
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
           + ' &middot; <kbd>C</kbd> chop'
-          + ' &middot; <kbd>U</kbd> unearth'
-          + ' &middot; <kbd>E</kbd> enter mine';
+          + ' &middot; <kbd>U</kbd> unearth';
       } else if (area === "mine") {
-        work = ' &middot; <kbd>E</kbd> climb'
-          + ' &middot; <kbd>M</kbd> mine'
+        work = ' &middot; <kbd>M</kbd> mine'
           + ' &middot; <kbd>R</kbd> rest'
           + ' &middot; <kbd>K</kbd> strike';
       } else if (area === "cabin") {
-        work = ' &middot; <kbd>E</kbd> leave or interact';
+        work = '';
       } else if (area === "town") {
         work = '';
       } else {
@@ -4524,8 +4524,7 @@ PAGE = r"""<!DOCTYPE html>
           + ' &middot; <kbd>U</kbd> unearth'
           + ' &middot; <kbd>F</kbd> fertilize'
           + ' &middot; <kbd>C</kbd> chop'
-          + ' &middot; <kbd>G</kbd> forage'
-          + ' &middot; <kbd>E</kbd> enter cabin';
+          + ' &middot; <kbd>G</kbd> forage';
       }
       el.innerHTML = walk + work + common;
     }
@@ -5221,9 +5220,16 @@ PAGE = r"""<!DOCTYPE html>
           focusNoteBox();
           return;
         }
+        // E is interact-only. It never leaves the cabin. A pending sleep
+        // confirmation (from the bed, or Shift+E then this second E) is
+        // confirmed first.
+        if (endConfirm) {
+          unearthConfirm = false;
+          requestEndTurn(true);
+          return;
+        }
         const interact = firstLegalCommand([
           "enter cabin",
-          "leave cabin",
           "enter mine",
           "climb down",
           "climb up",
@@ -5233,11 +5239,11 @@ PAGE = r"""<!DOCTYPE html>
         ]);
         if (interact) {
           unearthConfirm = false;
-          endConfirm = false;
           actCmd(interact);
           return;
         }
         const data = lastData || {};
+        const legal = data.actions || [];
         if (data.at_kitchen) {
           const book = $("recipe-book");
           if (book) { book.hidden = false; book.open = true; }
@@ -5254,6 +5260,32 @@ PAGE = r"""<!DOCTYPE html>
         }
         if (data.at_table || data.at_table_site) {
           openTable();
+          return;
+        }
+        if (data.at_fireplace) {
+          if (data.fireplace_fueled) {
+            showToast("The fireplace is already fueled.", true);
+          } else {
+            showToast("The fireplace needs wood. Load wood from your backpack.", true);
+          }
+          return;
+        }
+        if (data.at_forge) {
+          const forgeActs = legal.filter(function (act) {
+            return String(act).indexOf("forge ") === 0;
+          });
+          if (forgeActs.length === 1) {
+            unearthConfirm = false;
+            actCmd(forgeActs[0]);
+          } else if (forgeActs.length > 1) {
+            showToast("Choose a tool to forge from Legal Actions.", true);
+          } else {
+            showToast("The forge. Bring a tool you can upgrade.", true);
+          }
+          return;
+        }
+        if (data.at_bed) {
+          requestEndTurn(false);
           return;
         }
         return;
@@ -5815,6 +5847,7 @@ def api_payload(
         "table": __import__("creation").table_view(state, viewer, rules),
         "inventory": __import__("gear").gear_view(state, viewer, rules) if viewer else {},
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
+        "at_bed": bool(viewer and player_at_cabin_tile(state, viewer, "bed")),
         "at_stall": bool(viewer and is_player_at_stall(state, viewer)),
         "at_store": bool(viewer and is_player_at_store(state, viewer)),
         "at_forge": bool(viewer and is_player_at_forge(state, viewer)),

@@ -6890,6 +6890,11 @@ def do_action(
     if is_pass:
         return pass_turn(state, crops, actor, rules, note=pass_note)
 
+    if verb == "dev":
+        from devcmds import handle_dev_command
+
+        return handle_dev_command(state, crops, actor, args, raw=raw, rules=rules)
+
     is_walk_home, who_home = parse_walk_home_command(raw)
     if is_walk_home:
         return walk_player_home(state, actor, who_home, rules)

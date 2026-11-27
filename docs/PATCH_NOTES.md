@@ -2,6 +2,9 @@
 
 ## 2026-11-27
 
+- The E hotkey is interact-only. It no longer leaves the cabin. On the chest, Creation Table, kitchen, fireplace, forge, or bed it opens or works that tile (a second E on the bed confirms sleep). Entering the cabin from the doorstep is still E. The help lists one E line.
+- Optional dev commands for testing runestones and enchants stay off by default: `dev give <item> <n>`, `dev weather aurora`, and `dev xp <skill> <n>`. Turn them on with `"dev_commands": true` in the gitignored `config.local.json`, or `LANTERN_FARM_DEV_COMMANDS=1`. They never appear in Legal Actions. Every use is written to the game log as a dev action so it is never mistaken for play.
+
 - The Creation Table is a free build at cabin row 2 col 2 (the middle of the room). Craft runestones there from runestone ore (1 ore, 5 energy) any day. On an aurora night you can enchant a pickaxe or the boots you are wearing.
 - Building the cabin chest still costs 5 wood, and now also costs 25 energy (was 5).
 - Inventory is its own window (press I, or the Inventory button left of Chest). Clothes, boots, and hands sit above the four general backpack slots. The art-style picker moved into Settings.

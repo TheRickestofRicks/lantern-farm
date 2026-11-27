@@ -7562,7 +7562,9 @@ class MineActionsWeb(unittest.TestCase):
         joined = " ".join(data["tileButtons"]).lower()
         self.assertRegex(joined, r"enter mine")
         self.assertIn("E", " ".join(data["tileButtons"]))
-        self.assertRegex(data["keysText"], r"enter mine")
+        self.assertRegex(data["keysText"], r"\bE\b\s+interact")
+        self.assertNotIn("leave or interact", data["keysText"])
+        self.assertNotIn("enter or interact", data["keysText"])
         self.assertTrue(data["hasDebug"])
         self.assertTrue(data["debugOptionsIncludeEnter"])
         self.assertTrue(data["clickedEnter"])
@@ -9223,8 +9225,9 @@ class CabinInterior(unittest.TestCase):
             data = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertIn("enter cabin", data["commandsAfterE"])
         self.assertFalse(any(str(cmd).startswith("end turn") for cmd in data["commandsAfterE"]))
-        self.assertIn("enter cabin", data["keysText"])
-        self.assertRegex(data["keysText"], r"enter cabin")
+        self.assertRegex(data["keysText"], r"\bE\b\s+interact")
+        self.assertNotIn("leave or interact", data["keysText"])
+        self.assertNotIn("enter or interact", data["keysText"])
         self.assertRegex(data["keysText"], r"Shift")
         self.assertNotIn("ends with no note", data["keysText"])
         self.assertIn("end turn", " ".join(data["commandsAfterShiftEEnter"]))
@@ -11246,3 +11249,252 @@ class MainRoundCreationInventoryAndSkills(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, HIKING_BOOTS, 1))
         self.assertEqual(self.state["gold"], 0)
+
+
+
+class EHotkeyInteractOnly(unittest.TestCase):
+    """E is interact-only: it never leaves the cabin, and the help lists it once."""
+
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["energy"] = 80
+
+    def test_help_lists_one_e_interact_line_and_not_leave(self):
+        import web
+
+        page = web.PAGE
+        self.assertIn("<kbd>E</kbd> interact", page)
+        self.assertNotIn("leave or interact", page)
+        self.assertNotIn("enter or interact", page)
+        # renderKeys keeps E in the common line only; area work strings do not add another.
+        start = page.find("function renderKeys")
+        end = page.find("function keyTill")
+        render = page[start:end]
+        self.assertIn("<kbd>E</kbd> interact", render)
+        self.assertEqual(render.count("<kbd>E</kbd> interact"), 1)
+        self.assertNotIn("enter mine", render)
+        self.assertNotIn("enter cabin", render)
+        self.assertNotIn("leave or interact", render)
+        # Leave-cabin is still a legal engine action, just not bound to E.
+        e_at = page.find('if (letter === "e")')
+        self.assertGreater(e_at, 0)
+        e_block = page[e_at:e_at + 2500]
+        self.assertNotIn('"leave cabin"', e_block)
+        self.assertIn("at_bed", e_block)
+        hint = page[page.find("function hotkeyForAction"): page.find("function legalActionLabel")]
+        self.assertNotIn("leave cabin", hint)
+
+    def _run(self, payload, html, mode, presses=1):
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "cabin-e-hotkey.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-e-hotkey-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            env["CABIN_E_MODE"] = mode
+            env["CABIN_E_PRESSES"] = str(presses)
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def _payload_on(self, kind):
+        import web
+
+        inside(self.state, P1, kind)
+        return web.api_payload(self.state, self.crops, player=P1), web.render_page(viewer=P1)
+
+    def test_e_on_a_cabin_floor_tile_does_not_leave(self):
+        payload, html = self._payload_on("display")
+        self.assertIn("leave cabin", payload.get("actions") or [])
+        self.assertTrue(payload.get("your_turn"))
+        data = self._run(payload, html, "floor")
+        self.assertRegex(data["keysText"], r"\bE\b\s+interact")
+        self.assertNotIn("leave or interact", data["keysText"])
+        self.assertNotIn("enter or interact", data["keysText"])
+        self.assertEqual(data["keysText"].count("interact"), 1)
+        self.assertNotIn("leave cabin", data["commands"])
+        self.assertFalse(data["chestOpen"])
+        self.assertFalse(data["tableOpen"])
+        self.assertFalse(data["endConfirmShown"])
+
+    def test_e_on_the_chest_opens_the_chest_window(self):
+        from chest import install_built_chest
+
+        install_built_chest(self.state, self.rules)
+        payload, html = self._payload_on("chest")
+        self.assertTrue(payload.get("at_chest"))
+        data = self._run(payload, html, "chest")
+        self.assertNotIn("leave cabin", data["commands"])
+        self.assertTrue(data["chestOpen"], data)
+        self.assertFalse(data["tableOpen"])
+
+    def test_e_at_the_fireplace_fuels_when_possible(self):
+        from inventory import add_to_pack
+
+        self.state["fireplace_fueled"] = False
+        add_to_pack(self.state, P1, "wood", 1, self.rules)
+        payload, html = self._payload_on("fireplace")
+        self.assertIn("fuel fireplace", payload.get("actions") or [])
+        data = self._run(payload, html, "fireplace")
+        self.assertIn("fuel fireplace", data["commands"])
+        self.assertNotIn("leave cabin", data["commands"])
+
+    def test_e_at_the_kitchen_fuels_or_opens_crafting(self):
+        from inventory import add_to_pack
+
+        self.state["stove_fueled"] = False
+        add_to_pack(self.state, P1, "wood", 1, self.rules)
+        payload, html = self._payload_on("kitchen")
+        self.assertIn("fuel stove", payload.get("actions") or [])
+        fueled = self._run(payload, html, "kitchen_fuel")
+        self.assertIn("fuel stove", fueled["commands"])
+        self.assertNotIn("leave cabin", fueled["commands"])
+
+        self.state["stove_fueled"] = True
+        payload, html = self._payload_on("kitchen")
+        self.assertNotIn("fuel stove", payload.get("actions") or [])
+        cooked = self._run(payload, html, "kitchen_cook")
+        self.assertNotIn("leave cabin", cooked["commands"])
+        self.assertNotIn("fuel stove", cooked["commands"])
+        self.assertTrue(cooked["recipeOpen"], cooked)
+
+    def test_e_at_the_creation_table_opens_the_table(self):
+        payload, html = self._payload_on("table")
+        self.assertTrue(payload.get("at_table") or payload.get("at_table_site"))
+        data = self._run(payload, html, "table")
+        self.assertNotIn("leave cabin", data["commands"])
+        self.assertTrue(data["tableOpen"], data)
+
+    def test_e_at_the_forge_interacts(self):
+        import web
+        from inventory import add_to_pack
+        from inventory import TOOL_PICKAXE
+
+        at_town(self.state, P1, "forge")
+        add_to_pack(self.state, P1, TOOL_PICKAXE, 1, self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        self.assertTrue(payload.get("at_forge"))
+        data = self._run(payload, html, "forge")
+        self.assertTrue(
+            any(str(cmd).startswith("forge ") for cmd in data["commands"])
+            or "forge" in (data.get("toast") or "").lower(),
+            data,
+        )
+        self.assertNotIn("leave cabin", data["commands"])
+
+    def test_e_on_the_bed_opens_sleep_confirmation_and_a_second_e_confirms(self):
+        payload, html = self._payload_on("bed")
+        self.assertTrue(payload.get("at_bed"))
+        first = self._run(payload, html, "bed1", presses=1)
+        self.assertEqual(first["commands"], [])
+        self.assertTrue(first["endConfirmShown"], first)
+        self.assertIn("Press E or Enter to confirm", first["endConfirmText"])
+        second = self._run(payload, html, "bed2", presses=2)
+        self.assertTrue(any(str(cmd).startswith("end turn") for cmd in second["commands"]), second)
+        self.assertNotIn("leave cabin", second["commands"])
+
+
+class DevCommands(unittest.TestCase):
+    """Opt-in dev commands stay off by default and never appear in Legal Actions."""
+
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+        self.state["weather"] = "sun"
+
+    def _log_texts(self):
+        return [str(entry.get("text") or "") for entry in (self.state.get("log") or [])]
+
+    def test_flag_is_off_by_default_and_env_or_config_can_enable_it(self):
+        from devcmds import dev_commands_enabled, ENV_VAR
+
+        self.assertFalse(dev_commands_enabled(environ={}, config={}))
+        self.assertFalse(dev_commands_enabled(environ={}, config={"dev_commands": False}))
+        self.assertTrue(dev_commands_enabled(environ={}, config={"dev_commands": True}))
+        self.assertTrue(dev_commands_enabled(environ={ENV_VAR: "1"}, config={}))
+        self.assertTrue(dev_commands_enabled(environ={ENV_VAR: "true"}, config={}))
+        self.assertFalse(dev_commands_enabled(environ={ENV_VAR: "0"}, config={"dev_commands": True}))
+
+    def test_dev_commands_are_off_and_unlisted_unless_enabled(self):
+        from unittest.mock import patch
+        from inventory import pack_of, stack_count
+
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertFalse(any(str(act).startswith("dev") for act in legal))
+        with patch("devcmds.dev_commands_enabled", return_value=False):
+            ok, msg = do_action(self.state, self.crops, "dev give runestone 10", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("dev_commands", msg)
+        self.assertIn("LANTERN_FARM_DEV_COMMANDS", msg)
+        self.assertEqual(stack_count(pack_of(self.state, P1), "runestone"), 0)
+        self.assertFalse(any(text.startswith("Dev:") for text in self._log_texts()))
+
+        with patch("devcmds.dev_commands_enabled", return_value=True):
+            legal_on = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertFalse(any(str(act).startswith("dev") for act in legal_on))
+
+    def test_dev_give_weather_and_xp_are_logged_as_dev_actions(self):
+        from unittest.mock import patch
+        from inventory import pack_of, stack_count
+        from xp import player_xp_map
+
+        with patch("devcmds.dev_commands_enabled", return_value=True):
+            ok, msg = do_action(self.state, self.crops, "dev give runestone 10", player=P1, rules=self.rules)
+            self.assertTrue(ok, msg)
+            self.assertEqual(stack_count(pack_of(self.state, P1), "runestone"), 10)
+            self.assertTrue(msg.startswith("Dev:"), msg)
+            self.assertIn("runestone", msg.lower())
+
+            ok, msg = do_action(self.state, self.crops, "dev weather aurora", player=P1, rules=self.rules)
+            self.assertTrue(ok, msg)
+            self.assertEqual(self.state["weather"], "aurora")
+            self.assertTrue(msg.startswith("Dev:"), msg)
+            self.assertIn("aurora", msg.lower())
+
+            ok, msg = do_action(self.state, self.crops, "dev xp mining 2000", player=P1, rules=self.rules)
+            self.assertTrue(ok, msg)
+            self.assertEqual(int((player_xp_map(self.state, P1) or {}).get("mining") or 0), 2000)
+            self.assertTrue(msg.startswith("Dev:"), msg)
+            self.assertIn("mining", msg.lower())
+
+        texts = self._log_texts()
+        dev_lines = [text for text in texts if text.startswith("Dev:")]
+        self.assertEqual(len(dev_lines), 3, texts)
+        self.assertTrue(any("runestone" in text.lower() for text in dev_lines))
+        self.assertTrue(any("aurora" in text.lower() for text in dev_lines))
+        self.assertTrue(any("mining" in text.lower() and "2000" in text for text in dev_lines))
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertFalse(any(str(act).startswith("dev") for act in legal))
