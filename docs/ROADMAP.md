@@ -40,3 +40,15 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: snow days pause plant growth (Rick, 2026-11-26)
 - On snow days, crops don't advance a growth stage (growth is paused, not lost).
 - Open questions: does watering still count/carry over? Do greenhouse or indoor plants ignore it? Show a "snowed in — growth paused" note on affected tiles.
+
+## Idea: plants going to seed + seed maker (Rick, 2026-11-27)
+- Mature crops left unharvested can go to seed.
+- A seed maker (like Stardew's), crafted for 5 stone and 20 wood, turns a crop into seeds.
+- Suggestions: it takes about a day to finish so it fits turns; a small chance of a bonus seed; plants left long may flower first.
+- Open questions: how many seeds per crop? Does going to seed replace the harvest (you lose the crop)? How many days after mature until it flowers or goes to seed? Where does the seed maker live (cabin, farm)? Can it take any harvested crop, or only ones that went to seed on the plot?
+
+## Idea: sleeping-bag homesickness (Rick, 2026-11-27)
+- A penalty so the sleeping bag isn't nearly free.
+- Each night slept away from home in the sleeping bag reduces next-morning energy by 5, cumulative, capped at -50.
+- A night in the cabin clears it.
+- Open questions: does passing out (no bag) also count? Does homesickness show on the status line?
