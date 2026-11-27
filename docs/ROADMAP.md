@@ -173,3 +173,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 ## Bag of holding (idea)
 - Backpack upgrade from 4 to 8 slots, called the "bag of holding", unlocked with rune enchantments.
+
+## Party play and the mailbox (idea, 2026-11-27)
+- Human/human multiplayer should support 1 to 4 players total, so it can work as a party game.
+- With 3 or 4 players, "Note for Lumen" becomes "Note for everyone" (the shared end-of-turn note).
+- A mailbox stands outside the cabin for letters to specific players. Standing at it gives a legal move "leave letter to <player>" that opens a text box, and "read mail" when you have mail.
+- Lumen's suggestions: letters arrive at the next day turn, like real post, so they feel different from instant notes. The mailbox sprite raises a little flag when someone has unread mail. Maybe let a letter carry one small gift item from the backpack.
+
