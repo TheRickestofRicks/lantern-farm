@@ -85,6 +85,12 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Slimes become capturable later through a "Speak with Creature" spell that costs runestones (possibly a specific imbued kind).
 - Lumen's suggestion: befriended slimes live in a small pen in the hills, and each colour gives something (for example green goo as fertilizer, grey for ore luck).
 
+## Idea: flowers as gifts (Rick, 2026-11-27)
+- A "give item" action specific to flowers: giving a flower to the other player gives them 5 comfort, at most once per day.
+- Flowers expire (wilt) so they can't be stockpiled or gamed.
+- Vases: a flower in a vase gives the receiver +5 for 3 days.
+- Pairs with decorative trees and hanami as reasons to grow pretty things.
+
 ## Idea: hill orchard (Rick, 2026-11-27)
 - Trees are purchasable, so players can plant an orchard in the hills.
 - Cuttings can be taken from trees and planted; they grow faster than wild trees.
