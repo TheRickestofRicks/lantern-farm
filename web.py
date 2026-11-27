@@ -2732,6 +2732,7 @@ PAGE = r"""<!DOCTYPE html>
         return label + " (" + hint + ")";
       }
       function hotkeyForAction(act) {
+        if (act === "leave cabin" && lastData && lastData.at_cabin_door) return "E";
         if (act === "enter cabin" || act === "enter mine" || act === "climb up" || act === "climb down" || act === "leave mine" || act === "fuel fireplace" || act === "fuel stove") return "E";
         if (String(act).indexOf("forge ") === 0) return "E";
         if (act === "mine") return "M";
@@ -5410,9 +5411,9 @@ PAGE = r"""<!DOCTYPE html>
           focusNoteBox();
           return;
         }
-        // E is interact-only. It never leaves the cabin. A pending sleep
-        // confirmation (from the bed, or Shift+E then this second E) is
-        // confirmed first.
+        // E is interact-only. It leaves the cabin only from the door tile
+        // itself (never from the bed or anywhere else inside). A pending
+        // sleep confirmation is confirmed first.
         if (endConfirm) {
           unearthConfirm = false;
           requestEndTurn(true);
@@ -5430,6 +5431,11 @@ PAGE = r"""<!DOCTYPE html>
         if (interact) {
           unearthConfirm = false;
           actCmd(interact);
+          return;
+        }
+        if (lastData && lastData.at_cabin_door && firstLegalCommand(["leave cabin"])) {
+          unearthConfirm = false;
+          actCmd("leave cabin");
           return;
         }
         const data = lastData || {};
@@ -6090,6 +6096,7 @@ def api_payload(
         "in_cabin": is_player_in_cabin(state, viewer) if viewer else False,
         "in_cabin_interior": bool(viewer and player_area(state, viewer) == AREA_CABIN),
         "at_kitchen": bool(viewer and player_at_cabin_tile(state, viewer, "kitchen")),
+        "at_cabin_door": bool(viewer and player_at_cabin_tile(state, viewer, "door")),
         "ready_labels": ready_labels_for(state),
         "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
         "at_chest_site": bool(viewer and __import__("chest").player_at_build_tile(state, viewer, rules)),

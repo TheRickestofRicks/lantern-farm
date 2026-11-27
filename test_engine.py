@@ -2943,6 +2943,7 @@ class ArtPackAndPage(unittest.TestCase):
             "watering_can_copper", "watering_can_iron", "watering_can_gold",
             "axe_copper", "axe_iron", "axe_gold",
             "pickaxe_copper", "pickaxe_iron", "pickaxe_gold",
+            "leather_boots", "hiking_boots", "green_hoodie", "blue_sweater",
             "quartz", "runestone_ore", "runestone", "goo", "sleeping_bag",
         }
         self.assertEqual(set(items), expected)
@@ -3029,7 +3030,7 @@ class ArtPackAndPage(unittest.TestCase):
         missing = sorted({k for k in keys if k not in items})
         self.assertEqual(
             missing,
-            ["blue_sweater", "green_hoodie", "hiking_boots", "leather_boots"],
+            [],
         )
         # Runestone icons are used on every item surface through the shared helper.
         import web
@@ -11491,14 +11492,14 @@ class EHotkeyInteractOnly(unittest.TestCase):
         self.assertNotIn("enter mine", render)
         self.assertNotIn("enter cabin", render)
         self.assertNotIn("leave or interact", render)
-        # Leave-cabin is still a legal engine action, just not bound to E.
+        # E leaves the cabin only from the door tile itself.
         e_at = page.find('if (letter === "e")')
         self.assertGreater(e_at, 0)
-        e_block = page[e_at:e_at + 2500]
-        self.assertNotIn('"leave cabin"', e_block)
+        e_block = page[e_at:e_at + 3500]
+        self.assertIn("at_cabin_door", e_block)
         self.assertIn("at_bed", e_block)
         hint = page[page.find("function hotkeyForAction"): page.find("function legalActionLabel")]
-        self.assertNotIn("leave cabin", hint)
+        self.assertIn("at_cabin_door", hint)
 
     def _run(self, payload, html, mode, presses=1):
         import shutil
@@ -11559,6 +11560,13 @@ class EHotkeyInteractOnly(unittest.TestCase):
         self.assertFalse(data["chestOpen"])
         self.assertFalse(data["tableOpen"])
         self.assertFalse(data["endConfirmShown"])
+
+    def test_e_on_the_door_tile_leaves_the_cabin(self):
+        payload, html = self._payload_on("door")
+        self.assertTrue(payload.get("at_cabin_door"))
+        self.assertIn("leave cabin", payload.get("actions") or [])
+        data = self._run(payload, html, "door")
+        self.assertEqual(data["commands"], ["leave cabin"])
 
     def test_e_on_the_chest_opens_the_chest_window(self):
         from chest import install_built_chest
