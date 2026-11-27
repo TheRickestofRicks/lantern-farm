@@ -71,6 +71,12 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
 
+## Idea: magic system (Rick, 2026-11-27)
+- A big future system built on runes. Enchanting is in; teleportation (waystones, homeward rune) is planned.
+- Healing spells.
+- Offensive ranged spells that cost runes (for slimes and the deeper mine).
+- Speak with Creature (see befriending slimes) also belongs here. Lumen's suggestion: imbued rune kinds from the altars could fuel different schools of spells.
+
 ## Idea: keepsake display case (Rick, 2026-11-27)
 - Built from 5 wood on the reserved cabin tile r1c3, opened like the chest.
 - Holds one item per slot (no stacks). Each slot has a placard for its item.
