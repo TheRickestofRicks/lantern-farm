@@ -49,11 +49,13 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Suggestions: it takes about a day to finish so it fits turns; a small chance of a bonus seed; plants left long may flower first.
 - Open questions: how many seeds per crop? Does going to seed replace the harvest (you lose the crop)? How many days after mature until it flowers or goes to seed? Where does the seed maker live (cabin, farm)? Can it take any harvested crop, or only ones that went to seed on the plot?
 
-## Idea: chest redesign (Rick, 2026-11-27)
-- The chest becomes its own window, like the store, with a draggable grid of rows and columns.
-- Starting size: 12 slots in 1 row, and stacks of 16 in the chest (double the player's pack stack of 8).
-- There is no starting chest. Building one costs 5 wood and is an early goal — it fits, because there's no harvest on Day 1. The chest is also the first decoration/building mechanic.
-- Upgrades go copper, then iron, then gold: each changes the banding colour and raises slots to 24, then 36, then 48.
+## In: chest redesign (Rick, 2026-11-27; built 2026-11-27)
+- The chest is its own window, like the store, with a draggable grid of rows and columns. You can drag to rearrange slots and drag between the backpack and the chest.
+- Build one in the cabin at the north-wall nook (row 1 col 2) for 5 wood. That is the first decoration/building mechanic. There is no starting chest.
+- Starting size: 12 slots in 1 row, stacks of 16 (double the pack's 8). Numbers live in `rules.json` (`chest.build`, `chest.tiers`).
+- Upgrades go copper (8 copper ore, 24 slots), then iron (10 iron ore, 36 slots), then gold (12 gold ore, 48 slots). Each change also rebands the chest.
+- New games start with the hoe, shovel, axe, two watering cans, and the starting strawberry seeds as ground drops on that same cabin tile.
+- Existing farms that already had a chest are grandfathered as a built wooden chest. If they held more than 12 stacks, the extras stay as overflow (nothing is deleted; the chest is not auto-upgraded).
 
 ## In: sleeping-bag homesickness (Rick, 2026-11-27; built 2026-11-27)
 - A penalty so the sleeping bag isn't nearly free. "Home is where the heart is."

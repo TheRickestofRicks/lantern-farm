@@ -111,6 +111,15 @@ waitFor(() => {
     chestHiddenAfterClick = !!(body && body.hidden);
     try { chestStorageAfterClick = dom.window.localStorage.getItem("lanternFarm.cabinChestOpen"); } catch (err) {}
   }
+  const openChest = doc.getElementById("open-chest");
+  const chestModal = doc.getElementById("chest-modal");
+  const chestWasHidden = !!(chestModal && chestModal.hidden);
+  if (openChest && !openChest.hidden) {
+    openChest.click();
+  }
+  const chestGrid = doc.getElementById("chest-grid");
+  const packGrid = doc.getElementById("chest-pack-grid");
+  const chestTitle = doc.getElementById("chest-title");
   const result = {
     shopBackpackPresent: shopBackpack.present,
     shopBackpackText: shopBackpack.text,
@@ -143,6 +152,17 @@ waitFor(() => {
     chestOpenAfterClick: chestOpenAfterClick,
     chestStorageAfterClick: chestStorageAfterClick,
     chestHiddenAfterClick: chestHiddenAfterClick,
+    openChestPresent: !!openChest,
+    openChestHidden: !!(openChest && openChest.hidden),
+    openChestLabel: openChest ? (openChest.textContent || "").trim() : "",
+    chestModalPresent: !!chestModal,
+    chestModalOpen: !!(chestModal && !chestModal.hidden),
+    chestModalWasHidden: chestWasHidden,
+    chestTitle: chestTitle ? (chestTitle.textContent || "").trim() : "",
+    chestModalText: chestModal ? (chestModal.textContent || "") : "",
+    chestModalButtons: chestModal ? Array.from(chestModal.querySelectorAll("button")).map((b) => (b.textContent || "").trim()) : [],
+    chestGridItems: chestGrid ? Array.from(chestGrid.querySelectorAll("[data-item]")).map((el) => el.getAttribute("data-item")) : [],
+    chestPackItems: packGrid ? Array.from(packGrid.querySelectorAll("[data-item]")).map((el) => el.getAttribute("data-item")) : [],
   };
   process.stdout.write(JSON.stringify(result));
   process.exit(0);

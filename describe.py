@@ -116,15 +116,31 @@ def _pack_line(state: dict, crops: dict | None, viewer: str | None) -> str:
     return "  " + ", ".join(parts) + (f"  · {empty} open slot(s)" if empty else "  · backpack is full")
 
 
+def _chest_heading(state: dict) -> str:
+    from chest import chest_is_built, chest_display_name
+    if not chest_is_built(state):
+        return "Cabin chest"
+    name = chest_display_name(state)
+    return name[:1].upper() + name[1:] if name else "Cabin chest"
+
+
 def _chest_line(state: dict, crops: dict | None) -> str:
     from inventory import chest_of, item_name
+    from chest import chest_is_built, chest_display_name, chest_slot_count, filled_count
+    if not chest_is_built(state):
+        return "  (no chest yet — stand at row 1 col 2 in the cabin and `build chest` for 5 wood)"
     parts = []
     for slot in chest_of(state):
         if slot and slot.get("item"):
             parts.append(item_name(slot["item"], int(slot.get("count") or 0), crops, state=state))
+    filled = filled_count(chest_of(state))
+    size = chest_slot_count(state)
+    extra = f"  · {filled}/{size} slots"
+    if filled > size:
+        extra += f" (overflow {filled - size} kept, nothing discarded)"
     if not parts:
-        return "  (empty)"
-    return "  " + ", ".join(parts)
+        return f"  (empty{extra})"
+    return "  " + ", ".join(parts) + extra
 
 
 def _item_phrase(key: str, count: int, crops: dict | None = None) -> str:
@@ -568,7 +584,7 @@ def describe_state(
         "",
         "Backpack:",
         _pack_line(state, crops, viewer),
-        "Cabin chest:",
+        (_chest_heading(state) + ":"),
         _chest_line(state, crops),
         "",
         f"Mini map — {area_title(view_area, floor=player_floor(state, viewer) if viewer and view_area == AREA_MINE else None)}:",
@@ -663,9 +679,15 @@ def describe_state(
         "A night in the cabin clears it. If both of you sleep on the same mine floor (or the same tile elsewhere), "
         "home is where the heart is — neither of you takes the penalty that night. "
         "A mid-day faint at 0 HP still wakes at the mine entrance with 25 energy, and HP is restored only up to 50. "
-        "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "
-        "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
-        "carry it home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). "
+        "Till needs a hoe in your backpack; water needs a watering can. There is no starting chest — "
+        "the hoe, shovel, axe, two watering cans, and the starting strawberry seeds begin as ground "
+        "drops on the cabin floor at row 1 col 2 (the north-wall nook). Stand there and `build chest` "
+        "for 5 wood to place a 12-slot wooden chest (stacks of 16). Upgrade it at the chest with copper "
+        "ore (8, 24 slots), then iron ore (10, 36 slots), then gold ore (12, 48 slots); each upgrade "
+        "changes the banding colour. Settings, the web chest window, and `take`/`drop` at the built "
+        "chest move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). "
+        "Each player has a 4-slot backpack. Harvest goes into the backpack; "
+        "carry it home to share or sell. "
         "Anywhere else except the market stall, `drop <item> 1` or `drop <item> all` leaves items on the tile you stand on, and `take` or `pick up` retrieves them (`take stone all` takes as many as will fit). "
         "Items left in the mine disappear when the mine resets (a new season, or any time the floors are regenerated). Drops on the farm, in the hills, and in town stay put. "
         "Buy at the honour store in town (`buy`, coins come straight from the purse), "

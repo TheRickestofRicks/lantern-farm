@@ -317,5 +317,9 @@
     "runestone_ore": "items/runestone_ore.png",
     "goo": "items/goo.png",
     "sleeping_bag": "items/sleeping_bag.png"
+  },
+  "sprites": {
+    "vine_leaf": "sprites/vine_leaf.png",
+    "vine_leaf_small": "sprites/vine_leaf_small.png"
   }
 }

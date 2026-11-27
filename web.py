@@ -984,6 +984,52 @@ PAGE = r"""<!DOCTYPE html>
     }
     button.chest-toggle::before { content: "▾"; font-size: 0.85em; }
     .chest-section.is-collapsed button.chest-toggle::before { content: "▸"; }
+    /* .actions sets display:flex, which would otherwise override [hidden]. */
+    .chest-section.is-collapsed > .chest-section-body,
+    .chest-section-body[hidden] {
+      display: none !important;
+    }
+    .chest-dialog {
+      width: min(56rem, 100%);
+    }
+    .chest-dialog .chest-band {
+      height: 8px;
+      border-radius: 8px;
+      margin: 0 0 0.7rem;
+    }
+    .chest-grid {
+      display: grid;
+      gap: 0.35rem;
+      margin: 0.4rem 0 0.9rem;
+    }
+    .chest-cell, .pack-cell {
+      min-height: 4.4rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #20160f;
+      padding: 0.25rem 0.3rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--ink);
+      user-select: none;
+      touch-action: none;
+    }
+    .chest-cell img, .pack-cell img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    .chest-cell.is-empty, .pack-cell.is-empty { opacity: 0.55; }
+    .chest-cell.is-overflow { border-style: dashed; }
+    .chest-cell.is-dragging, .pack-cell.is-dragging { opacity: 0.4; }
+    .chest-cell.is-target, .pack-cell.is-target { border-color: var(--gold); }
+    .chest-cell[data-item], .pack-cell[data-item] { cursor: grab; }
+    .chest-meta, .chest-help { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; line-height: 1.4; }
     .chest-card { touch-action: none; user-select: none; -webkit-user-select: none; }
     .chest-card.is-dragging { opacity: 0.55; }
     .chest-card[data-item] { cursor: grab; }
@@ -1088,7 +1134,7 @@ PAGE = r"""<!DOCTYPE html>
         &middot; <kbd>E</kbd> enter or interact (cabin, mine)
         &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn
         &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)
-        &middot; <kbd>Esc</kbd> closes the shop, journal, saves, or settings, or cancels unearth
+        &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, or settings, or cancels unearth
       </p>
     </section>
     <aside class="panel">
@@ -1097,6 +1143,7 @@ PAGE = r"""<!DOCTYPE html>
       <div class="inv" id="inv"></div>
       <div class="shop-launch">
         <button class="btn primary" id="open-shop" type="button" hidden>Shop <kbd>S</kbd></button>
+        <button class="btn" id="open-chest" type="button" hidden>Chest</button>
         <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
         <button class="btn" id="open-saves" type="button">Saves</button>
         <label class="art-pack-wrap">Art
@@ -1185,6 +1232,22 @@ PAGE = r"""<!DOCTYPE html>
       </div>
     </div>
   </div>
+  <div id="chest-modal" class="shop-modal" hidden>
+    <div class="shop-backdrop" id="chest-backdrop"></div>
+    <div class="shop-dialog chest-dialog" role="dialog" aria-modal="true" aria-labelledby="chest-title">
+      <div class="shop-head">
+        <h2 id="chest-title">Chest</h2>
+        <button type="button" class="btn" id="chest-close">Close</button>
+      </div>
+      <div class="chest-band" id="chest-band" hidden></div>
+      <p class="chest-meta" id="chest-meta"></p>
+      <div id="chest-toolbar"></div>
+      <div id="chest-grid" class="chest-grid"></div>
+      <h3 class="shop-section-title">Backpack</h3>
+      <div id="chest-pack-grid" class="chest-grid"></div>
+      <p class="chest-help" id="chest-help">Drag items to rearrange, or between the backpack and the chest.</p>
+    </div>
+  </div>
   <div id="settings-modal" class="shop-modal" hidden>
     <div class="shop-backdrop" id="settings-backdrop"></div>
     <div class="shop-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -1239,6 +1302,7 @@ PAGE = r"""<!DOCTYPE html>
     let journalOpen = false;
     let savesOpen = false;
     let settingsOpen = false;
+    let chestOpen = false;
     let savesSwitch = null;
     let savesRenameId = null;
     let journalSeason = "spring";
@@ -2121,6 +2185,8 @@ PAGE = r"""<!DOCTYPE html>
       lastData = data;
       if (data && data.viewer) PLAYER = data.viewer;
       if (!settingsOpen) fillSettingsForm(data);
+      else syncAutopassOptionsEnabled();
+      if (chestOpen) renderChestWindow(data);
       renderAwayBanner(data);
       renderForecast(data);
       renderKeys(data);
@@ -2449,37 +2515,20 @@ PAGE = r"""<!DOCTYPE html>
         if (act === "strike") return "K";
         return "";
       }
-      function isTileAction(act) {
-        if (prefix.indexOf(act) !== -1) return true;
-        if ((act.indexOf("take ") === 0 || act.indexOf("drop ") === 0 || act.indexOf("pick up ") === 0)
-            && stand && stand.r === r && stand.c === c) return true;
-        if (act.indexOf(plantPrefix) === 0) return true;
-        if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) return true;
-        if (act.indexOf("forge ") === 0) return true;
-        return false;
+      // List every action the engine says is legal from the tile you
+      // stand on (moves, area exits, enter cabin, build chest, and the rest).
+      // A short prefix used to hide most of them — including go east/west
+      // and move to r c — which is why the farm cabin tile only showed two.
+      function legalActionLabel(act) {
+        if (act.indexOf("unearth ") === 0) return actionLabel(act, "unearth");
+        if (act.indexOf(plantPrefix) === 0) return actionLabel(act, "plant " + act.slice(plantPrefix.length));
+        if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
+          return actionLabel(act, act.replace(fertPrefix + " ", "fertilize ").replace(fertPrefix, "fertilize"));
+        }
+        return actionLabel(act, act);
       }
       for (const act of legal) {
-        let show = isTileAction(act);
-        let label = act;
-        if (prefix.indexOf(act) !== -1) {
-          if (act.indexOf("unearth ") === 0) {
-            label = actionLabel(act, "unearth");
-          } else if (act.split(" ").length > 1) {
-            label = actionLabel(act, act);
-          } else {
-            label = actionLabel(act, act.split(" ")[0]);
-          }
-        } else if (act.indexOf(plantPrefix) === 0) {
-          label = actionLabel(act, "plant " + act.slice(plantPrefix.length));
-        } else if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
-          label = actionLabel(act, act.replace(fertPrefix + " ", "fertilize ").replace(fertPrefix, "fertilize"));
-        } else if (act.indexOf("forge ") === 0) {
-          label = actionLabel(act, act);
-        } else if (act.indexOf("take ") === 0 || act.indexOf("drop ") === 0 || act.indexOf("pick up ") === 0) {
-          label = actionLabel(act, act);
-        }
-        if (show) label = addHotkeyHint(label, hotkeyForAction(act));
-        if (!show) continue;
+        let label = addHotkeyHint(legalActionLabel(act), hotkeyForAction(act));
         const b = document.createElement("button");
         b.type = "button";
         b.className = "btn";
@@ -2630,6 +2679,11 @@ PAGE = r"""<!DOCTYPE html>
         return "<li>" + formatNoteHtml(entry) + "</li>";
       }).join("");
     }
+    function syncAutopassOptionsEnabled() {
+      const box = $("settings-autopass");
+      const opts = $("settings-autopass-options");
+      if (opts) opts.disabled = !(box && box.checked);
+    }
     function fillSettingsForm(data) {
       const ap = (data && data.autopass) || {};
       const enabled = !!ap.enabled;
@@ -2638,12 +2692,11 @@ PAGE = r"""<!DOCTYPE html>
       const box = $("settings-autopass");
       const maxBox = $("settings-autopass-max");
       const timeBox = $("settings-autopass-timeout");
-      const opts = $("settings-autopass-options");
       const status = $("settings-autopass-status");
       if (box) box.checked = enabled;
       if (maxBox) maxBox.value = String(maxTurns);
       if (timeBox) timeBox.value = String(timeout);
-      if (opts) opts.disabled = !enabled;
+      syncAutopassOptionsEnabled();
       if (status) {
         const used = Number(ap.turns_used || 0);
         status.textContent = enabled
@@ -2689,6 +2742,7 @@ PAGE = r"""<!DOCTYPE html>
       closeShop();
       closeJournal();
       closeSaves();
+      closeChest();
       settingsOpen = true;
       const modal = $("settings-modal");
       if (modal) modal.hidden = false;
@@ -2727,6 +2781,7 @@ PAGE = r"""<!DOCTYPE html>
       closeShop();
       closeSaves();
       closeSettings();
+      closeChest();
       journalOpen = true;
       const modal = $("journal-modal");
       if (modal) modal.hidden = false;
@@ -2747,6 +2802,7 @@ PAGE = r"""<!DOCTYPE html>
       closeShop();
       closeJournal();
       closeSettings();
+      closeChest();
       savesOpen = true;
       const modal = $("saves-modal");
       if (modal) modal.hidden = false;
@@ -2940,6 +2996,15 @@ PAGE = r"""<!DOCTYPE html>
         shopBtn.disabled = !atStore;
       }
       if (!atStore && shopOpen) closeShop();
+      const chestBtn = $("open-chest");
+      const info = (data && data.chest_info) || {};
+      const canOpen = !!(data && (data.at_chest || (data.at_chest_site && !info.built) || (info.built && data.in_cabin_interior)));
+      if (chestBtn) {
+        chestBtn.hidden = !canOpen;
+        chestBtn.disabled = !canOpen;
+        chestBtn.textContent = info.built ? "Chest" : "Build chest";
+      }
+      if (chestOpen && data && !data.at_chest && !data.at_chest_site) closeChest();
     }
     function openShop() {
       if (!lastData || !lastData.at_store) {
@@ -2949,6 +3014,7 @@ PAGE = r"""<!DOCTYPE html>
       closeSaves();
       closeJournal();
       closeSettings();
+      closeChest();
       shopOpen = true;
       const modal = $("shop-modal");
       if (modal) modal.hidden = false;
@@ -2958,6 +3024,154 @@ PAGE = r"""<!DOCTYPE html>
       shopOpen = false;
       const modal = $("shop-modal");
       if (modal) modal.hidden = true;
+    }
+    function openChest() {
+      const data = lastData || {};
+      const info = data.chest_info || {};
+      if (!data.at_chest && !(data.at_chest_site && !info.built)) {
+        showToast(info.built
+          ? "Walk to the chest inside the cabin to open it."
+          : "Walk to the north-wall nook (row 1 col 2) in the cabin to build a chest.", true);
+        return;
+      }
+      closeShop();
+      closeJournal();
+      closeSaves();
+      closeSettings();
+      chestOpen = true;
+      const modal = $("chest-modal");
+      if (modal) modal.hidden = false;
+      renderChestWindow(data);
+    }
+    function closeChest() {
+      chestOpen = false;
+      const modal = $("chest-modal");
+      if (modal) modal.hidden = true;
+    }
+    function fillChestCell(cell, slot, store, index, data) {
+      cell.className = store === "pack" ? "pack-cell" : "chest-cell";
+      cell.dataset.store = store;
+      cell.dataset.index = String(index);
+      const overflow = store === "chest" && data && data.chest_info
+        && index > Number(data.chest_info.slots || 0);
+      if (overflow) cell.classList.add("is-overflow");
+      if (slot && slot.item) {
+        cell.dataset.item = slot.item;
+        const img = document.createElement("img");
+        img.src = itemIconSrc(slot.item);
+        img.alt = "";
+        cell.appendChild(img);
+        const label = document.createElement("span");
+        label.textContent = itemName(slot.item, Number(slot.count || 0), data);
+        cell.appendChild(label);
+      } else {
+        cell.classList.add("is-empty");
+        cell.textContent = "";
+      }
+    }
+    function enableSlotDrag(grid, data) {
+      let dragging = null;
+      grid.addEventListener("pointerdown", function (ev) {
+        const live = lastData || data;
+        const cell = ev.target.closest && ev.target.closest(".chest-cell, .pack-cell");
+        if (!cell || !cell.dataset.item) return;
+        if (!live.your_turn || !live.at_chest) return;
+        if (ev.button && ev.button !== 0) return;
+        dragging = cell;
+        cell.classList.add("is-dragging");
+        try { cell.setPointerCapture(ev.pointerId); } catch (err) {}
+      });
+      grid.addEventListener("pointerup", function (ev) {
+        if (!dragging) return;
+        const src = dragging;
+        src.classList.remove("is-dragging");
+        dragging = null;
+        const dest = document.elementFromPoint(ev.clientX, ev.clientY);
+        const cell = dest && dest.closest && dest.closest(".chest-cell, .pack-cell");
+        if (!cell || cell === src) return;
+        const cmd = "transfer " + src.dataset.store + " " + src.dataset.index
+          + " " + cell.dataset.store + " " + cell.dataset.index;
+        actCmd(cmd);
+      });
+    }
+    function renderChestWindow(data) {
+      const info = (data && data.chest_info) || {};
+      const title = $("chest-title");
+      const band = $("chest-band");
+      const meta = $("chest-meta");
+      const tools = $("chest-toolbar");
+      const grid = $("chest-grid");
+      const packGrid = $("chest-pack-grid");
+      if (title) title.textContent = info.built ? (info.name ? (info.name.charAt(0).toUpperCase() + info.name.slice(1)) : "Chest") : "Build a chest";
+      if (band) {
+        if (info.built && info.band) {
+          band.hidden = false;
+          band.style.background = info.band;
+        } else {
+          band.hidden = true;
+        }
+      }
+      if (meta) {
+        if (!info.built) {
+          meta.textContent = "There is no chest yet. Building one costs 5 wood and is done at this north-wall nook (row 1 col 2). It is the first decoration you can build. A new chest has 12 slots (stacks of 16).";
+        } else {
+          let line = info.slots + " slots · stacks of " + (info.stack || 16);
+          const filled = (info.items || []).filter(function (s) { return s && s.item; }).length;
+          line += " · " + filled + " used";
+          if (info.overflow) line += " · " + info.overflow + " overflow kept, nothing discarded";
+          meta.textContent = line;
+        }
+      }
+      if (tools) {
+        tools.innerHTML = "";
+        if (!info.built && data.at_chest_site && data.your_turn) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn primary";
+          b.textContent = "Build chest (5 wood)";
+          b.addEventListener("click", function () { actCmd("build chest"); });
+          tools.appendChild(b);
+        } else if (info.built && info.next_tier && data.at_chest && data.your_turn) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn";
+          const cost = info.upgrade_cost || {};
+          const bits = Object.keys(cost).map(function (k) { return cost[k] + " " + k.replace("_", " "); });
+          b.textContent = "Upgrade to " + info.next_tier + (bits.length ? " (" + bits.join(", ") + ")" : "");
+          b.addEventListener("click", function () { actCmd("upgrade chest"); });
+          tools.appendChild(b);
+        }
+      }
+      if (grid) {
+        grid.innerHTML = "";
+        const cols = Number(info.cols || 12) || 12;
+        grid.style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+        const items = info.built ? (info.items || []) : [];
+        const total = Math.max(items.length, Number(info.slots || 0));
+        for (let i = 0; i < total; i++) {
+          const cell = document.createElement("div");
+          fillChestCell(cell, items[i], "chest", i + 1, data);
+          grid.appendChild(cell);
+        }
+        if (info.built && data.your_turn && data.at_chest) enableSlotDrag(grid, data);
+      }
+      if (packGrid) {
+        packGrid.innerHTML = "";
+        const pack = packSlotsOf(data);
+        packGrid.style.gridTemplateColumns = "repeat(" + Math.max(pack.length || 4, 4) + ", minmax(0, 1fr))";
+        for (let i = 0; i < pack.length; i++) {
+          const cell = document.createElement("div");
+          fillChestCell(cell, pack[i], "pack", i + 1, data);
+          packGrid.appendChild(cell);
+        }
+      }
+      if (info.built && data.your_turn && data.at_chest) {
+        const dialog = grid && grid.closest(".chest-dialog");
+        if (dialog && !dialog.dataset.dragReady) {
+          enableSlotDrag(dialog, data);
+          dialog.dataset.dragReady = "1";
+        }
+      }
     }
 
     function seasonLabel(list) {
@@ -3556,7 +3770,7 @@ PAGE = r"""<!DOCTYPE html>
       else meta.textContent = open + " open slot" + (open === 1 ? "" : "s") + ".";
       if (held.length && !data.at_chest && !data.at_stall) {
         meta.textContent += data.in_cabin
-          ? " Walk to the chest inside the cabin to drop items, or east to the market stall to sell."
+          ? " Walk to the chest nook (row 1 col 2) to store items, or east to the market stall to sell."
           : " Walk to the cabin chest to store items, or east to the market stall to sell.";
       }
       el.appendChild(meta);
@@ -3564,7 +3778,6 @@ PAGE = r"""<!DOCTYPE html>
       held.forEach(function (slot) {
         appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
-      appendCabinChestSection(el, data);
       appendTownStallSection(el, data);
     }
 
@@ -3919,7 +4132,7 @@ PAGE = r"""<!DOCTYPE html>
         + ' &middot; <kbd>E</kbd> enter or interact'
         + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
         + ' &middot; <kbd>Enter</kbd> in the note box ends the turn (a note is sent too)'
-        + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, or settings, or cancels unearth';
+        + ' &middot; <kbd>Esc</kbd> closes the shop, journal, saves, chest, or settings, or cancels unearth';
       let work;
       if (area === "hills") {
         work = ' &middot; <kbd>H</kbd> or <kbd>G</kbd> forage'
@@ -4212,6 +4425,10 @@ PAGE = r"""<!DOCTYPE html>
           closeSettings();
           return;
         }
+        if (chestOpen) {
+          closeChest();
+          return;
+        }
         if (shopOpen) {
           closeShop();
           return;
@@ -4432,10 +4649,8 @@ PAGE = r"""<!DOCTYPE html>
           }
           return;
         }
-        if (data.at_chest) {
-          const chest = document.querySelector(".chest-section");
-          if (chest) chest.classList.remove("is-collapsed");
-          showToast("The cabin chest. Take or drop items here.", true);
+        if (data.at_chest || data.at_chest_site) {
+          openChest();
           return;
         }
         return;
@@ -4451,6 +4666,12 @@ PAGE = r"""<!DOCTYPE html>
     if (closeBtn) closeBtn.addEventListener("click", function () { closeShop(); });
     const backdrop = $("shop-backdrop");
     if (backdrop) backdrop.addEventListener("click", function () { closeShop(); });
+    const openChestBtn = $("open-chest");
+    if (openChestBtn) openChestBtn.addEventListener("click", function () { openChest(); });
+    const closeChestBtn = $("chest-close");
+    if (closeChestBtn) closeChestBtn.addEventListener("click", function () { closeChest(); });
+    const chestBackdrop = $("chest-backdrop");
+    if (chestBackdrop) chestBackdrop.addEventListener("click", function () { closeChest(); });
     const openJournalBtn = $("open-journal");
     if (openJournalBtn) openJournalBtn.addEventListener("click", function () { openJournal(); });
     const closeJournalBtn = $("journal-close");
@@ -4470,7 +4691,10 @@ PAGE = r"""<!DOCTYPE html>
     const settingsBackdrop = $("settings-backdrop");
     if (settingsBackdrop) settingsBackdrop.addEventListener("click", function () { closeSettings(); });
     const autopassBox = $("settings-autopass");
-    if (autopassBox) autopassBox.addEventListener("change", function () { saveSettings(); });
+    if (autopassBox) autopassBox.addEventListener("change", function () {
+      syncAutopassOptionsEnabled();
+      saveSettings();
+    });
     const autopassMax = $("settings-autopass-max");
     if (autopassMax) autopassMax.addEventListener("change", function () { saveSettings(); });
     const autopassTimeout = $("settings-autopass-timeout");
@@ -4951,6 +5175,8 @@ def api_payload(
         "at_kitchen": bool(viewer and player_at_cabin_tile(state, viewer, "kitchen")),
         "ready_labels": ready_labels_for(state),
         "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
+        "at_chest_site": bool(viewer and __import__("chest").player_at_build_tile(state, viewer, rules)),
+        "chest_info": __import__("chest").public_chest(state, rules),
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
         "at_stall": bool(viewer and is_player_at_stall(state, viewer)),
         "at_store": bool(viewer and is_player_at_store(state, viewer)),
@@ -4963,7 +5189,7 @@ def api_payload(
         "fuel_stove_energy": energy_cost("fuel_stove", rules),
         "cabin": [CABIN_ROW, CABIN_COL],
         "pack": (state.get("players") or {}).get(viewer or "", {}).get("pack") or [],
-        "chest": state.get("chest") or [],
+        "chest": (__import__("chest").public_chest(state, rules).get("items") or []),
         "fertilizers": _fertilizer_catalog(rules),
         "item_names": _item_name_catalog(crops, rules, state),
         "tool_tiers": _tool_tiers_payload(state),

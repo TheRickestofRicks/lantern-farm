@@ -29,7 +29,9 @@
     "flee": 5,
     "forge": 5,
     "fuel_fireplace": 5,
-    "fuel_stove": 5
+    "fuel_stove": 5,
+    "build_chest": 5,
+    "upgrade_chest": 5
   },
   "weeds": {
     "min_new_per_day": 1,
@@ -360,5 +362,49 @@
   },
   "town": {
     "instant_sell_energy": 50
-  }
+  },
+  "chest": {
+    "build": {
+      "wood": 5
+    },
+    "build_row": 1,
+    "build_col": 2,
+    "stack": 16,
+    "tiers": {
+      "wood": {
+        "slots": 12,
+        "rows": 1,
+        "cols": 12,
+        "band": "#7a4e24"
+      },
+      "copper": {
+        "slots": 24,
+        "rows": 2,
+        "cols": 12,
+        "band": "#b87333",
+        "cost": {
+          "copper_ore": 8
+        }
+      },
+      "iron": {
+        "slots": 36,
+        "rows": 3,
+        "cols": 12,
+        "band": "#8a8d91",
+        "cost": {
+          "iron_ore": 10
+        }
+      },
+      "gold": {
+        "slots": 48,
+        "rows": 4,
+        "cols": 12,
+        "band": "#d4a017",
+        "cost": {
+          "gold_ore": 12
+        }
+      }
+    }
+  },
+  "chest_stack": 16
 }

@@ -1592,9 +1592,12 @@ def pack_of(state: dict, player: str | None, rules: dict | None = None) -> list:
 
 
 def chest_of(state: dict, rules: dict | None = None) -> list:
-    chest = normalize_chest(state.get("chest"), rules)
-    state["chest"] = chest
-    return chest
+    """Live chest slots, including empty holes, or an empty list if unbuilt."""
+    from chest import chest_is_built, chest_slots
+
+    if not chest_is_built(state):
+        return []
+    return chest_slots(state, rules)
 
 
 def pack_has(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> bool:
@@ -1669,29 +1672,44 @@ def remove_stacks_from_pack(state: dict, player: str | None, item: str, n: int =
     return _remove_stacks_from_slots(pack, item, n)
 
 
-def add_to_chest(state: dict, item: str, n: int = 1, rules: dict | None = None, tier: str | None = None) -> None:
+def add_to_chest(state: dict, item: str, n: int = 1, rules: dict | None = None, tier: str | None = None) -> int:
+    """Add to a built chest. Returns leftover that did not fit.
+
+    Overflow past the slot cap is kept so items are never deleted. Player
+    drop actions should check chest_has_room first.
+    """
+    from chest import chest_is_built, add_to_built_chest
+
     if n <= 0:
-        return
-    chest = chest_of(state, rules)
-    _push_stacks(chest, item, n, in_chest=True, rules=rules, tier=tier)
-    state["chest"] = compact_chest(chest)
+        return 0
+    if not chest_is_built(state):
+        return max(0, n)
+    return add_to_built_chest(state, item, n, rules, tier=tier, allow_overflow=True)
 
 
 def remove_from_chest(state: dict, item: str, n: int = 1, rules: dict | None = None) -> int:
     if n <= 0:
         return 0
+    from chest import chest_is_built, pad_chest_slots, chest_slot_count
+
+    if not chest_is_built(state):
+        return 0
     chest = chest_of(state, rules)
     removed = _remove_from_slots(chest, item, n)
-    state["chest"] = compact_chest(chest)
+    state["chest"] = pad_chest_slots(chest, max(chest_slot_count(state, rules), len(chest)))
     return removed
 
 
 def remove_stacks_from_chest(state: dict, item: str, n: int = 1, rules: dict | None = None) -> list[dict]:
     if n <= 0:
         return []
+    from chest import chest_is_built, pad_chest_slots, chest_slot_count
+
+    if not chest_is_built(state):
+        return []
     chest = chest_of(state, rules)
     taken = _remove_stacks_from_slots(chest, item, n)
-    state["chest"] = compact_chest(chest)
+    state["chest"] = pad_chest_slots(chest, max(chest_slot_count(state, rules), len(chest)))
     return taken
 
 
@@ -1925,12 +1943,46 @@ def starting_tool_counts(rules: dict | None = None) -> dict[str, int]:
     return out
 
 
+def world_item_count(state: dict, item: str, rules: dict | None = None) -> int:
+    """Count an item across packs, the chest, the stall, and ground piles."""
+    total = stack_count(all_stores(state, rules), item)
+    store = ground_map(state)
+    for stacks in store.values():
+        total += stack_count(stacks if isinstance(stacks, list) else [], item)
+    # Read the stall if it already exists. Do not call stall_of(), which
+    # would create the town as a side effect during migrate_state.
+    town = state.get("town")
+    if isinstance(town, dict):
+        stall = town.get("stall")
+        if isinstance(stall, list):
+            total += stack_count(stall, item)
+    return total
+
+
 def ensure_starting_tools(state: dict, rules: dict | None = None) -> bool:
-    """Put any missing world tools into the chest. Never duplicates extras."""
+    """Make sure the starting tools exist somewhere in the world.
+
+    New games put them on the cabin floor (no starting chest). An already
+    built chest still receives any missing tools, never duplicates.
+    """
+    from chest import chest_is_built, place_starting_goods
+
+    if not chest_is_built(state):
+        changed = place_starting_goods(state, None, rules)
+        from chest import build_tile
+        from hills import AREA_CABIN
+        row, col = build_tile(rules)
+        wanted = starting_tool_counts(rules)
+        for item, need in wanted.items():
+            have = world_item_count(state, item, rules)
+            if have < need:
+                add_to_ground(state, AREA_CABIN, row, col, item, need - have, rules=rules)
+                changed = True
+        return changed
     changed = False
     wanted = starting_tool_counts(rules)
     for item, need in wanted.items():
-        have = item_count(state, item, rules)
+        have = world_item_count(state, item, rules)
         if have < need:
             add_to_chest(state, item, need - have, rules)
             changed = True
@@ -1963,23 +2015,30 @@ def move_legacy_inventory_to_chest(state: dict, rules: dict | None = None) -> bo
 
 
 def migrate_inventory(state: dict, crops: dict | None = None, rules: dict | None = None) -> bool:
-    """Install packs and a cabin chest. Idempotent. Tools start in the chest."""
+    """Install packs and chest fields. Idempotent. New games start with no chest."""
     from engine import known_players, player_slot
+    from chest import migrate_chest, install_built_chest, chest_is_built
 
     rules = rules or {}
     changed = False
-    if "chest" not in state:
-        state["chest"] = []
+    # A pre-pack save (inventory is the only store, no backpacks yet) folds
+    # into a grandfathered chest. New games already have packs by this point
+    # and must not grow a free chest from starting seeds.
+    def _any_pack(st):
+        for slot in (st.get("players") or {}).values():
+            if isinstance(slot, dict) and "pack" in slot:
+                return True
+        return False
+    if "chest" not in state and state.get("chest_built") is None and not state.get("_inventory_is_view") and not _any_pack(state):
+        if isinstance(state.get("inventory"), dict) and any(
+            (isinstance(v, int) or str(v).lstrip("-").isdigit()) and int(v or 0) > 0
+            for v in state.get("inventory").values()
+        ):
+            install_built_chest(state, rules)
+            if move_legacy_inventory_to_chest(state, rules):
+                changed = True
+    if migrate_chest(state, crops, rules):
         changed = True
-        # First time: move the old shared pack into the chest.
-        if move_legacy_inventory_to_chest(state, rules):
-            changed = True
-    else:
-        # Normalize any odd shapes, but do not re-import the totals view.
-        before = list(state.get("chest") or [])
-        chest_of(state, rules)
-        if state.get("chest") != before:
-            changed = True
 
     for name in list((state.get("players") or {}).keys()) or list(known_players()):
         slot = player_slot(state, name)

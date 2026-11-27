@@ -67,7 +67,18 @@ waitFor(() => {
   const packHalf = cardInfo(inv, /half loaf/i);
   const shopHalf = cardInfo(shop, /half loaf/i);
   const shopOnion = cardInfo(shop, /wild onion/i);
-  const chestOnion = cardInfo(inv, /wild onion/i);
+  const openChest = doc.getElementById("open-chest");
+  if (openChest && !openChest.hidden) openChest.click();
+  const chestModal = doc.getElementById("chest-modal");
+  const chestOnion = cardInfo(chestModal, /wild onion/i);
+  if (!chestOnion.present && chestModal) {
+    const cell = Array.from(chestModal.querySelectorAll(".chest-cell, [data-item]")).find((el) => /wild onion/i.test(el.textContent || "") || el.getAttribute("data-item") === "wild_onion");
+    if (cell) {
+      chestOnion.present = true;
+      chestOnion.text = cell.textContent || "";
+      chestOnion.buttons = Array.from(doc.querySelectorAll("button")).map((b) => (b.textContent || "").trim()).filter((t) => /eat/i.test(t) && /onion|6/i.test(t));
+    }
+  }
   const result = {
     packHalf: packHalf,
     shopHalf: shopHalf,
@@ -75,6 +86,7 @@ waitFor(() => {
     chestOnion: chestOnion,
     invText: inv ? inv.textContent : "",
     shopText: shop ? shop.textContent : "",
+    chestModalText: chestModal ? (chestModal.textContent || "") : "",
   };
   process.stdout.write(JSON.stringify(result));
   process.exit(0);

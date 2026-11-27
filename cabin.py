@@ -43,12 +43,23 @@ KIND_LABEL = {
 }
 
 
-def cabin_tile_kind(row: int, col: int) -> str:
+def cabin_tile_kind(row: int, col: int, state: dict | None = None) -> str:
+    """Furniture kind at this interior tile.
+
+    The north-wall nook (1, 2) is the chest site. Until a chest is built it
+    reads as floor; pass state so the sprite and walk descriptions match.
+    Without state, the designated kind is returned (the reserved chest spot).
+    """
     try:
         row, col = int(row), int(col)
     except (TypeError, ValueError):
         return "floor"
-    return TILE_KIND.get((row, col), "floor")
+    kind = TILE_KIND.get((row, col), "floor")
+    if kind == "chest" and state is not None:
+        from chest import chest_is_built
+        if not chest_is_built(state):
+            return "floor"
+    return kind
 
 
 def is_cabin_interior(area: str | None) -> bool:
@@ -68,12 +79,16 @@ def is_farm_cabin_tile(area: str | None, row: int, col: int) -> bool:
 def get_cabin_tile(state: dict, row: int, col: int) -> dict:
     from engine import fireplace_is_fueled, stove_is_fueled
 
-    kind = cabin_tile_kind(row, col)
+    kind = cabin_tile_kind(row, col, state)
     tile = {"type": f"cabin_{kind}" if kind != "floor" else "cabin_floor"}
     if kind == "fireplace":
         tile["fire"] = bool(fireplace_is_fueled(state))
     elif kind == "kitchen":
         tile["fire"] = bool(stove_is_fueled(state))
+    elif kind == "chest":
+        from chest import chest_tier, chest_band_color
+        tile["chest_tier"] = chest_tier(state)
+        tile["chest_band"] = chest_band_color(state)
     return tile
 
 
@@ -99,7 +114,7 @@ def player_cabin_kind(state: dict, player: str | None) -> str | None:
     if not is_cabin_interior(player_area(state, player)):
         return None
     row, col = player_where(state, player)
-    return cabin_tile_kind(row, col)
+    return cabin_tile_kind(row, col, state)
 
 
 def player_at_cabin_tile(state: dict, player: str | None, kind: str) -> bool:

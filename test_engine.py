@@ -157,13 +157,19 @@ def give_item(state, item, n=1, player=None, where=None):
     """Put items in a pack (if player) or the chest, and refresh the totals view."""
     from inventory import add_to_pack, add_to_chest, sync_inventory_view, migrate_inventory
     from engine import load_crops, load_rules
-    migrate_inventory(state, load_crops(), load_rules())
+    from chest import chest_is_built, install_built_chest
+    rules = load_rules()
+    migrate_inventory(state, load_crops(), rules)
     dest = where or ("pack" if player else "chest")
     if dest == "pack" and player:
         leftover = add_to_pack(state, player, item, n)
         if leftover:
+            if not chest_is_built(state):
+                install_built_chest(state, rules)
             add_to_chest(state, item, leftover)
     else:
+        if not chest_is_built(state):
+            install_built_chest(state, rules)
         add_to_chest(state, item, n)
     sync_inventory_view(state)
     from inventory import item_count
@@ -179,11 +185,12 @@ def give_seeds(state, kind, n=2, player=None):
 
 
 def kit_out(state, player):
-    """Put a hoe and a watering can in the player's pack, taking them from the chest."""
+    """Put a hoe and a watering can in the player's pack, taking them from storage or the floor."""
     from inventory import (
         migrate_inventory,
         ensure_starting_tools,
         remove_from_chest,
+        remove_from_ground,
         add_to_pack,
         pack_has,
         TOOL_HOE,
@@ -191,15 +198,51 @@ def kit_out(state, player):
         sync_inventory_view,
     )
     from engine import load_crops, load_rules
+    from chest import chest_is_built, build_tile
+    from hills import AREA_CABIN
     rules = load_rules()
     migrate_inventory(state, load_crops(), rules)
     ensure_starting_tools(state, rules)
+    row, col = build_tile(rules)
     for item in (TOOL_HOE, TOOL_CAN):
         if pack_has(state, player, item, 1, rules):
             continue
-        remove_from_chest(state, item, 1, rules)
+        took = 0
+        if chest_is_built(state):
+            took = remove_from_chest(state, item, 1, rules)
+        if not took:
+            took = remove_from_ground(state, AREA_CABIN, row, col, item, 1, rules=rules)
         add_to_pack(state, player, item, 1, rules)
     sync_inventory_view(state, rules)
+
+
+def ensure_test_chest(state, rules=None):
+    """Build a wooden chest and move starting cabin-floor goods into it.
+
+    Most existing tests predate the no-starting-chest rule and talk to the
+    chest as always-on storage. Tests that check a brand-new farm should
+    not call this.
+    """
+    from chest import chest_is_built, install_built_chest, add_to_built_chest, build_tile
+    from inventory import ground_of, ground_map, ground_key, sync_inventory_view
+    from hills import AREA_CABIN
+    from engine import load_rules
+    rules = rules or load_rules()
+    if not chest_is_built(state):
+        install_built_chest(state, rules)
+    row, col = build_tile(rules)
+    stacks = list(ground_of(state, AREA_CABIN, row, col, rules=rules) or [])
+    if stacks:
+        ground_map(state).pop(ground_key(AREA_CABIN, row, col), None)
+        for slot in stacks:
+            if not slot:
+                continue
+            item = slot.get("item")
+            n = int(slot.get("count") or 0)
+            if item and n:
+                add_to_built_chest(state, item, n, rules, allow_overflow=True)
+    sync_inventory_view(state, rules)
+    return state
 
 
 def hand_tool(state, item, src, dst):
@@ -269,6 +312,7 @@ class GrowthRules(unittest.TestCase):
             {1: "sun", 2: "sun", 3: "rain"}, self.rules, self.crops
         )
         self.state = fresh_state(self.crops, weather_seed=self.weather_seed, rules=self.rules)
+        ensure_test_chest(self.state, self.rules)
 
     def _plot(self):
         # top-left is free farmland
@@ -1718,11 +1762,22 @@ class SpringCropsAndShop(unittest.TestCase):
         self.crops = load_crops()
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
+        ensure_test_chest(self.state, self.rules)
 
     def test_new_farm_starts_with_strawberry_seeds(self):
-        inv = self.state["inventory"]
-        self.assertEqual(inv["strawberry_seed"], 2)
-        self.assertEqual(inv["strawberry"], 0)
+        from chest import chest_is_built, build_tile
+        from inventory import item_count, world_item_count, ground_of
+        from hills import AREA_CABIN
+        state = fresh_state(self.crops, rules=self.rules)
+        self.assertFalse(chest_is_built(state))
+        self.assertEqual(item_count(state, "strawberry_seed"), 0)
+        self.assertEqual(world_item_count(state, "strawberry_seed", self.rules), 2)
+        row, col = build_tile(self.rules)
+        ground = ground_of(state, AREA_CABIN, row, col, rules=self.rules)
+        self.assertEqual(sum(int(s.get("count") or 0) for s in ground if s and s.get("item") == "strawberry_seed"), 2)
+        inv = state["inventory"]
+        self.assertEqual(inv.get("strawberry_seed", 0), 0)
+        self.assertEqual(inv.get("strawberry", 0), 0)
         self.assertEqual(inv.get("everbearing_seedling", 0), 0)
         self.assertEqual(inv.get("everbearing", 0), 0)
         self.assertEqual(inv.get("kabocha_seed", 0), 0)
@@ -2330,9 +2385,9 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_migrate_adds_strawberry_keys_without_touching_tiles_or_counts(self):
         from engine import migrate_state, ensure_inventory_keys
-        # A legacy-shaped save: no chest yet, shared count map, missing strawberry keys.
+        # An older mid-game farm: starting seeds already spent, 3 kabocha in the chest.
         state = fresh_state(self.crops)
-        # Pour starting seeds out so this looks like an older farm mid-game.
+        ensure_test_chest(state, self.rules)
         from inventory import chest_of, remove_from_chest, add_to_chest, sync_inventory_view
         for slot in list(chest_of(state)):
             if slot and str(slot.get("item") or "").endswith("_seed") or (slot and str(slot.get("item") or "").endswith("_seedling")):
@@ -3000,15 +3055,23 @@ class PackChestAndCraft(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
 
-    def test_tools_start_in_the_chest_and_packs_start_empty(self):
-        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_HOE, TOOL_CAN, TOOL_SHOVEL
-        self.assertEqual(item_count(self.state, TOOL_HOE), 1)
-        self.assertEqual(item_count(self.state, TOOL_CAN), 2)
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
-        self.assertEqual(stack_count(chest_of(self.state), TOOL_HOE), 1)
-        self.assertEqual(stack_count(chest_of(self.state), TOOL_CAN), 2)
-        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
-        self.assertEqual(item_count(self.state, "strawberry_seed"), 2)
+    def test_tools_start_on_the_cabin_floor_and_there_is_no_starting_chest(self):
+        from inventory import (
+            pack_of, chest_of, stack_count, ground_of, world_item_count,
+            TOOL_HOE, TOOL_CAN, TOOL_SHOVEL, TOOL_AXE,
+        )
+        from chest import chest_is_built, build_tile
+        from hills import AREA_CABIN
+        self.assertFalse(chest_is_built(self.state))
+        self.assertEqual(chest_of(self.state), [])
+        row, col = build_tile(self.rules)
+        floor = ground_of(self.state, AREA_CABIN, row, col)
+        self.assertEqual(stack_count(floor, TOOL_HOE), 1)
+        self.assertEqual(stack_count(floor, TOOL_CAN), 2)
+        self.assertEqual(stack_count(floor, TOOL_SHOVEL), 1)
+        self.assertEqual(stack_count(floor, TOOL_AXE), 1)
+        self.assertEqual(stack_count(floor, "strawberry_seed"), 2)
+        self.assertEqual(world_item_count(self.state, TOOL_HOE), 1)
         for player in (P1, P2):
             self.assertTrue(all(slot is None for slot in pack_of(self.state, player)))
 
@@ -3123,6 +3186,10 @@ class PackChestAndCraft(unittest.TestCase):
         legacy = fresh_state(self.crops, rules=self.rules)
         # Strip pack/chest and restore a shared inventory map.
         legacy.pop("chest", None)
+        legacy.pop("chest_built", None)
+        legacy.pop("chest_tier", None)
+        legacy.pop("starting_goods_placed", None)
+        legacy.pop("ground", None)
         legacy.pop("_inventory_is_view", None)
         for slot in (legacy.get("players") or {}).values():
             slot.pop("pack", None)
@@ -3329,6 +3396,7 @@ class TakeDropStacks(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(self.state, self.rules)
 
     def test_legal_actions_offer_drop_one_and_drop_all_for_a_stack(self):
         give_item(self.state, "everbearing", 3, player=P1)
@@ -3460,6 +3528,7 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(self.state, self.rules)
 
     def test_jam_is_a_modest_snack_and_soups_restore_more(self):
         from inventory import item_eat_energy
@@ -3738,6 +3807,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(self.state, self.rules)
 
     def test_shop_sells_bread_butter_and_milk_year_round(self):
         from engine import shop_listing, buy
@@ -3983,31 +4053,45 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.state = fresh_state(self.crops, rules=self.rules)
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
 
-    def test_fresh_farm_has_exactly_one_shovel_in_the_chest(self):
-        from inventory import item_count, pack_of, chest_of, stack_count, TOOL_SHOVEL, pack_has
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
-        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
+    def test_fresh_farm_has_exactly_one_shovel_on_the_cabin_floor(self):
+        from chest import chest_is_built, build_tile
+        from inventory import (
+            item_count, world_item_count, pack_of, pack_has, TOOL_SHOVEL, ground_of,
+        )
+        from hills import AREA_CABIN
+        self.assertFalse(chest_is_built(self.state))
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 0)
+        self.assertEqual(world_item_count(self.state, TOOL_SHOVEL, self.rules), 1)
+        row, col = build_tile(self.rules)
+        ground = ground_of(self.state, AREA_CABIN, row, col, rules=self.rules)
+        self.assertEqual(sum(int(s.get("count") or 0) for s in ground if s and s.get("item") == TOOL_SHOVEL), 1)
         self.assertFalse(pack_has(self.state, P1, TOOL_SHOVEL, 1))
         self.assertTrue(all(slot is None or slot.get("item") != TOOL_SHOVEL for slot in pack_of(self.state, P1)))
 
-    def test_older_save_gains_a_shovel_in_the_chest_on_migrate(self):
+    def test_older_save_gains_a_shovel_on_the_cabin_floor_on_migrate(self):
+        from chest import chest_is_built, build_tile
         from inventory import (
-            chest_of, stack_count, item_count, TOOL_SHOVEL, remove_from_chest, migrate_inventory,
+            item_count, world_item_count, TOOL_SHOVEL, remove_from_ground, migrate_inventory, ground_of,
         )
+        from hills import AREA_CABIN
         from engine import migrate_state
         # Simulate a pre-shovel farm: no shovel in the world.
-        have = item_count(self.state, TOOL_SHOVEL)
+        row, col = build_tile(self.rules)
+        have = world_item_count(self.state, TOOL_SHOVEL, self.rules)
         if have:
-            remove_from_chest(self.state, TOOL_SHOVEL, have)
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 0)
+            remove_from_ground(self.state, AREA_CABIN, row, col, TOOL_SHOVEL, have, rules=self.rules)
+        self.assertEqual(world_item_count(self.state, TOOL_SHOVEL, self.rules), 0)
         self.assertTrue(migrate_inventory(self.state, self.crops, self.rules))
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
-        self.assertEqual(stack_count(chest_of(self.state), TOOL_SHOVEL), 1)
+        self.assertFalse(chest_is_built(self.state))
+        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 0)
+        self.assertEqual(world_item_count(self.state, TOOL_SHOVEL, self.rules), 1)
+        ground = ground_of(self.state, AREA_CABIN, row, col, rules=self.rules)
+        self.assertEqual(sum(int(s.get("count") or 0) for s in ground if s and s.get("item") == TOOL_SHOVEL), 1)
         # Idempotent: do not mint a second shovel.
         self.assertFalse(migrate_inventory(self.state, self.crops, self.rules))
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        self.assertEqual(world_item_count(self.state, TOOL_SHOVEL, self.rules), 1)
         migrate_state(self.state, self.rules)
-        self.assertEqual(item_count(self.state, TOOL_SHOVEL), 1)
+        self.assertEqual(world_item_count(self.state, TOOL_SHOVEL, self.rules), 1)
 
     def test_unearth_requires_a_shovel_not_a_hoe_and_clears_the_plot(self):
         from inventory import add_to_pack, pack_has, TOOL_HOE, TOOL_SHOVEL, item_count
@@ -4092,12 +4176,12 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
             format_legal_action("buy strawberry 1", self.state, self.crops, P1, self.rules),
             f"buy June-bearing strawberry seed 1 (\u2212{15}G, leaves {gold - 15}G)",
         )
-        # Chest starts with 2 strawberry seeds and 1 hoe.
+        # Starting strawberry seeds and the hoe begin on the cabin floor at the chest site.
         # Take/drop descriptors follow the tile you're on (chest, stall, or ground).
         inside(self.state, P1, "chest")
         self.assertEqual(
             format_legal_action("take strawberry_seed 1", self.state, self.crops, P1, self.rules),
-            "take June-bearing strawberry seed 1 (leaves 1 in chest)",
+            "take June-bearing strawberry seed 1 (leaves 1 on the ground)",
         )
         self.assertEqual(
             format_legal_action("take strawberry_seed all", self.state, self.crops, P1, self.rules),
@@ -4118,7 +4202,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         )
         self.assertEqual(
             format_legal_action("drop bread 1", self.state, self.crops, P1, self.rules),
-            "drop bread 1 (chest will have 1)",
+            "drop bread 1 (drops 1 on the ground)",
         )
         self.state["players"][P1]["energy"] = 80
         self.assertEqual(
@@ -4138,7 +4222,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertIn("take hoe 1", actions)
         self.assertIn("end turn", actions)
         look = describe_state(self.state, self.crops, viewer=P1)
-        self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
+        self.assertIn("take June-bearing strawberry seed 1 (leaves 1 on the ground)", look)
         at_town(self.state, P1, "store")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
@@ -4149,7 +4233,7 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         self.assertIn("move down (to r2 c3, 5 energy)", look)
         self.assertIn("enter cabin (steps inside, free)", look)
         self.assertIn("end turn (ready for bed, 105 energy tomorrow; day turns when both are ready, sleeping close tonight)", look)
-        self.assertNotIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
+        self.assertNotIn("take June-bearing strawberry seed 1 (leaves 1 on the ground)", look)
         self.assertNotIn("take strawberry_seed", look)
         self.assertNotIn(" 2 seeds", look)
         # Pasting a look line still works.
@@ -4613,12 +4697,12 @@ class HillsPhaseOne(unittest.TestCase):
 
     def test_fresh_farm_has_hills_and_full_hp(self):
         from hills import hills_tiles, AREA_FARM, player_area, player_hp, MINE_ENTRANCE, get_hills_tile
-        from inventory import item_count, TOOL_AXE
+        from inventory import world_item_count, TOOL_AXE
         self.assertTrue(hills_tiles(self.state))
         self.assertEqual(player_area(self.state, P1), AREA_FARM)
         hp, cap = player_hp(self.state, P1, self.rules)
         self.assertEqual((hp, cap), (100, 100))
-        self.assertGreaterEqual(item_count(self.state, TOOL_AXE, self.rules), 1)
+        self.assertGreaterEqual(world_item_count(self.state, TOOL_AXE, self.rules), 1)
         entrance = get_hills_tile(self.state, *MINE_ENTRANCE)
         self.assertEqual(entrance.get("type"), "mine_entrance")
         self.assertTrue(entrance.get("closed"))
@@ -4626,7 +4710,7 @@ class HillsPhaseOne(unittest.TestCase):
 
     def test_migrate_keeps_farm_and_turn(self):
         from hills import player_area, AREA_FARM
-        from inventory import item_count, TOOL_AXE
+        from inventory import world_item_count, TOOL_AXE
         state = fresh_state(self.crops, weather_seed=7, rules=self.rules)
         state["day"] = 5
         state["season"] = "spring"
@@ -4656,7 +4740,7 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertEqual(player_area(state, P1), AREA_FARM)
         self.assertEqual(state["players"][P1]["hp"], 100)
         self.assertTrue(state.get("hills", {}).get("tiles"))
-        self.assertGreaterEqual(item_count(state, TOOL_AXE, self.rules), 1)
+        self.assertGreaterEqual(world_item_count(state, TOOL_AXE, self.rules), 1)
 
     def test_hills_13_is_not_the_cabin(self):
         from hills import set_player_place, AREA_HILLS, is_cabin_place
@@ -5233,6 +5317,7 @@ class ForageFood(unittest.TestCase):
         self.state["players"][P1]["energy"] = 40
         self.state["players"][P1]["hp"] = 80
         self.state["players"][P1]["snacks_eaten"] = 0
+        ensure_test_chest(self.state, self.rules)
 
     def test_forage_eat_values_and_mushroom_is_cook_only(self):
         from inventory import item_eat_energy, item_sell_price, pack_has
@@ -5430,6 +5515,7 @@ class BreadHalvesAndChopGrammar(unittest.TestCase):
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         self.state["players"][P1]["energy"] = 40
         self.state["players"][P1]["snacks_eaten"] = 0
+        ensure_test_chest(self.state, self.rules)
 
     def test_eating_bread_leaves_a_half_loaf_and_the_two_halves_sum_to_ten(self):
         from inventory import add_to_pack, pack_has, item_sell_price, item_eat_energy, staple_shop_items
@@ -6341,6 +6427,7 @@ class ShopChestWebUi(unittest.TestCase):
         state["current_player"] = P1
         set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
         state["players"][P1]["energy"] = 50
+        ensure_test_chest(state, rules)
         # Pack holds only a watering can; produce and forage live in the chest,
         # matching the live cabin-chest mix that the shop used to mislabel.
         state["players"][P1]["pack"] = [None, None, None, None]
@@ -6370,12 +6457,17 @@ class ShopChestWebUi(unittest.TestCase):
 
         html = web.render_page(viewer=P1)
         data = self._run_jsdom(payload, html)
-        self.assertTrue(data["invChestPresent"])
-        self.assertRegex(data["invChestText"].lower(), r"spinach")
-        self.assertRegex(data["invChestText"].lower(), r"turnip")
-        self.assertRegex(data["invChestText"].lower(), r"wild onion")
-        self.assertTrue(any(t.lower().startswith("take") for t in data["invChestButtons"]))
-        self.assertTrue(any(t.lower().startswith("eat") for t in data["invChestButtons"]))
+        # Chest is its own window now (not a sidebar section).
+        self.assertTrue(data.get("openChestPresent"))
+        self.assertFalse(data.get("openChestHidden"))
+        self.assertTrue(data.get("chestModalOpen"))
+        chest_text = (data.get("chestModalText") or "").lower()
+        self.assertIn("spinach", chest_text)
+        self.assertIn("turnip", chest_text)
+        self.assertIn("wild onion", chest_text)
+        self.assertIn("spinach", data.get("chestGridItems") or [])
+        self.assertIn("turnip", data.get("chestGridItems") or [])
+        self.assertIn("wild_onion", data.get("chestGridItems") or [])
         self.assertRegex(data["invPackText"].lower(), r"watering can")
         self.assertNotRegex(data["invPackText"].lower(), r"spinach|turnip|wild onion")
         # Combined inventory totals must not be sold as "from the backpack".
@@ -6388,9 +6480,9 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertFalse(data.get("shopKitchenPresent"), "kitchen should not appear in the shop panel")
         self.assertTrue(any(t.lower().startswith("eat") for t in data.get("eatButtons") or []))
         self.assertFalse(
-            any("sell" in t.lower() for t in data["invChestButtons"]),
-            "selling moved to the market stall; the cabin chest should not offer Sell: "
-            + repr(data.get("invChestButtons")),
+            any("sell" in t.lower() for t in (data.get("chestModalButtons") or [])),
+            "selling moved to the market stall; the chest window should not offer Sell: "
+            + repr(data.get("chestModalButtons")),
         )
 
 
@@ -6429,7 +6521,7 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertFalse(data.get("chestTogglePresent"))
         self.assertNotRegex(data.get("invText") or "", r"Cabin chest")
 
-    def test_side_panel_chest_is_collapsible_and_remembers_its_state(self):
+    def test_chest_window_opens_from_the_button_when_at_the_chest(self):
         import web
         from hills import set_player_place, AREA_FARM
         from inventory import add_to_chest, sync_inventory_view
@@ -6439,42 +6531,26 @@ class ShopChestWebUi(unittest.TestCase):
         state = fresh_state(crops, weather_seed=1, rules=rules)
         state["current_player"] = P1
         set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(state, rules)
         inside(state, P1, "chest")
         add_to_chest(state, "spinach", 1, rules)
         sync_inventory_view(state, rules)
         payload = web.api_payload(state, crops, player=P1)
         self.assertTrue(payload["in_cabin"])
         self.assertTrue(payload["in_cabin_interior"])
+        self.assertTrue(payload.get("at_chest"))
         html = web.render_page(viewer=P1)
         data = self._run_jsdom(payload, html)
-        self.assertTrue(data["invChestPresent"])
-        self.assertTrue(data.get("chestTogglePresent"))
-        self.assertTrue(data.get("chestOpen"))
-        self.assertTrue(data.get("chestHiddenAfterClick"))
-        self.assertFalse(data.get("chestOpenAfterClick"))
-        self.assertEqual(data.get("chestStorageAfterClick"), "0")
-        self.assertEqual((data.get("invChestHeading") or "").strip(), "CABIN CHEST")
-        self.assertIn("recipe-book-head", data.get("invChestHeadingClass") or "")
-        css = html
-        self.assertIn("font-family: \"Iowan Old Style\", Palatino", css)
-        # The chest button must not inherit typography from the inventory panel.
-        self.assertNotRegex(
-            css,
-            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*font:\s*inherit",
-        )
-        self.assertRegex(
-            css,
-            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*text-transform:\s*uppercase",
-        )
-        self.assertRegex(
-            css,
-            r"button\.recipe-book-head\.chest-toggle\s*\{[^}]*letter-spacing:\s*0\.06em",
-        )
-        self.assertRegex(
-            css,
-            r"\.recipe-book-head\s*\{[^}]*text-transform:\s*uppercase",
-        )
-
+        self.assertFalse(data.get("invChestPresent"), "sidebar chest should be gone")
+        self.assertFalse(data.get("chestTogglePresent"))
+        self.assertTrue(data.get("openChestPresent"))
+        self.assertFalse(data.get("openChestHidden"))
+        self.assertTrue(data.get("chestModalOpen"))
+        self.assertIn("spinach", data.get("chestGridItems") or [])
+        self.assertIn("chest", (data.get("chestTitle") or data.get("openChestLabel") or "").lower())
+        self.assertIn('id="chest-modal"', html)
+        self.assertIn('id="open-chest"', html)
+        self.assertIn("Build chest (5 wood)", html)
 
     def test_web_hud_shows_bonus_energy_over_the_base_max(self):
         import web
@@ -6610,6 +6686,7 @@ class CabinChestOrder(unittest.TestCase):
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self.state["current_player"] = P1
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(self.state, self.rules)
 
     def test_reorder_chest_persists_in_the_save_and_new_items_append(self):
         from inventory import add_to_chest, chest_of, sync_inventory_view
@@ -7491,6 +7568,7 @@ class EatButtonsWeb(unittest.TestCase):
         # Below full, matching the live report (eat works in the CLI at 85/100).
         state["players"][P1]["energy"] = 85
         set_player_place(state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        ensure_test_chest(state, rules)
         state["players"][P1]["pack"] = [None, None, None, None]
         add_to_pack(state, P1, "bread_half", 1, rules)
         add_to_chest(state, "wild_onion", 2, rules)
@@ -7532,6 +7610,7 @@ class CabinComfort(unittest.TestCase):
         # Keep P2 at the threshold so existing fire/fed/tea cases stay isolated
         # from together rest (which needs more than 10 energy, or a carry).
         self.state["players"][P2]["energy"] = 10
+        ensure_test_chest(self.state, self.rules)
 
     def _end_both(self):
         first = self.state["current_player"]
@@ -7961,6 +8040,7 @@ class ForgedToolDisplay(unittest.TestCase):
         self.crops = load_crops()
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, rules=self.rules)
+        ensure_test_chest(self.state, self.rules)
 
     def test_forged_tools_use_tiered_names_and_payload_icons(self):
         from inventory import item_name, item_label, indefinite, add_to_pack, TOOL_PICKAXE, TOOL_HOE, TOOL_AXE, TOOL_CAN
@@ -8661,6 +8741,7 @@ class CabinInterior(unittest.TestCase):
         self.rules = load_rules()
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self.state["current_player"] = P1
+        ensure_test_chest(self.state, self.rules)
 
     def test_enter_cabin_from_the_farm_tile_lands_on_the_door_and_is_free(self):
         from hills import player_area, AREA_CABIN, AREA_FARM
@@ -8966,7 +9047,7 @@ class CabinInterior(unittest.TestCase):
         self.assertIn("cabin_door.png", srcs)
         self.assertIn("cabin_kitchen.png", srcs)
         self.assertIn("cabin_fireplace.png", srcs)
-        self.assertTrue(data.get("invChestPresent"))
+        self.assertTrue(data.get("invChestPresent") or data.get("openChestPresent"))
         self.assertNotIn("bed", data["labels"])
         self.assertNotIn("floor", data["labels"])
 
@@ -9166,6 +9247,7 @@ class FrostAndWitheredDisplay(unittest.TestCase):
 
     def test_frost_bitten_fruit_harvests_once_then_must_be_cleared(self):
         state = fresh_state(self.crops, rules=self.rules)
+        ensure_test_chest(state, self.rules)
         tile = self._plot(state, 1, 1, "tomato", "frost_bitten", growth=100, days_grown=16)
         self.assertTrue(crop_can_be_harvested(tile["crop"], crop_info(self.crops, "tomato"), state, self.crops))
         before = int(state["inventory"].get("tomato") or 0)
@@ -9232,6 +9314,7 @@ class EastMarketTown(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self.state["gold"] = 200
+        ensure_test_chest(self.state, self.rules)
 
     def test_town_is_on_fresh_and_migrated_saves(self):
         from town import town_tiles, TOWN_STALL, TOWN_STORE, TOWN_FORGE, TILE_STALL, TILE_STORE, TILE_FORGE
@@ -9715,14 +9798,17 @@ class GroundDropsChestMergeAndTakeAll(unittest.TestCase):
         self.rules = no_weed_rules()
         self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
         self.state["current_player"] = P1
+        ensure_test_chest(self.state, self.rules)
 
     def _clear_pack(self, player=P1):
         from inventory import empty_pack, sync_inventory_view
         self.state["players"][player]["pack"] = empty_pack(self.rules)
         sync_inventory_view(self.state, self.rules)
 
-    def test_chest_merges_same_item_stacks_on_load(self):
+    def test_chest_grid_keeps_separate_same_item_stacks(self):
         from inventory import chest_of, stack_count
+        # The chest is a rearrangable grid, so same-item stacks stay in their
+        # own slots instead of auto-merging on load.
         self.state["chest"] = [
             {"item": "stone", "count": 8},
             {"item": "wood", "count": 2},
@@ -9730,8 +9816,8 @@ class GroundDropsChestMergeAndTakeAll(unittest.TestCase):
         ]
         chest = chest_of(self.state, self.rules)
         stones = [s for s in chest if s and s.get("item") == "stone"]
-        self.assertEqual(len(stones), 1)
-        self.assertEqual(int(stones[0]["count"]), 13)
+        self.assertEqual(len(stones), 2)
+        self.assertEqual(sorted(int(s["count"]) for s in stones), [5, 8])
         self.assertEqual(stack_count(chest, "stone"), 13)
         self.assertEqual(stack_count(chest, "wood"), 2)
 
@@ -10235,6 +10321,47 @@ class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
         header = " ".join(turn_header_lines(self.state, self.crops, viewer=P1))
         self.assertNotIn("homesick", header.lower())
 
+    def test_legal_actions_on_the_farm_cabin_tile_list_every_move(self):
+        """Standing on the outside cabin tile, every engine-legal move is listed."""
+        from engine import legal_actions, CABIN_ROW, CABIN_COL, ROWS, COLS
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        for expected in (
+            "enter cabin",
+            "go north",
+            "go east",
+            "go town",
+            "go hills",
+            "move down",
+            "move left",
+        ):
+            self.assertIn(expected, actions, "missing " + expected + " from " + repr(actions))
+        for r in range(1, ROWS + 1):
+            for c in range(1, COLS + 1):
+                if (r, c) == (CABIN_ROW, CABIN_COL):
+                    self.assertNotIn(f"move to {r} {c}", actions)
+                else:
+                    self.assertIn(f"move to {r} {c}", actions)
+        # Mid-farm tile: cardinal steps plus walk-to every other plot.
+        stand(self.state, P1, 2, 2)
+        mid = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        for expected in ("move up", "move down", "move left", "move right", "go cabin"):
+            self.assertIn(expected, mid, "missing " + expected + " from " + repr(mid))
+        for r in range(1, ROWS + 1):
+            for c in range(1, COLS + 1):
+                if (r, c) == (2, 2):
+                    self.assertNotIn(f"move to {r} {c}", mid)
+                else:
+                    self.assertIn(f"move to {r} {c}", mid)
+
+    def test_web_legal_actions_list_is_not_a_short_whitelist(self):
+        import web
+        html = web.render_page(viewer=P1)
+        self.assertIn("for (const act of legal)", html)
+        self.assertIn("legalActionLabel", html)
+        self.assertNotIn("if (!show) continue", html)
+        self.assertIn("move to r c", html)
+
     def test_web_ui_has_legal_actions_collapsible_and_ground_drop_buttons(self):
         import web
         html = web.render_page(viewer=P1)
@@ -10247,6 +10374,10 @@ class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
         self.assertIn("open-settings", html)
         self.assertIn("Settings", html)
         self.assertIn("Taking a break from farming", html)
+        self.assertIn("syncAutopassOptionsEnabled", html)
+        self.assertIn("chest-modal", html)
+        self.assertIn("Build chest (5 wood)", html)
+        self.assertIn("display: none !important", html)
         self.assertIn("Maximum turns autopassed", html)
         self.assertIn("Time until autopass", html)
         self.assertIn("/api/settings", html)
@@ -10421,3 +10552,90 @@ class AutopassTurns(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "move down", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertFalse(autopass_of(self.state, P1)["enabled"])
+
+
+class ChestBuildingAndWindow(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, rules=self.rules)
+        self.state["current_player"] = P1
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+
+    def test_building_a_chest_costs_five_wood_at_the_nook(self):
+        from chest import chest_is_built, chest_slot_count, build_tile
+        from inventory import add_to_pack, stack_count, pack_of
+        self.assertFalse(chest_is_built(self.state))
+        inside(self.state, P1, "chest")  # the nook, still floor until built
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("wood", msg.lower())
+        add_to_pack(self.state, P1, "wood", 5)
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(chest_is_built(self.state))
+        self.assertEqual(chest_slot_count(self.state, self.rules), 12)
+        self.assertEqual(stack_count(pack_of(self.state, P1), "wood"), 0)
+        # Building again fails.
+        add_to_pack(self.state, P1, "wood", 5)
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+
+    def test_cannot_build_the_chest_from_another_tile(self):
+        from inventory import add_to_pack
+        add_to_pack(self.state, P1, "wood", 5)
+        inside(self.state, P1, "kitchen")
+        ok, msg = do_action(self.state, self.crops, "build chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+        self.assertIn("row 1 col 2", msg.lower())
+
+    def test_upgrades_raise_slots_and_use_ore(self):
+        from chest import install_built_chest, chest_slot_count, chest_tier
+        from inventory import add_to_pack
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        add_to_pack(self.state, P1, "copper_ore", 8)
+        ok, msg = do_action(self.state, self.crops, "upgrade chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(chest_tier(self.state), "copper")
+        self.assertEqual(chest_slot_count(self.state, self.rules), 24)
+        add_to_pack(self.state, P1, "iron_ore", 10)
+        ok, msg = do_action(self.state, self.crops, "upgrade chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(chest_tier(self.state), "iron")
+        self.assertEqual(chest_slot_count(self.state, self.rules), 36)
+        add_to_pack(self.state, P1, "gold_ore", 12)
+        ok, msg = do_action(self.state, self.crops, "upgrade chest", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(chest_tier(self.state), "gold")
+        self.assertEqual(chest_slot_count(self.state, self.rules), 48)
+        ok, msg = do_action(self.state, self.crops, "upgrade chest", player=P1, rules=self.rules)
+        self.assertFalse(ok)
+
+    def test_existing_saves_are_grandfathered_and_overflow_is_kept(self):
+        from chest import migrate_chest, chest_is_built, chest_slot_count, chest_tier, filled_count
+        from inventory import chest_of, stack_count
+        # Simulate a pre-revamp save: a chest list, no built flag.
+        state = {"chest": [{"item": "stone", "count": 1} for _ in range(16)], "players": {}}
+        changed = migrate_chest(state, self.crops, self.rules)
+        self.assertTrue(changed)
+        self.assertTrue(chest_is_built(state))
+        self.assertEqual(chest_tier(state), "wood")
+        self.assertEqual(chest_slot_count(state, self.rules), 12)
+        self.assertEqual(filled_count(chest_of(state, self.rules)), 16)
+        self.assertEqual(stack_count(chest_of(state, self.rules), "stone"), 16)
+
+    def test_transfer_moves_a_stack_between_pack_and_chest(self):
+        from chest import install_built_chest
+        from inventory import add_to_pack, pack_of, chest_of
+        install_built_chest(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        add_to_pack(self.state, P1, "wood", 3)
+        # pack slot 1 -> chest slot 2
+        ok, msg = do_action(self.state, self.crops, "transfer pack 1 chest 2", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(pack_of(self.state, P1)[0])
+        self.assertEqual(chest_of(self.state)[1]["item"], "wood")
+        ok, msg = do_action(self.state, self.crops, "transfer chest 2 pack 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(pack_of(self.state, P1)[0]["item"], "wood")

@@ -54,12 +54,15 @@ waitFor(() => {
   const doc = dom.window.document;
   const inv = doc.getElementById("inv");
   const chest = inv && inv.querySelector(".chest-section");
+  const openChest = doc.getElementById("open-chest");
+  const chestModal = doc.getElementById("chest-modal");
   const result = {
     head: doc.getElementById("area-head").textContent,
     labels: Array.from(doc.getElementById("grid").querySelectorAll(".label")).map((el) => el.textContent),
     tileCount: doc.getElementById("grid").querySelectorAll("button.tile").length,
     imgSrcs: Array.from(doc.getElementById("grid").querySelectorAll("img")).map((el) => el.getAttribute("src") || ""),
-    invChestPresent: !!(chest && /CABIN CHEST/i.test(chest.textContent || "")),
+    invChestPresent: !!(openChest && !openChest.hidden && chestModal) || !!(chest && /CABIN CHEST/i.test(chest.textContent || "")),
+    openChestPresent: !!(openChest && !openChest.hidden),
   };
   process.stdout.write(JSON.stringify(result));
   process.exit(0);

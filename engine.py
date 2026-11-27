@@ -2135,6 +2135,8 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
         "journal": empty_journal(1),
         "migrated_runner_from": True,
         "discovered_recipes": ["strawberry_jam", "kabocha_soup"],
+        "chest_built": False,
+        "starting_goods_placed": False,
     }
     apply_new_day_turns(state, rules)
     from inventory import migrate_inventory
@@ -5387,8 +5389,21 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         return False, f"No {item_name(item, 1, crops, rules, state=state)} in the backpack."
     if not pack_has(state, player, item, n, rules):
         return False, f"No {item_name(item, n, crops, rules, state=state)} in the backpack."
+    from chest import chest_space_count, chest_is_built
+    if not chest_is_built(state):
+        return False, "There isn't a chest yet. Build one at the north-wall nook (row 1 col 2) for 5 wood."
+    room = chest_space_count(state, item, rules)
+    if room < 1:
+        return False, "The chest is full. Take something out first."
+    if n > room:
+        if _is_all_count(n) or True:
+            n = room
     removed = remove_from_pack(state, player, item, n, rules)
-    add_to_chest(state, item, removed, rules)
+    leftover = add_to_chest(state, item, removed, rules)
+    if leftover:
+        from inventory import add_to_pack as _add_back
+        _add_back(state, player, item, leftover, rules)
+        removed -= leftover
     sync_inventory_view(state, rules)
     msg = f"{display_name(player)} puts {item_name(item, removed, crops, rules, state=state)} in the chest."
     log_append(state, msg, player)
@@ -6107,6 +6122,13 @@ def legal_actions(
         and available_wood(state, actor, rules, pack_only=True) >= comfort_stove_wood(rules)
     ):
         actions.append("fuel stove")
+    from chest import chest_is_built, player_at_build_tile, next_tier
+    if actor and (not chest_is_built(state)) and player_at_build_tile(state, actor, rules):
+        if energy >= energy_cost("build_chest", rules):
+            actions.append("build chest")
+    if actor and chest_is_built(state) and player_at_cabin_tile(state, actor, "chest"):
+        if next_tier(state, rules) and energy >= energy_cost("upgrade_chest", rules):
+            actions.append("upgrade chest")
     if player_at_cabin_tile(state, actor, "chest"):
         if actor:
             from inventory import pack_space_for
@@ -6924,6 +6946,10 @@ def do_action(
         cost_verb = "strike"
     elif verb == "flee":
         cost_verb = "flee"
+    elif verb == "build":
+        cost_verb = "build_chest"
+    elif verb == "upgrade":
+        cost_verb = "upgrade_chest"
     if cost_verb in {"enter_cabin", "leave_cabin"}:
         cost = 0
     elif cost_verb in {"till", "water", "chop", "mine"}:
@@ -7061,16 +7087,39 @@ def do_action(
             ok, msg = fuel_fireplace(state, actor, rules)
         else:
             return False, "Usage: fuel fireplace  or  fuel stove"
+    elif verb == "build":
+        if not args or args[0].lower() != "chest":
+            return False, "Usage: build chest"
+        from chest import build_chest
+        ok, msg = build_chest(state, actor, rules, crops)
+    elif verb == "upgrade":
+        if not args or args[0].lower() != "chest":
+            return False, "Usage: upgrade chest"
+        from chest import upgrade_chest
+        ok, msg = upgrade_chest(state, actor, rules, crops)
+    elif verb == "transfer":
+        # transfer pack 2 chest 5  /  transfer chest 5 pack 2
+        from chest import move_pack_chest_slot
+        words = [w.lower() for w in args]
+        if len(words) != 4 or words[0] not in {"pack", "chest"} or words[2] not in {"pack", "chest"}:
+            return False, "Usage: transfer pack <slot> chest <slot>   or: transfer chest <slot> pack <slot>"
+        ok, msg = move_pack_chest_slot(state, actor, words[0], words[1], words[2], words[3], rules)
     elif verb == "reorder":
         if not args or args[0].lower() != "chest":
             return False, "Usage: reorder chest <item> <item> ..."
-        ok, msg = reorder_chest(state, args[1:], actor, rules)
+        # "reorder chest swap 3 7" uses slots; otherwise the old item-order command.
+        rest = list(args[1:])
+        if rest and rest[0].lower() == "swap" and len(rest) == 3:
+            from chest import swap_chest_slots
+            ok, msg = swap_chest_slots(state, rest[1], rest[2], rules)
+        else:
+            ok, msg = reorder_chest(state, rest, actor, rules)
     else:
         return (
             False,
             "Unknown action. Try look, move, go cabin, go town, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
             "strike, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
-            "eat, buy, sell, sell now, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
+            "eat, buy, sell, sell now, take, drop, craft, recipes, build chest, upgrade chest, fuel fireplace, fuel stove, or end turn.",
         )
 
     if ok and cost:
