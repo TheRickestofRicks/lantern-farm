@@ -90,6 +90,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Flowers expire (wilt) so they can't be stockpiled or gamed.
 - Vases: a flower in a vase gives the receiver +5 for 3 days.
 - Pairs with decorative trees and hanami as reasons to grow pretty things.
+- "Comfort" here means energy that comes from something other than food or rest.
+- Prairie crocuses are a wild bloom in the hills (Lumen's favourite flower), an early spring forage that can be given as a gift.
 
 ## Idea: hill orchard (Rick, 2026-11-27)
 - Trees are purchasable, so players can plant an orchard in the hills.
