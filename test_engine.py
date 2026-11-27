@@ -10652,6 +10652,9 @@ class Round2SnowPickaxeHomesickAndCombat(unittest.TestCase):
         self.assertIn("Maximum turns autopassed", html)
         self.assertIn("Time until autopass", html)
         self.assertIn("/api/settings", html)
+        self.assertIn("formatAutopassCountdown", html)
+        self.assertIn("autopass-countdown", html)
+        self.assertIn("Autopass in ", html)
 
 
 class AutopassTurns(unittest.TestCase):
@@ -10678,6 +10681,7 @@ class AutopassTurns(unittest.TestCase):
         self.assertEqual(payload["autopass"]["enabled"], False)
         self.assertEqual(payload["autopass"]["max_turns"], 3)
         self.assertEqual(payload["autopass"]["timeout_minutes"], 30)
+        self.assertIsNone(payload["autopass"]["deadline"])
         self.assertEqual(payload["away_summary"], "")
 
     def test_unknown_keys_are_not_stored_with_settings(self):
@@ -10872,6 +10876,118 @@ class AutopassTurns(unittest.TestCase):
         html = web.PAGE
         self.assertIn('id="settings-away-note"', html)
         self.assertIn('id="partner-away-notes"', html)
+
+    def test_enabling_does_not_instantly_end_an_already_idle_turn(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import (
+            set_autopass_settings, mark_turn_started, maybe_apply_autopass, autopass_of,
+        )
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        # The turn has already been idle for two hours.
+        mark_turn_started(self.state, now=start)
+        later = start + timedelta(hours=2)
+        set_autopass_settings(
+            self.state, P1, enabled=True, max_turns=3, timeout_minutes=30, now=later,
+        )
+        # Ticking the box only starts the timer; it must not end the turn now.
+        applied, _, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=later
+        )
+        self.assertFalse(applied)
+        self.assertIsNone(who)
+        self.assertEqual(self.state["current_player"], P1)
+        self.assertFalse(self.state["players"][P1]["ended_turn"])
+        applied, _, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=later + timedelta(minutes=29)
+        )
+        self.assertFalse(applied)
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=later + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(who, P1)
+        self.assertEqual(self.state["current_player"], P2)
+        self.assertEqual(autopass_of(self.state, P1)["turns_used"], 1)
+
+    def test_payload_includes_autopass_deadline(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import set_autopass_settings
+        import web
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(
+            self.state, P1, enabled=True, max_turns=3, timeout_minutes=30, now=start,
+        )
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        self.assertTrue(payload["autopass"]["enabled"])
+        self.assertEqual(
+            payload["autopass"]["deadline"],
+            (start + timedelta(minutes=30)).isoformat(timespec="seconds"),
+        )
+        other = web.api_payload(self.state, self.crops, player=P2)
+        self.assertFalse(other["autopass"]["enabled"])
+        self.assertIsNone(other["autopass"]["deadline"])
+        # After the cap, the deadline is withheld even if a stamp remains.
+        from autopass import autopass_of
+        cfg = autopass_of(self.state, P1)
+        cfg["turns_used"] = cfg["max_turns"]
+        capped = web.api_payload(self.state, self.crops, player=P1)
+        self.assertIsNone(capped["autopass"]["deadline"])
+        self.assertEqual(capped["autopass"]["turns_used"], 3)
+
+    def test_unticking_or_coming_back_resets_the_used_count(self):
+        from datetime import datetime, timedelta, timezone
+        from autopass import (
+            set_autopass_settings, mark_turn_started, maybe_apply_autopass, autopass_of,
+        )
+        start = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=2, timeout_minutes=30, now=start)
+        now = start
+        for _ in range(2):
+            self.state["current_player"] = P1
+            self.state["players"][P1]["ended_turn"] = False
+            self.state["players"][P2]["ended_turn"] = False
+            mark_turn_started(self.state, now=now)
+            applied, msg, who = maybe_apply_autopass(
+                self.state, self.crops, self.rules, now=now + timedelta(minutes=30)
+            )
+            self.assertTrue(applied, msg)
+            self.assertEqual(who, P1)
+            now = now + timedelta(minutes=31)
+        cfg = autopass_of(self.state, P1)
+        self.assertTrue(cfg["enabled"])
+        self.assertEqual(cfg["turns_used"], 2)
+        # Unticking "Taking a break" ends the break and clears the count.
+        set_autopass_settings(self.state, P1, enabled=False)
+        cfg = autopass_of(self.state, P1)
+        self.assertFalse(cfg["enabled"])
+        self.assertEqual(cfg["turns_used"], 0)
+        self.assertIsNone(cfg.get("timer_started_at"))
+        # Enable again, hit the cap, then a real action also unticks and resets.
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        self.state["players"][P2]["ended_turn"] = False
+        set_autopass_settings(self.state, P1, enabled=True, max_turns=2, timeout_minutes=30, now=now)
+        mark_turn_started(self.state, now=now)
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=now + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        now = now + timedelta(minutes=31)
+        mark_turn_started(self.state, now=now)
+        applied, msg, who = maybe_apply_autopass(
+            self.state, self.crops, self.rules, now=now + timedelta(minutes=30)
+        )
+        self.assertTrue(applied, msg)
+        self.assertEqual(autopass_of(self.state, P1)["turns_used"], 2)
+        self.state["current_player"] = P1
+        self.state["players"][P1]["ended_turn"] = False
+        ok, msg = do_action(self.state, self.crops, "end turn", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        cfg = autopass_of(self.state, P1)
+        self.assertFalse(cfg["enabled"])
+        self.assertEqual(cfg["turns_used"], 0)
 
 
 class ChestBuildingAndWindow(unittest.TestCase):

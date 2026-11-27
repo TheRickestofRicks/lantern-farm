@@ -341,6 +341,7 @@ PAGE = r"""<!DOCTYPE html>
     .status .stat.energy.over-max b { color: var(--gold2); }
     .gold { color: var(--gold); }
     .turn { color: var(--gold2); }
+    .autopass-countdown { color: var(--gold2); white-space: nowrap; }
     .ended, .ready { opacity: 0.85; font-size: 0.95em; }
     .playing-as { width: 100%; color: var(--muted); font-size: 0.95rem; }
     main {
@@ -2411,7 +2412,16 @@ PAGE = r"""<!DOCTYPE html>
       lastData = data;
       if (data && data.viewer) PLAYER = data.viewer;
       if (!settingsOpen) fillSettingsForm(data);
-      else syncAutopassOptionsEnabled();
+      else {
+        const box = $("settings-autopass");
+        const ap = (data && data.autopass) || {};
+        if (box && box.checked !== !!ap.enabled) {
+          box.checked = !!ap.enabled;
+        }
+        syncAutopassOptionsEnabled();
+        fillAutopassStatus(data);
+      }
+      syncAutopassCountdownClock(data);
       if (chestOpen) renderChestWindow(data);
       renderAwayBanner(data);
       renderForecast(data);
@@ -2476,7 +2486,7 @@ PAGE = r"""<!DOCTYPE html>
         "<span class='stat weather' title='Weather: " + sky + "' aria-label='Weather: " + sky + "'>" +
           forecastIcon(s.weather) + " " + sky + "</span>" +
         "<span class='gold'><b>" + s.gold + "G</b></span>" +
-        "<span class='turn'>Turn: <b>" + displayName(current) + "</b></span>" +
+        "<span class='turn'>Turn: <b>" + displayName(current) + "</b>" + autopassCountdownMarkup(data) + "</span>" +
         energyBits +
         "<span class='playing-as'>Playing as " + displayName(PLAYER) +
           (data.your_turn ? "" : " — waiting, it's " + displayName(current) + "'s turn") +
@@ -2908,6 +2918,60 @@ PAGE = r"""<!DOCTYPE html>
         return "<li>" + formatNoteHtml(entry) + "</li>";
       }).join("");
     }
+    let autopassCountdownTimer = null;
+    let autopassDeadlineMsValue = null;
+    function formatAutopassCountdown(deadlineMs) {
+      const remaining = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+      const minutes = Math.floor(remaining / 60);
+      const seconds = remaining % 60;
+      return "Autopass in " + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+    }
+    function autopassDeadlineMs(data) {
+      const raw = data && data.autopass && data.autopass.deadline;
+      if (!raw) return null;
+      const ms = Date.parse(raw);
+      return isNaN(ms) ? null : ms;
+    }
+    function tickAutopassCountdowns() {
+      if (autopassDeadlineMsValue == null) return;
+      const text = formatAutopassCountdown(autopassDeadlineMsValue);
+      const nodes = document.querySelectorAll(".autopass-countdown");
+      for (let i = 0; i < nodes.length; i++) nodes[i].textContent = text;
+    }
+    function syncAutopassCountdownClock(data) {
+      autopassDeadlineMsValue = autopassDeadlineMs(data);
+      if (autopassDeadlineMsValue != null) {
+        if (!autopassCountdownTimer) {
+          autopassCountdownTimer = setInterval(tickAutopassCountdowns, 1000);
+        }
+        tickAutopassCountdowns();
+      } else if (autopassCountdownTimer) {
+        clearInterval(autopassCountdownTimer);
+        autopassCountdownTimer = null;
+      }
+    }
+    function autopassCountdownMarkup(data) {
+      const deadlineMs = autopassDeadlineMs(data);
+      if (deadlineMs == null) return "";
+      return " <span class='autopass-countdown'>" + formatAutopassCountdown(deadlineMs) + "</span>";
+    }
+    function fillAutopassStatus(data) {
+      const ap = (data && data.autopass) || {};
+      const status = $("settings-autopass-status");
+      if (!status) return;
+      status.innerHTML = "";
+      if (!ap.enabled) return;
+      const maxTurns = (ap.max_turns != null) ? ap.max_turns : 3;
+      const used = Number(ap.turns_used || 0);
+      status.appendChild(document.createTextNode(used + " of " + maxTurns + " turns autopassed"));
+      if (autopassDeadlineMs(data) != null) {
+        status.appendChild(document.createTextNode(". "));
+        const cd = document.createElement("span");
+        cd.className = "autopass-countdown";
+        cd.textContent = formatAutopassCountdown(autopassDeadlineMs(data));
+        status.appendChild(cd);
+      }
+    }
     function syncAutopassOptionsEnabled() {
       const box = $("settings-autopass");
       const opts = $("settings-autopass-options");
@@ -2921,19 +2985,13 @@ PAGE = r"""<!DOCTYPE html>
       const box = $("settings-autopass");
       const maxBox = $("settings-autopass-max");
       const timeBox = $("settings-autopass-timeout");
-      const status = $("settings-autopass-status");
       if (box) box.checked = enabled;
       if (maxBox) maxBox.value = String(maxTurns);
       if (timeBox) timeBox.value = String(timeout);
       const noteBox = $("settings-away-note");
       if (noteBox) noteBox.value = data.away_note || "";
       syncAutopassOptionsEnabled();
-      if (status) {
-        const used = Number(ap.turns_used || 0);
-        status.textContent = enabled
-          ? (used + " of " + maxTurns + " turns autopassed")
-          : "";
-      }
+      fillAutopassStatus(data);
     }
     function settingsPayload() {
       const box = $("settings-autopass");

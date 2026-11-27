@@ -133,6 +133,9 @@ def normalize_autopass(raw) -> dict:
                     clean.append(text)
     base["away_log"] = clean
     base["away_pending"] = bool(raw.get("away_pending"))
+    started = _parse_iso(raw.get("timer_started_at"))
+    if started is not None:
+        base["timer_started_at"] = started.isoformat(timespec="seconds")
     return base
 
 
@@ -156,6 +159,21 @@ def autopass_of(state: dict, player: str | None) -> dict:
     return cfg
 
 
+def _set_timer_started(cfg: dict, now: datetime | None = None) -> None:
+    cfg["timer_started_at"] = _aware(now).isoformat(timespec="seconds")
+
+
+def _clear_timer_started(cfg: dict) -> None:
+    cfg.pop("timer_started_at", None)
+
+
+def _is_current_player(state: dict, player: str | None) -> bool:
+    from engine import normalize_player
+
+    name = normalize_player(player)
+    return bool(name) and name == normalize_player(state.get("current_player"))
+
+
 def set_autopass_settings(
     state: dict,
     player: str | None,
@@ -163,6 +181,7 @@ def set_autopass_settings(
     enabled: bool | None = None,
     max_turns: int | None = None,
     timeout_minutes: int | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """Update a player's autopass settings. Turning it off ends a break."""
     cfg = autopass_of(state, player)
@@ -176,9 +195,16 @@ def set_autopass_settings(
         was = bool(cfg["enabled"])
         cfg["enabled"] = bool(enabled)
         if cfg["enabled"] and not was:
-            # A new break starts a fresh count. Keep any unshown summary.
+            # A new break starts a fresh count. The timer starts now if this
+            # is already their turn; an older idle stamp must not count.
             cfg["turns_used"] = 0
+            if _is_current_player(state, player):
+                _set_timer_started(cfg, now)
+            else:
+                _clear_timer_started(cfg)
         if (not cfg["enabled"]) and was:
+            cfg["turns_used"] = 0
+            _clear_timer_started(cfg)
             if cfg["away_log"]:
                 cfg["away_pending"] = True
     return cfg
@@ -186,7 +212,16 @@ def set_autopass_settings(
 
 def mark_turn_started(state: dict, now: datetime | None = None) -> None:
     """Stamp when the current player's turn began."""
-    state[TURN_STARTED_AT] = _aware(now).isoformat(timespec="seconds")
+    now = _aware(now)
+    state[TURN_STARTED_AT] = now.isoformat(timespec="seconds")
+    # If Autopass is already on, the countdown starts with this turn.
+    from engine import normalize_player
+
+    current = normalize_player(state.get("current_player"))
+    if current:
+        cfg = autopass_of(state, current)
+        if cfg["enabled"]:
+            _set_timer_started(cfg, now)
 
 
 def turn_started_at(state: dict) -> datetime | None:
@@ -224,6 +259,7 @@ def player_is_back(state: dict, player: str | None) -> str:
     summary = _summary_from_cfg(cfg)
     cfg["enabled"] = False
     cfg["turns_used"] = 0
+    _clear_timer_started(cfg)
     if cfg["away_log"]:
         cfg["away_pending"] = True
     return summary
@@ -241,7 +277,10 @@ def autopass_due(state: dict, now: datetime | None = None, rules: dict | None = 
         return False
     if int(cfg["turns_used"]) >= int(cfg["max_turns"]):
         return False
-    started = turn_started_at(state)
+    # The countdown starts when the box is ticked on this turn, or when this
+    # player's turn begins with the box already ticked — never from an older
+    # pre-enable idle stamp on the farm.
+    started = _parse_iso(cfg.get("timer_started_at"))
     if started is None:
         return False
     timeout = timedelta(minutes=int(cfg["timeout_minutes"]))
@@ -305,6 +344,25 @@ def maybe_apply_autopass(
     return True, msg, current
 
 
+def autopass_deadline(state: dict, player: str | None) -> str | None:
+    """ISO deadline for the current player's running Autopass countdown."""
+    from engine import normalize_player
+
+    name = normalize_player(player)
+    if not name or name != normalize_player(state.get("current_player")):
+        return None
+    cfg = autopass_of(state, name)
+    if not cfg["enabled"]:
+        return None
+    if int(cfg["turns_used"]) >= int(cfg["max_turns"]):
+        return None
+    started = _parse_iso(cfg.get("timer_started_at"))
+    if started is None:
+        return None
+    deadline = started + timedelta(minutes=int(cfg["timeout_minutes"]))
+    return deadline.isoformat(timespec="seconds")
+
+
 def public_autopass(state: dict, player: str | None) -> dict:
     """Settings for the web UI: only the documented fields, never credentials."""
     cfg = autopass_of(state, player)
@@ -314,6 +372,7 @@ def public_autopass(state: dict, player: str | None) -> dict:
         "timeout_minutes": int(cfg["timeout_minutes"]),
         "turns_used": int(cfg["turns_used"]),
         "away_pending": bool(cfg["away_pending"]),
+        "deadline": autopass_deadline(state, player),
         "defaults": {
             "enabled": DEFAULT_ENABLED,
             "max_turns": DEFAULT_MAX_TURNS,
