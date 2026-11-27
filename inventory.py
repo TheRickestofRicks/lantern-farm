@@ -155,7 +155,7 @@ FORAGE_ITEMS = {
     "oyster_mushroom": {
         "name": "oyster mushroom",
         "name_plural": "oyster mushrooms",
-        "seasons": ("spring", "summer", "autumn", "winter"),
+        "seasons": ("spring", "summer", "autumn"),
         "description": (
             "A pale shelf mushroom from a hills log. "
             "Not safe to eat raw — cook it into mushroom soup."

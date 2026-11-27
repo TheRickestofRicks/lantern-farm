@@ -69,7 +69,7 @@ FORAGE_INFO = {
     "oyster_mushroom": {
         "name": "oyster mushroom",
         "name_plural": "oyster mushrooms",
-        "seasons": ("spring", "summer", "autumn", "winter"),
+        "seasons": ("spring", "summer", "autumn"),
     },
 }
 
@@ -167,6 +167,15 @@ def chop_wood_count(rules: dict | None = None) -> int:
 def forage_kind_for_season(season: str | None) -> str | None:
     key = (season or "").strip().lower()
     return FORAGE_BY_SEASON.get(key)
+
+
+def log_forage_kind_for_season(season: str | None) -> str | None:
+    """Oyster mushrooms on logs, or None if they do not fruit this season."""
+    key = (season or "").strip().lower()
+    info = FORAGE_INFO.get("oyster_mushroom") or {}
+    if key in (info.get("seasons") or ()):
+        return "oyster_mushroom"
+    return None
 
 
 def empty_hills_tile(kind: str = "grass") -> dict:
@@ -368,8 +377,11 @@ def mark_entrance_found(state: dict, area: str, row: int, col: int) -> bool:
 
 
 def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> list[str]:
+    from engine import season_for_day, load_crops
+
     notes = []
     day = int(state.get("day") or 1)
+    season = state.get("season") or season_for_day(day, load_crops())
     for r, c, tile in iter_hills_tiles(state):
         tree = tile.get("tree")
         if not isinstance(tree, dict) or tree.get("stage") not in TREE_STAGES:
@@ -380,8 +392,9 @@ def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> 
         if stage == "mushroom_log":
             tree["days_grown"] = int(tree.get("days_grown") or 0) + 1
             needed = log_forage_days(rules)
-            if tree["days_grown"] >= needed and not has_forage(tile):
-                tile["forage"] = make_forage("oyster_mushroom", day)
+            kind = log_forage_kind_for_season(season)
+            if kind and tree["days_grown"] >= needed and not has_forage(tile):
+                tile["forage"] = make_forage(kind, day)
                 tree["days_grown"] = 0
                 if log:
                     notes.append(

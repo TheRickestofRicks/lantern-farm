@@ -4831,7 +4831,7 @@ class HillsPhaseOne(unittest.TestCase):
             tick_hills(self.state, self.rules)
         self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "mushroom_log")
 
-    def test_mushroom_log_forages_oysters_past_the_wild_cap_and_in_winter(self):
+    def test_mushroom_log_forages_oysters_past_the_wild_cap(self):
         from hills import (
             make_tree, make_forage, get_hills_tile, tick_hills, log_forage_days,
             forage_count, iter_hills_tiles, is_mine_entrance_tile,
@@ -4839,20 +4839,75 @@ class HillsPhaseOne(unittest.TestCase):
         for r, c, tile in iter_hills_tiles(self.state):
             if is_mine_entrance_tile(r, c):
                 continue
-            tile["forage"] = make_forage("wild_onion", 1)
+            tile["forage"] = make_forage("wild_mushroom", 31)
             tile["tree"] = None
+        log_tile = get_hills_tile(self.state, 3, 2)
+        log_tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
+        log_tile["forage"] = None
+        self.state["day"] = 31
+        self.state["season"] = "autumn"
+        cap_before = forage_count(self.state)
+        self.assertGreaterEqual(cap_before, 2)
+        notes = []
+        for _ in range(log_forage_days(self.rules)):
+            notes.extend(tick_hills(self.state, self.rules))
+        log_tile = get_hills_tile(self.state, 3, 2)
+        self.assertEqual((log_tile.get("forage") or {}).get("kind"), "oyster_mushroom")
+        self.assertEqual(forage_count(self.state), cap_before + 1)
+        self.assertTrue(any("Oyster mushrooms sprouted" in n for n in notes))
+
+    def test_mushroom_log_does_not_sprout_oysters_in_winter(self):
+        from hills import (
+            make_tree, get_hills_tile, tick_hills, log_forage_days,
+            iter_hills_tiles, is_mine_entrance_tile, log_forage_kind_for_season,
+        )
+        self.assertIsNone(log_forage_kind_for_season("winter"))
+        self.assertEqual(log_forage_kind_for_season("spring"), "oyster_mushroom")
+        for r, c, tile in iter_hills_tiles(self.state):
+            if is_mine_entrance_tile(r, c):
+                continue
+            tile["forage"] = None
         log_tile = get_hills_tile(self.state, 3, 2)
         log_tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
         log_tile["forage"] = None
         self.state["day"] = 46
         self.state["season"] = "winter"
-        cap_before = forage_count(self.state)
-        self.assertGreaterEqual(cap_before, 2)
-        for _ in range(log_forage_days(self.rules)):
-            tick_hills(self.state, self.rules)
+        notes = []
+        for i in range(log_forage_days(self.rules) + 2):
+            self.state["day"] = 46 + i
+            notes.extend(tick_hills(self.state, self.rules))
+        log_tile = get_hills_tile(self.state, 3, 2)
+        self.assertIsNone(log_tile.get("forage"))
+        self.assertFalse(any("Oyster mushrooms sprouted" in n for n in notes))
+        # The log keeps aging under the snow, so oysters fruit on the first spring dawn.
+        self.state["day"] = 61
+        self.state["season"] = "spring"
+        notes = tick_hills(self.state, self.rules)
         log_tile = get_hills_tile(self.state, 3, 2)
         self.assertEqual((log_tile.get("forage") or {}).get("kind"), "oyster_mushroom")
-        self.assertEqual(forage_count(self.state), cap_before + 1)
+        self.assertTrue(any("Oyster mushrooms sprouted" in n for n in notes))
+
+    def test_oysters_already_on_a_log_stay_pickable_in_winter(self):
+        from hills import (
+            make_tree, make_forage, get_hills_tile, tick_hills, set_player_place,
+            AREA_HILLS,
+        )
+        from inventory import pack_has
+        log_tile = get_hills_tile(self.state, 3, 2)
+        log_tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
+        log_tile["forage"] = make_forage("oyster_mushroom", 45)
+        self.state["day"] = 46
+        self.state["season"] = "winter"
+        notes = tick_hills(self.state, self.rules)
+        log_tile = get_hills_tile(self.state, 3, 2)
+        self.assertEqual((log_tile.get("forage") or {}).get("kind"), "oyster_mushroom")
+        self.assertFalse(any("Oyster mushrooms sprouted" in n for n in notes))
+        set_player_place(self.state, P1, AREA_HILLS, 3, 2)
+        self.state["players"][P1]["energy"] = 100
+        ok, msg = do_action(self.state, self.crops, "forage", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertTrue(pack_has(self.state, P1, "oyster_mushroom", 1, self.rules))
+        self.assertIsNone(get_hills_tile(self.state, 3, 2).get("forage"))
 
     def test_unearth_hills_stump_needs_a_shovel_costs_20_and_clears_to_grass(self):
         from hills import set_player_place, AREA_HILLS, make_tree, get_hills_tile
