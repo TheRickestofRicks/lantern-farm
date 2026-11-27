@@ -464,9 +464,15 @@ def open_entrance(state: dict) -> None:
 
 
 def pickaxe_in_world(state: dict, rules: dict | None = None) -> bool:
-    from inventory import item_count, TOOL_PICKAXE
+    from inventory import item_count, ground_item_count, TOOL_PICKAXE
+    from town import stall_of
+    from inventory import stack_count
 
-    return item_count(state, TOOL_PICKAXE, rules) >= 1
+    if item_count(state, TOOL_PICKAXE, rules) >= 1:
+        return True
+    if ground_item_count(state, TOOL_PICKAXE, rules) >= 1:
+        return True
+    return stack_count(stall_of(state), TOOL_PICKAXE) >= 1
 
 
 def pickaxe_unlocked(state: dict) -> bool:
@@ -893,6 +899,7 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
     if tile.get("drop"):
         bits.append(f"{ORE_LABELS.get(tile['drop'], tile['drop'])} on the ground")
     body = ", ".join(bits) + "." if bits else "clear stone floor."
+    from inventory import ground_look_phrase
     typ = "a safe chamber" if tile.get("type") == "mine_safe" else "a mine tunnel"
     who_here = players_at(state, row, col, area=AREA_MINE)
     who_bit = ""
@@ -900,7 +907,8 @@ def describe_mine_tile(state: dict, floor: int, row: int, col: int, rules: dict 
         names = ", ".join(display_name(n) for n in who_here)
         who_bit = f" {names} standing here."
     key = sprite_key(tile, None, row, col, floor=floor)
-    return f"  {here} on mine floor {floor} — {typ}. {body.capitalize() if body[:1].islower() else body}{who_bit} (sprite: {key})"
+    ground = ground_look_phrase(state, AREA_MINE, row, col, floor=floor)
+    return f"  {here} on mine floor {floor} — {typ}. {body.capitalize() if body[:1].islower() else body}{ground}{who_bit} (sprite: {key})"
 
 
 def map_cell_lines(tile: dict) -> tuple[str, str]:
@@ -934,6 +942,9 @@ def migrate_mine(state: dict, rules: dict | None = None) -> bool:
     """Idempotent mine fields. Does not touch farm tiles, gold, packs, or the turn."""
     changed = False
     if ensure_mine(state, rules):
+        changed = True
+    from inventory import migrate_ground
+    if migrate_ground(state, rules):
         changed = True
     if "tool_tiers" not in state or not isinstance(state.get("tool_tiers"), dict):
         state["tool_tiers"] = {}
@@ -1120,16 +1131,29 @@ def slime_in_reach(state: dict, player: str, rules: dict | None = None) -> dict 
 
 def _give_or_drop(state: dict, player: str, floor: int, row: int, col: int,
                   item: str, n: int, rules: dict | None) -> str:
-    from inventory import pack_space_for, add_to_pack, sync_inventory_view, item_name
+    from inventory import (
+        pack_space_count, add_to_pack, add_to_ground, sync_inventory_view, item_name,
+    )
 
-    if pack_space_for(state, player, item, n, rules):
-        leftover = add_to_pack(state, player, item, n, rules)
-        if not leftover:
-            sync_inventory_view(state, rules)
-            return f" and packs {item_name(item, n)}"
-    tile = get_mine_tile(state, floor, row, col, rules)
-    tile["drop"] = item
-    return f", leaving {item_name(item, n)} on the ground"
+    packed = 0
+    left = max(0, int(n or 0))
+    if player and left:
+        room = pack_space_count(state, player, item, rules)
+        take = min(room, left)
+        if take:
+            leftover = add_to_pack(state, player, item, take, rules)
+            packed = take - leftover
+            left = left - packed
+    sync_inventory_view(state, rules)
+    if left:
+        add_to_ground(state, AREA_MINE, row, col, item, left, floor=floor, rules=rules)
+        if packed:
+            return (
+                f" and packs {item_name(item, packed)}, "
+                f"leaving {item_name(item, left)} on the ground"
+            )
+        return f", leaving {item_name(item, left)} on the ground"
+    return f" and packs {item_name(item, packed or n)}"
 
 
 def strike_slime(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
@@ -1197,41 +1221,20 @@ def flee_slime(state: dict, player: str, rules: dict | None = None) -> tuple[boo
 
 
 def try_take_mine_drop(state: dict, player: str, args: list, rules: dict | None = None):
-    """If the player is standing on a mine drop, take it. Returns (handled, ok, msg)."""
-    from engine import player_where, display_name
-    from inventory import (
-        pack_space_for,
-        add_to_pack,
-        sync_inventory_view,
-        item_name,
-        normalize_item,
-        parse_item_and_count,
-    )
+    """Flush a legacy mine tile drop into the ground map, then let take() handle it."""
+    from inventory import migrate_ground, normalize_item, add_to_ground
+    from engine import player_where
 
+    migrate_ground(state, rules)
     if player_area(state, player) != AREA_MINE:
         return False, False, ""
     floor = player_floor(state, player) or 1
     row, col = player_where(state, player)
     tile = get_mine_tile(state, floor, row, col, rules)
     drop = tile.get("drop")
-    if not drop:
-        return False, False, ""
-    want = None
-    if args:
-        item, count, err = parse_item_and_count(args)
-        if err:
-            return True, False, err
-        want = normalize_item(item) or item
-        if want and want != drop:
-            return False, False, ""
-    if not pack_space_for(state, player, drop, 1, rules):
-        return True, False, f"No room in the backpack for {item_name(drop, 1)}."
-    leftover = add_to_pack(state, player, drop, 1, rules)
-    if leftover:
-        return True, False, f"No room in the backpack for {item_name(drop, 1)}."
-    tile["drop"] = None
-    sync_inventory_view(state, rules)
-    msg = f"{display_name(player)} picks up {item_name(drop, 1)}."
-    from engine import log_append
-    log_append(state, msg, player)
-    return True, True, msg
+    if drop:
+        item = normalize_item(drop) or str(drop).strip().lower()
+        if item:
+            add_to_ground(state, AREA_MINE, row, col, item, 1, floor=floor, rules=rules)
+        tile["drop"] = None
+    return False, False, ""

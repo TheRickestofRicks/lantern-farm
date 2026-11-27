@@ -796,6 +796,7 @@ def forage_label(kind: str | None, count: int = 1) -> str:
 def describe_hills_tile(state: dict, row: int, col: int, weather: str | None = None) -> str:
     from sprites import sprite_key
     from engine import position_name, display_name, players_at
+    from inventory import ground_look_phrase
 
     tile = get_hills_tile(state, row, col)
     here = position_name(row, col)
@@ -819,7 +820,7 @@ def describe_hills_tile(state: dict, row: int, col: int, weather: str | None = N
                 "A boarded mine entrance is set into the hill. "
                 "The way in isn't open yet — a pickaxe would be needed."
             )
-        return f"  {here} in the hills — {hint}{who_bit} (sprite: {key})"
+        return f"  {here} in the hills — {hint}{ground_look_phrase(state, AREA_HILLS, row, col)}{who_bit} (sprite: {key})"
     bits = []
     typ = "hillside" if tile.get("type") == "hillside" else "grassy hillside"
     if has_tree(tile):
@@ -833,7 +834,8 @@ def describe_hills_tile(state: dict, row: int, col: int, weather: str | None = N
         body = f"{typ}. Empty."
     else:
         body = typ + ". " + ", ".join(bits) + "."
-    return f"  {here} in the hills — {body}{who_bit} (sprite: {key})"
+    from inventory import ground_look_phrase
+    return f"  {here} in the hills — {body}{ground_look_phrase(state, AREA_HILLS, row, col)}{who_bit} (sprite: {key})"
 
 
 def hills_summary(state: dict) -> str:

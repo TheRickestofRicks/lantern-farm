@@ -322,6 +322,9 @@ def crop_progress_phrase(crop: dict | None, info: dict | None) -> str:
 
 
 def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
+    from hills import AREA_FARM
+    from inventory import ground_look_phrase
+
     tile = get_tile(state, row, col)
     here = position_name(row, col)
     weather = str(state.get("weather") or "sun")
@@ -331,6 +334,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     if who_here:
         names = ", ".join(display_name(n) for n in who_here)
         who_bit = f" {names} standing here."
+    ground_bit = ground_look_phrase(state, AREA_FARM, row, col, crops=crops)
     if tile.get("type") == "cabin":
         from config import flavor
         cabin = flavor(f"cabin_{weather}") or flavor("cabin") or "the cabin. A warm lantern glows in the window."
@@ -340,7 +344,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
             f"  {here} — {cabin} "
             "Walk east for the market town, or north for the hills. "
             "Press E to step inside."
-            f"{who_bit} (sprite: {key})"
+            f"{ground_bit}{who_bit} (sprite: {key})"
         )
     moist = "watered today" if tile.get("watered") else "dry today"
     tilled = "tilled" if tile.get("tilled") else "untilled"
@@ -354,7 +358,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         weed_bit = " A small weed has crept in."
     crop = tile.get("crop")
     if not crop:
-        return f"  {here} — {tilled} soil, {moist}. Empty.{till_hold_phrase(tile)}{fertilizer_phrase(tile, state, crops)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+        return f"  {here} — {tilled} soil, {moist}. Empty.{till_hold_phrase(tile)}{fertilizer_phrase(tile, state, crops)}{fertilizer_phrase(tile, state, crops)}{ground_bit}{who_bit}{weed_bit} (sprite: {key})"
     kind = crop["kind"]
     info = crop_info(crops, kind) or {}
     stage = crop.get("stage", "seed")
@@ -362,20 +366,20 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         return (
             f"  {here} — a withered {kind} (planted on day {crop.get('planted_day', '?')}, "
             f"grew {crop.get('days_grown', 0)} day(s) before it died"
-            f").{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+            f").{fertilizer_phrase(tile, state, crops)}{ground_bit}{who_bit}{weed_bit} (sprite: {key})"
         )
     if stage == "frost_bitten":
         return (
             f"  {here} — a frost-bitten {kind}. "
             "The fruit can still be harvested once, then the plant must be cleared."
             f" Planted on day {crop.get('planted_day', '?')}."
-            f"{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+            f"{fertilizer_phrase(tile, state, crops)}{ground_bit}{who_bit}{weed_bit} (sprite: {key})"
         )
     if info and (stage == "dormant" or (crop_is_dormant(crop, info, state.get("season")) and stage != "mature")):
         return (
             f"  {here} — {tilled} soil, {moist}. "
             f"A dormant {kind}, resting until spring. It needs no water."
-            f" Planted on day {crop.get('planted_day', '?')}.{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+            f" Planted on day {crop.get('planted_day', '?')}.{fertilizer_phrase(tile, state, crops)}{ground_bit}{who_bit}{weed_bit} (sprite: {key})"
         )
     label = stage_label(info, stage) if info else stage
     planted = crop.get("planted_day", "?")
@@ -396,7 +400,7 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
     return (
         f"  {here} — {tilled} soil, {moist}. "
         f"{name}, {progress}, {label}, {moist}"
-        f"{dry_bit}. Planted on day {planted}.{ready}{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{who_bit}{weed_bit} (sprite: {key})"
+        f"{dry_bit}. Planted on day {planted}.{ready}{runner_vine_phrase(crop)}{crop_hint(crop, tile, state, info)}{fertilizer_phrase(tile, state, crops)}{ground_bit}{who_bit}{weed_bit} (sprite: {key})"
     )
 
 
@@ -544,9 +548,10 @@ def describe_state(
     if forecast:
         lines += [""] + forecast
     from hills import (
-        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_TOWN, area_title, elsewhere_lines,
+        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_CABIN, AREA_TOWN, area_title, elsewhere_lines,
         describe_hills_tile, hills_tiles, normalize_area,
     )
+    from cabin import describe_cabin_tile
     from town import describe_town_tile, ensure_town
     from mine import describe_mine_tile, player_floor
     view_area = player_area(state, viewer) if viewer else AREA_FARM
@@ -576,6 +581,8 @@ def describe_state(
             elif view_area == AREA_TOWN:
                 ensure_town(state)
                 lines.append(describe_town_tile(state, r, c, state.get("weather")))
+            elif view_area == AREA_CABIN:
+                lines.append("  " + describe_cabin_tile(state, r, c))
             else:
                 lines.append(describe_tile(state, crops, r, c))
 
@@ -645,6 +652,7 @@ def describe_state(
         "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "
         "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
         "carry it home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). "
+        "Anywhere else except the market stall, `drop <item> 1` or `drop <item> all` leaves items on the tile you stand on, and `take` or `pick up` retrieves them (`take stone all` takes as many as will fit). "
         "Buy at the honour store in town (`buy`, coins come straight from the purse), "
         "including a sleeping bag. "
         "Sell at the market stall: drop goods there and they sell when the day ends, "

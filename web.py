@@ -418,6 +418,40 @@ PAGE = r"""<!DOCTYPE html>
       padding: 1.1rem 0.35rem 0.3rem;
       letter-spacing: 0.02em;
     }
+    button.tile .ground-badge {
+      position: absolute;
+      left: 0.28rem;
+      right: 0.28rem;
+      bottom: 1.45rem;
+      z-index: 2;
+      background: rgba(20, 12, 8, 0.78);
+      color: #f0e2c8;
+      font-size: 0.62rem;
+      line-height: 1.2;
+      padding: 0.12rem 0.28rem;
+      border-radius: 6px;
+      pointer-events: none;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tile-ground {
+      margin: 0.15rem 0 0.85rem;
+    }
+    .tile-ground h3 {
+      margin: 0 0 0.3rem;
+      font-size: 0.95rem;
+      color: var(--gold);
+      font-weight: 600;
+    }
+    .tile-ground ul {
+      margin: 0;
+      padding-left: 1.15rem;
+    }
+    .tile-ground li {
+      margin: 0.12rem 0;
+    }
     button.tile.cabin {
       box-shadow: 0 0 18px rgba(255, 180, 70, 0.35), 0 4px 0 #120c08;
     }
@@ -1021,6 +1055,10 @@ PAGE = r"""<!DOCTYPE html>
       <p id="overview-desc" class="overview-desc">Looking around…</p>
       <h2>This tile</h2>
       <p id="tile-desc">Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.</p>
+      <div id="tile-ground" class="tile-ground" hidden>
+        <h3>On the ground</h3>
+        <ul id="tile-ground-list"></ul>
+      </div>
       <div class="actions" id="tile-actions"></div>
       <div class="end-row">
         <button class="btn primary sleep" id="end-turn" type="button">End turn</button>
@@ -1799,7 +1837,30 @@ PAGE = r"""<!DOCTYPE html>
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
       return "r" + r + " c" + c;
     }
+    function groundStacks(tile) {
+      const stacks = (tile && tile.ground) || [];
+      const out = [];
+      for (let i = 0; i < stacks.length; i++) {
+        const s = stacks[i];
+        if (s && s.item && (s.count || 0) > 0) out.push(s);
+      }
+      if (!out.length && tile && tile.drop) out.push({ item: tile.drop, count: 1 });
+      return out;
+    }
+    function groundPhrase(tile) {
+      const stacks = groundStacks(tile);
+      if (!stacks.length) return "";
+      const bits = stacks.map(function (s) { return itemName(s.item, s.count || 1); });
+      let body;
+      if (bits.length === 1) body = bits[0];
+      else if (bits.length === 2) body = bits[0] + " and " + bits[1];
+      else body = bits.slice(0, -1).join(", ") + ", and " + bits[bits.length - 1];
+      return " On the ground: " + body + ".";
+    }
     function describeTile(tile, r, c, data) {
+      return describeTileBase(tile, r, c, data) + groundPhrase(tile);
+    }
+    function describeTileBase(tile, r, c, data) {
       if (!tile) return "Click a plot.";
       if (tile.type === "town_stall") {
         const stall = (data && data.stall) || [];
@@ -2097,6 +2158,17 @@ PAGE = r"""<!DOCTYPE html>
           lab.textContent = tileLabel(tile, r, c, data);
           btn.appendChild(num);
           btn.appendChild(lab);
+          const gstack = groundStacks(tile);
+          if (gstack.length) {
+            const badge = document.createElement("div");
+            badge.className = "ground-badge";
+            const total = gstack.reduce(function (n, s) { return n + (s.count || 0); }, 0);
+            const label = gstack.length === 1
+              ? itemName(gstack[0].item, gstack[0].count || 1)
+              : (total + " items");
+            badge.textContent = label;
+            btn.appendChild(badge);
+          }
           const here = whoAt(data, r, c);
           if (here.length) {
             const wrap = document.createElement("div");
@@ -2131,8 +2203,26 @@ PAGE = r"""<!DOCTYPE html>
       box.innerHTML = "";
       const stand = standingFrom(data);
       const focus = selected || stand;
+      function fillTileGround(tile) {
+        const box = $("tile-ground");
+        const list = $("tile-ground-list");
+        if (!box || !list) return;
+        const stacks = groundStacks(tile);
+        list.innerHTML = "";
+        if (!stacks.length) {
+          box.hidden = true;
+          return;
+        }
+        stacks.forEach(function (s) {
+          const li = document.createElement("li");
+          li.textContent = itemName(s.item, s.count || 1);
+          list.appendChild(li);
+        });
+        box.hidden = false;
+      }
       if (!focus) {
         $("tile-desc").textContent = "Walk with the arrow keys or 1–9. T, W, P, H, and Q act on the tile you are standing on.";
+        fillTileGround(null);
         return;
       }
       const r = focus.r, c = focus.c;
@@ -2143,6 +2233,7 @@ PAGE = r"""<!DOCTYPE html>
       if (stand && stand.r === r && stand.c === c) desc += " You are here.";
       else desc += " You are " + describeWhere(stand.r, stand.c, data) + ".";
       $("tile-desc").textContent = desc;
+      fillTileGround(tile);
       if (!data.your_turn) {
         const who = cap(data.current_player || "the other player");
         $("tile-desc").textContent = desc + " It's " + who + "'s turn.";
@@ -2208,7 +2299,8 @@ PAGE = r"""<!DOCTYPE html>
       }
       function isTileAction(act) {
         if (prefix.indexOf(act) !== -1) return true;
-        if (act.indexOf("take ") === 0 && data.area === "mine") return true;
+        if ((act.indexOf("take ") === 0 || act.indexOf("drop ") === 0 || act.indexOf("pick up ") === 0)
+            && stand && stand.r === r && stand.c === c) return true;
         if (act.indexOf(plantPrefix) === 0) return true;
         if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) return true;
         if (act.indexOf("forge ") === 0) return true;
@@ -2230,6 +2322,8 @@ PAGE = r"""<!DOCTYPE html>
         } else if (act === fertPrefix || act.indexOf(fertPrefix + " ") === 0) {
           label = actionLabel(act, act.replace(fertPrefix + " ", "fertilize ").replace(fertPrefix, "fertilize"));
         } else if (act.indexOf("forge ") === 0) {
+          label = actionLabel(act, act);
+        } else if (act.indexOf("take ") === 0 || act.indexOf("drop ") === 0 || act.indexOf("pick up ") === 0) {
           label = actionLabel(act, act);
         }
         if (show) label = addHotkeyHint(label, hotkeyForAction(act));
@@ -4421,18 +4515,20 @@ def _web_player(raw) -> str:
     return key or default_web_player()
 
 
-def _payload_view_tiles(view_tiles, crops: dict):
+def _payload_view_tiles(view_tiles, crops: dict, state=None, area: str | None = None, floor: int | None = None):
     """Copy tiles for the client and attach an honest progress phrase to crops.
 
-    The live save tiles are left untouched.
+    The live save tiles are left untouched. Ground stacks are copied onto
+    the payload tiles so the This tile panel can list them.
     """
     from describe import crop_progress_phrase
     from engine import crop_info
+    from inventory import ground_of
 
     rows = []
-    for row in view_tiles or []:
+    for r, row in enumerate(view_tiles or [], 1):
         new_row = []
-        for tile in row:
+        for c, tile in enumerate(row, 1):
             if not isinstance(tile, dict):
                 new_row.append(tile)
                 continue
@@ -4443,6 +4539,12 @@ def _payload_view_tiles(view_tiles, crops: dict):
                 info = crop_info(crops, crop.get("kind")) or {}
                 crop["progress_phrase"] = crop_progress_phrase(crop, info)
                 copied["crop"] = crop
+            if state is not None and area:
+                copied["ground"] = [
+                    {"item": slot["item"], "count": int(slot.get("count") or 0)}
+                    for slot in ground_of(state, area, r, c, floor)
+                    if slot and slot.get("item")
+                ]
             new_row.append(copied)
         rows.append(new_row)
     return rows
@@ -4506,7 +4608,7 @@ def api_payload(
         view_tiles = state["tiles"]
         if view_area not in (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, AREA_TOWN):
             view_area = AREA_FARM
-    view_tiles = _payload_view_tiles(view_tiles, crops)
+    view_tiles = _payload_view_tiles(view_tiles, crops, state=state, area=view_area, floor=view_floor)
     sprites = [
         [sprite_key(tile, sky, r + 1, c + 1, floor=view_floor if view_area == AREA_MINE else None) for c, tile in enumerate(row)]
         for r, row in enumerate(view_tiles)

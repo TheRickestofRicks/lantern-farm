@@ -588,8 +588,9 @@ def sell_stall_now(
 
 def describe_town_tile(state: dict, row: int, col: int, weather: str | None = None) -> str:
     from engine import position_name
-    from inventory import item_name
+    from inventory import item_name, ground_look_phrase
     from engine import load_crops, load_rules
+    from hills import AREA_TOWN
 
     tile = get_town_tile(state, row, col)
     typ = (tile or {}).get("type") or TILE_GRASS
@@ -619,20 +620,20 @@ def describe_town_tile(state: dict, row: int, col: int, weather: str | None = No
         return (
             f"  {here} — the honour store. There's no shopkeeper; "
             "leave coins in the tin for seeds, fertilizer, staples, a sleeping bag, and (once the mine is found) a pickaxe."
-            f"{snow}"
+            f"{snow}{ground_look_phrase(state, AREA_TOWN, row, col)}"
         )
     if typ == TILE_FORGE:
         return (
             f"  {here} — the town forge. Upgrade a hoe, watering can, axe, or pickaxe here."
-            f"{snow}"
+            f"{snow}{ground_look_phrase(state, AREA_TOWN, row, col)}"
         )
     if (row, col) == TOWN_ENTRANCE:
         return (
             f"  {here} — a grassy entrance to the market town. "
             "West leads back to the cabin. The stall is to the east, the store to the south."
-            f"{snow}"
+            f"{snow}{ground_look_phrase(state, AREA_TOWN, row, col)}"
         )
-    return f"  {here} — a grassy square in the market town.{snow}"
+    return f"  {here} — a grassy square in the market town.{snow}{ground_look_phrase(state, AREA_TOWN, row, col)}"
 
 
 def map_cell_lines(tile: dict) -> tuple[str, str]:

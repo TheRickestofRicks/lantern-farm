@@ -131,23 +131,29 @@ def describe_cabin_where(row: int, col: int) -> str:
 
 
 def describe_cabin_tile(state: dict, row: int, col: int) -> str:
+    from hills import AREA_CABIN
+    from inventory import ground_look_phrase
+
     kind = cabin_tile_kind(row, col)
     place = describe_cabin_place(row, col)
     if kind == "bed":
-        return f"{place} — a double bed. Ending your turn anywhere inside is still cabin sleep."
-    if kind == "chest":
-        return f"{place} — the cabin chest. Open it from this tile."
-    if kind == "fireplace":
+        body = f"{place} — a double bed. Ending your turn anywhere inside is still cabin sleep."
+    elif kind == "chest":
+        body = f"{place} — the cabin chest. Open it from this tile."
+    elif kind == "fireplace":
         from engine import fireplace_is_fueled
 
         if fireplace_is_fueled(state):
-            return f"{place} — the fireplace, already fueled for tonight."
-        return f"{place} — the fireplace. Fuel it from this tile."
-    if kind == "door":
-        return f"{place} — the door back out to the farm."
-    if kind == "kitchen":
-        return f"{place} — the kitchen. Cook from this tile."
-    return f"{place} — wooden floor."
+            body = f"{place} — the fireplace, already fueled for tonight."
+        else:
+            body = f"{place} — the fireplace. Fuel it from this tile."
+    elif kind == "door":
+        body = f"{place} — the door back out to the farm."
+    elif kind == "kitchen":
+        body = f"{place} — the kitchen. Cook from this tile."
+    else:
+        body = f"{place} — wooden floor."
+    return body + ground_look_phrase(state, AREA_CABIN, row, col)
 
 
 def map_cell_lines(tile: dict) -> tuple[str, str]:
@@ -204,15 +210,20 @@ def enter_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bo
 
 def leave_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
     from engine import player_where, display_name, log_append, CABIN_ROW, CABIN_COL
-    from hills import player_area, set_player_place, AREA_FARM
+    from hills import player_area, set_player_place, AREA_FARM, AREA_CABIN
 
     area = player_area(state, player)
     row, col = player_where(state, player)
     if not is_cabin_interior(area):
         return False, "Leave the cabin through the door inside (bottom-left)."
-    if cabin_tile_kind(row, col) != "door":
-        return False, "Leave the cabin through the door (bottom-left)."
+    walked = cabin_tile_kind(row, col) != "door"
+    if walked:
+        # Moves inside the cabin are free, so walking to the door costs nothing.
+        set_player_place(state, player, AREA_CABIN, CABIN_DOOR[0], CABIN_DOOR[1])
     set_player_place(state, player, AREA_FARM, CABIN_ROW, CABIN_COL)
-    msg = f"{display_name(player)} leaves the cabin and stands at the doorstep."
+    if walked:
+        msg = f"{display_name(player)} walks to the door and leaves the cabin, standing at the doorstep."
+    else:
+        msg = f"{display_name(player)} leaves the cabin and stands at the doorstep."
     log_append(state, msg, player)
     return True, msg

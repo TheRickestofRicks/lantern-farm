@@ -2439,6 +2439,9 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
     # on a pre-pack save, or the old shared inventory would be skipped.
     if ensure_inventory_keys(state):
         changed = True
+    from inventory import migrate_ground
+    if migrate_ground(state, rules):
+        changed = True
     if ensure_discovered_recipes(state, rules):
         changed = True
     if migrate_crop_vitals(state):
@@ -4978,19 +4981,23 @@ def _counts_by_item(slots) -> dict[str, int]:
 
 
 def take_drop_actions(verb: str, item: str, have: int, *, room_for=None) -> list[str]:
-    """Legal take/drop commands. Counts are always explicit so a label cannot lie."""
+    """Legal take/drop commands. Counts are always explicit so a label cannot lie.
+
+    `take X all` is listed when at least one item fits, even if the whole
+    stack does not: taking all now moves as many as the backpack can hold.
+    """
     if have < 1:
         return []
     actions = []
     if room_for is None or room_for(1):
         actions.append(f"{verb} {item} 1")
-    if have > 1 and (room_for is None or room_for(have)):
+    if have > 1 and (room_for is None or room_for(1)):
         actions.append(f"{verb} {item} all")
     return actions
 
 
 def take_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
-    """Move items from the cabin chest into the pack. Must be at the cabin."""
+    """Move items from the cabin chest, stall, or current tile into the pack."""
     from inventory import (
         normalize_item,
         parse_item_and_count,
@@ -5001,6 +5008,7 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         chest_of,
         stack_count,
         sync_inventory_view,
+        can_use_ground,
     )
     rules = rules or load_rules()
     crops = crops or load_crops()
@@ -5008,6 +5016,8 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     from town import is_player_at_stall, remove_from_stall, stall_of, stall_item_count
     if is_player_at_stall(state, player):
         return _take_from_stall(state, item, n, player, rules, crops)
+    if can_use_ground(state, player):
+        return _take_from_ground(state, item, n, player, rules, crops)
     if not player_at_cabin_tile(state, player, "chest"):
         return False, (
             "The chest is inside the cabin. Walk to the chest to take something, "
@@ -5026,11 +5036,15 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     from inventory import prefer_available_stock
     item = prefer_available_stock(item, [chest_of(state, rules)], crops, rules)
     have = stack_count(chest_of(state, rules), item)
-    if _is_all_count(n):
-        n = have
+    from inventory import pack_space_count
+    taking_all = _is_all_count(n)
+    if taking_all:
+        n = min(have, pack_space_count(state, player, item, rules))
+        if have >= 1 and n < 1:
+            return False, f"{display_name(player)}'s backpack has no room for {item_name(item, have, crops, rules, state=state)}."
     if n < 1 or have < 1:
         return False, "The chest doesn't have that item."
-    if not pack_space_for(state, player, item, n, rules):
+    if not taking_all and not pack_space_for(state, player, item, n, rules):
         return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
     if have < n:
         return False, f"The chest only has {item_name(item, have, crops, rules, state=state)}."
@@ -5045,6 +5059,8 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     if removed <= 0:
         return False, "Nothing was taken."
     msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules, state=state)} from the chest."
+    if taking_all and have > removed:
+        msg += " The rest stays in the chest."
     log_append(state, msg, player)
     return True, msg
 
@@ -5069,11 +5085,15 @@ def _take_from_stall(state, item, n, player, rules, crops) -> tuple[bool, str]:
         n = count
     item = prefer_available_stock(item, [stall_of(state)], crops, rules)
     have = stack_count(stall_of(state), item)
-    if _is_all_count(n):
-        n = have
+    from inventory import pack_space_count
+    taking_all = _is_all_count(n)
+    if taking_all:
+        n = min(have, pack_space_count(state, player, item, rules))
+        if have >= 1 and n < 1:
+            return False, f"{display_name(player)}'s backpack has no room for {item_name(item, have, crops, rules, state=state)}."
     if n < 1 or have < 1:
         return False, "The stall doesn't have that item."
-    if not pack_space_for(state, player, item, n, rules):
+    if not taking_all and not pack_space_for(state, player, item, n, rules):
         return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
     if have < n:
         return False, f"The stall only has {item_name(item, have, crops, rules, state=state)}."
@@ -5087,12 +5107,14 @@ def _take_from_stall(state, item, n, player, rules, crops) -> tuple[bool, str]:
     if removed <= 0:
         return False, "Nothing was taken."
     msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules, state=state)} back from the stall."
+    if taking_all and have > removed:
+        msg += " The rest stays in the stall."
     log_append(state, msg, player)
     return True, msg
 
 
 def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
-    """Move items from the pack into the cabin chest, or into the market stall."""
+    """Move items from the pack into the cabin chest, the market stall, or the current tile."""
     from inventory import (
         normalize_item,
         parse_item_and_count,
@@ -5101,6 +5123,7 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
         item_name,
         pack_has,
         sync_inventory_view,
+        can_use_ground,
     )
     rules = rules or load_rules()
     crops = crops or load_crops()
@@ -5108,6 +5131,8 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     from town import is_player_at_stall, deposit_in_stall
     if is_player_at_stall(state, player):
         return deposit_in_stall(state, crops, item, n, player, rules)
+    if can_use_ground(state, player):
+        return _drop_on_ground(state, item, n, player, rules, crops)
     if not player_at_cabin_tile(state, player, "chest"):
         return False, (
             "The chest is inside the cabin. Walk to the chest to drop something, "
@@ -5136,6 +5161,95 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     add_to_chest(state, item, removed, rules)
     sync_inventory_view(state, rules)
     msg = f"{display_name(player)} puts {item_name(item, removed, crops, rules, state=state)} in the chest."
+    log_append(state, msg, player)
+    return True, msg
+
+
+def _parse_item_request(item, n, crops, rules):
+    from inventory import normalize_item, parse_item_and_count
+    if isinstance(item, list):
+        item, n, err = parse_item_and_count(item)
+        if err:
+            return None, None, err
+        return item, n, None
+    item = normalize_item(str(item)) or str(item).strip().lower()
+    count, err = _parse_count(n)
+    if err:
+        return None, None, err
+    return item, count, None
+
+
+def _take_from_ground(state, item, n, player, rules, crops) -> tuple[bool, str]:
+    from inventory import (
+        pack_space_for, pack_space_count, add_to_pack, remove_from_ground,
+        item_name, prefer_available_stock, stack_count, ground_of,
+        player_ground_place, sync_inventory_view,
+    )
+    item, n, err = _parse_item_request(item, n, crops, rules)
+    if err:
+        return False, err
+    place = player_ground_place(state, player)
+    if not place:
+        return False, "There's nothing on the ground here to take."
+    area, row, col, floor = place
+    stacks = ground_of(state, area, row, col, floor, rules)
+    item = prefer_available_stock(item, [stacks], crops, rules)
+    have = stack_count(stacks, item)
+    taking_all = _is_all_count(n)
+    if taking_all:
+        n = min(have, pack_space_count(state, player, item, rules))
+        if have >= 1 and n < 1:
+            return False, f"{display_name(player)}'s backpack has no room for {item_name(item, have, crops, rules, state=state)}."
+    if n < 1 or have < 1:
+        return False, (
+            "There's nothing like that on the ground here. "
+            "Walk to the chest inside the cabin, or to the market stall, "
+            "to take stored goods."
+        )
+    if not taking_all and not pack_space_for(state, player, item, n, rules):
+        return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
+    if have < n:
+        return False, f"The ground only has {item_name(item, have, crops, rules, state=state)}."
+    removed = remove_from_ground(state, area, row, col, item, n, floor=floor, rules=rules)
+    leftover = add_to_pack(state, player, item, removed, rules)
+    if leftover:
+        from inventory import add_to_ground
+        add_to_ground(state, area, row, col, item, leftover, floor=floor, rules=rules)
+        removed -= leftover
+    sync_inventory_view(state, rules)
+    if removed <= 0:
+        return False, "Nothing was taken."
+    msg = f"{display_name(player)} picks up {item_name(item, removed, crops, rules, state=state)}."
+    if taking_all and have > removed:
+        msg += " The rest stays on the ground."
+    log_append(state, msg, player)
+    return True, msg
+
+
+def _drop_on_ground(state, item, n, player, rules, crops) -> tuple[bool, str]:
+    from inventory import (
+        pack_of, stack_count, prefer_available_stock, pack_has, remove_from_pack,
+        add_to_ground, item_name, player_ground_place, sync_inventory_view,
+    )
+    item, n, err = _parse_item_request(item, n, crops, rules)
+    if err:
+        return False, err
+    place = player_ground_place(state, player)
+    if not place:
+        return False, "You can't leave things on the ground here."
+    area, row, col, floor = place
+    item = prefer_available_stock(item, [pack_of(state, player, rules)], crops, rules)
+    have = stack_count(pack_of(state, player, rules), item)
+    if _is_all_count(n):
+        n = have
+    if n < 1 or have < 1:
+        return False, f"No {item_name(item, 1, crops, rules, state=state)} in the backpack."
+    if not pack_has(state, player, item, n, rules):
+        return False, f"No {item_name(item, n, crops, rules, state=state)} in the backpack."
+    removed = remove_from_pack(state, player, item, n, rules)
+    add_to_ground(state, area, row, col, item, removed, floor=floor, rules=rules)
+    sync_inventory_view(state, rules)
+    msg = f"{display_name(player)} drops {item_name(item, removed, crops, rules, state=state)} on the ground."
     log_append(state, msg, player)
     return True, msg
 
@@ -5611,10 +5725,9 @@ def legal_actions(
             if energy >= energy_cost("flee", rules):
                 actions.append("flee")
         if tile.get("drop"):
-            from inventory import pack_space_for
-            drop = tile.get("drop")
-            if not actor or pack_space_for(state, actor, drop, 1, rules):
-                actions.append(f"take {drop}")
+            # Legacy mine loot; migrate_ground folds this into the ground map.
+            from inventory import migrate_ground
+            migrate_ground(state, rules)
     else:
         tile = get_tile(state, r, c)
         tile_type = tile.get("type")
@@ -5747,7 +5860,7 @@ def legal_actions(
             actions.append("sell now")
     if is_farm_cabin_tile(area, *here):
         actions.append("enter cabin")
-    if player_at_cabin_tile(state, actor, "door"):
+    if is_cabin_interior(area):
         actions.append("leave cabin")
     if (
         player_at_cabin_tile(state, actor, "fireplace")
@@ -5780,6 +5893,20 @@ def legal_actions(
         else:
             for item, have in _counts_by_item(chest_of(state, rules)).items():
                 actions.extend(take_drop_actions("take", item, have))
+    from inventory import can_use_ground, ground_counts, pack_space_for, player_ground_place
+    if actor and can_use_ground(state, actor):
+        place = player_ground_place(state, actor)
+        if place:
+            area_g, row_g, col_g, floor_g = place
+            for item, have in ground_counts(state, area_g, row_g, col_g, floor_g, rules).items():
+                actions.extend(take_drop_actions(
+                    "take",
+                    item,
+                    have,
+                    room_for=lambda n, item=item: pack_space_for(state, actor, item, n, rules),
+                ))
+            for item, have in _counts_by_item(pack_of(state, actor, rules)).items():
+                actions.extend(take_drop_actions("drop", item, have))
     if player_at_cabin_tile(state, actor, "kitchen"):
         ensure_discovered_recipes(state, rules)
         if stove_is_fueled(state) and energy >= energy_cost("craft", rules):
@@ -6182,27 +6309,65 @@ def action_descriptor(
             return ""
         gained = int(price) * int(count or 1)
         return f"+{gained}G"
-    if verb in {"take", "drop"}:
+    if verb in {"take", "drop", "pick", "pickup"}:
+        if verb == "pick" and args and args[0].lower() == "up":
+            verb = "take"
+            args = args[1:]
+        elif verb == "pickup":
+            verb = "take"
         count_tok = args[-1] if args else "1"
         item = normalize_item(" ".join(args[:-1] if args else [])) or (args[0] if args else "")
+        from inventory import (
+            pack_space_count, can_use_ground, ground_of, stack_count as inv_stack,
+            player_ground_place,
+        )
+        from town import is_player_at_stall, stall_of
+        from cabin import player_at_cabin_tile
         chest_have = stack_count(chest_of(state, rules), item)
         pack_have = stack_count(pack_of(state, actor, rules), item) if actor else 0
+        stall_have = 0
+        ground_have = 0
+        at_stall = bool(actor and is_player_at_stall(state, actor))
+        at_chest = bool(actor and player_at_cabin_tile(state, actor, "chest"))
+        on_ground = bool(actor and can_use_ground(state, actor))
+        if at_stall:
+            stall_have = inv_stack(stall_of(state), item)
+        if on_ground:
+            place = player_ground_place(state, actor)
+            if place:
+                area_g, row_g, col_g, floor_g = place
+                ground_have = inv_stack(ground_of(state, area_g, row_g, col_g, floor_g, rules), item)
         if verb == "take":
-            have = chest_have
+            if at_stall:
+                have = stall_have
+                where = "stall"
+            elif at_chest:
+                have = chest_have
+                where = "chest"
+            else:
+                have = ground_have
+                where = "ground"
             if str(count_tok).lower() == "all":
                 n = have
                 if actor:
-                    room = pack_space_for(state, actor, item, n, rules)
-                    # pack_space_for is a bool for n items; take-all is only listed if all fit
+                    n = min(have, pack_space_count(state, actor, item, rules))
                 return f"takes {n}"
             n = int(count_tok) if str(count_tok).isdigit() else 1
             left = max(0, have - n)
-            return "leaves 0" if left == 0 else f"leaves {left} in chest"
+            if left == 0:
+                return "leaves 0"
+            return f"leaves {left} in {where}" if where != "ground" else f"leaves {left} on the ground"
         # drop
         if str(count_tok).lower() == "all":
             n = pack_have
+        else:
+            n = int(count_tok) if str(count_tok).isdigit() else 1
+        if at_stall:
+            return f"drops {n} at the stall"
+        if on_ground:
+            return f"drops {n} on the ground"
+        if str(count_tok).lower() == "all":
             return f"drops {n}, chest will have {chest_have + n}"
-        n = int(count_tok) if str(count_tok).isdigit() else 1
         return f"chest will have {chest_have + n}"
     if verb == "eat":
         from_chest = bool(args and args[-1].lower() == "chest")
@@ -6402,6 +6567,12 @@ def do_action(
         if not parts:
             return False, "Usage: drink herbal tea"
         return drink(state, crops, " ".join(parts), actor, rules, from_chest=from_chest)
+
+    if verb == "pick" and args and args[0].lower() == "up":
+        verb = "take"
+        args = args[1:]
+    elif verb == "pickup":
+        verb = "take"
 
     if verb in {"take", "drop", "put", "stow", "craft"}:
         if verb in {"put", "stow"}:

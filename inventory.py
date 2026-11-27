@@ -1139,9 +1139,19 @@ def normalize_chest(raw, rules: dict | None = None) -> list:
     if not isinstance(raw, list):
         return out
     for slot in raw:
-        cleaned = _clean_stack(slot, in_chest=True, rules=rules)
-        if cleaned:
-            _push_stacks(out, cleaned["item"], cleaned["count"], in_chest=True, rules=rules)
+        if not slot or not isinstance(slot, dict):
+            continue
+        item = normalize_item(slot.get("item") or slot.get("kind") or slot.get("id"))
+        if not item:
+            continue
+        try:
+            count = int(slot.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            # Push un-capped so leftover over the stack limit splits,
+            # and same-item partial stacks merge on load.
+            _push_stacks(out, item, count, in_chest=True, rules=rules)
     return out
 
 
@@ -1203,6 +1213,250 @@ def compact_chest(chest: list) -> list:
     return [slot for slot in chest if slot and int(slot.get("count") or 0) > 0]
 
 
+def ground_map(state: dict) -> dict:
+    """Per-tile ground stacks, keyed by area (and mine floor). Missing means empty."""
+    raw = state.get("ground")
+    if not isinstance(raw, dict):
+        state["ground"] = {}
+        return state["ground"]
+    return raw
+
+
+def ground_key(area: str | None, row: int, col: int, floor: int | None = None) -> str:
+    from hills import normalize_area, AREA_MINE
+
+    area = normalize_area(area)
+    try:
+        row, col = int(row), int(col)
+    except (TypeError, ValueError):
+        row, col = 1, 1
+    if area == AREA_MINE:
+        try:
+            floor = max(1, int(floor or 1))
+        except (TypeError, ValueError):
+            floor = 1
+        return f"mine:{floor}:{row}:{col}"
+    return f"{area}:{row}:{col}"
+
+
+def _normalize_ground_stacks(raw, rules: dict | None = None) -> list:
+    out: list[dict] = []
+    if not raw:
+        return out
+    if isinstance(raw, dict):
+        for key, val in raw.items():
+            item = normalize_item(key)
+            try:
+                count = int(val or 0)
+            except (TypeError, ValueError):
+                count = 0
+            if item and count > 0:
+                _push_stacks(out, item, count, in_chest=True, rules=rules)
+        return out
+    if not isinstance(raw, list):
+        return out
+    for slot in raw:
+        if not slot or not isinstance(slot, dict):
+            continue
+        item = normalize_item(slot.get("item") or slot.get("kind") or slot.get("id"))
+        if not item:
+            continue
+        try:
+            count = int(slot.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            _push_stacks(out, item, count, in_chest=True, rules=rules)
+    return compact_chest(out)
+
+
+def ground_of(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> list:
+    key = ground_key(area, row, col, floor)
+    store = ground_map(state)
+    stacks = _normalize_ground_stacks(store.get(key), rules)
+    if stacks:
+        store[key] = stacks
+    elif key in store:
+        store.pop(key, None)
+    return stacks
+
+
+def add_to_ground(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    item: str,
+    n: int = 1,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> None:
+    if n <= 0 or not item:
+        return
+    stacks = ground_of(state, area, row, col, floor, rules)
+    _push_stacks(stacks, item, n, in_chest=True, rules=rules)
+    key = ground_key(area, row, col, floor)
+    store = ground_map(state)
+    store[key] = compact_chest(stacks)
+
+
+def remove_from_ground(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    item: str,
+    n: int = 1,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> int:
+    if n <= 0 or not item:
+        return 0
+    stacks = ground_of(state, area, row, col, floor, rules)
+    removed = _remove_from_slots(stacks, item, n)
+    key = ground_key(area, row, col, floor)
+    store = ground_map(state)
+    stacks = compact_chest(stacks)
+    if stacks:
+        store[key] = stacks
+    else:
+        store.pop(key, None)
+    return removed
+
+
+def ground_counts(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    floor: int | None = None,
+    rules: dict | None = None,
+) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for slot in ground_of(state, area, row, col, floor, rules):
+        if not slot:
+            continue
+        item = slot.get("item")
+        if not item:
+            continue
+        totals[item] = totals.get(item, 0) + int(slot.get("count") or 0)
+    return totals
+
+
+def ground_item_count(state: dict, item: str, rules: dict | None = None) -> int:
+    """Count one item across every ground tile. Used for world-unique tools."""
+    total = 0
+    for stacks in ground_map(state).values():
+        total += stack_count(_normalize_ground_stacks(stacks, rules), item)
+    return total
+
+
+def ground_look_phrase(
+    state: dict,
+    area: str | None,
+    row: int,
+    col: int,
+    floor: int | None = None,
+    crops: dict | None = None,
+    rules: dict | None = None,
+) -> str:
+    stacks = ground_of(state, area, row, col, floor, rules)
+    if not stacks:
+        return ""
+    bits = [item_name(slot["item"], int(slot.get("count") or 0), crops, rules, state=state) for slot in stacks]
+    if len(bits) == 1:
+        body = bits[0]
+    elif len(bits) == 2:
+        body = f"{bits[0]} and {bits[1]}"
+    else:
+        body = ", ".join(bits[:-1]) + f", and {bits[-1]}"
+    return f" On the ground: {body}."
+
+
+def player_ground_place(state: dict, player: str | None) -> tuple[str, int, int, int | None] | None:
+    """Area, row, col, and mine floor (if any) for the tile the player stands on."""
+    if not player:
+        return None
+    from hills import player_area, AREA_MINE
+    from engine import player_where
+    from mine import player_floor
+
+    area = player_area(state, player)
+    row, col = player_where(state, player)
+    floor = player_floor(state, player) if area == AREA_MINE else None
+    return area, row, col, floor
+
+
+def can_use_ground(state: dict, player: str | None) -> bool:
+    """True when drop/take on this tile is ground, not the chest or stall."""
+    if not player:
+        return False
+    from cabin import player_at_cabin_tile
+    from town import is_player_at_stall
+
+    if player_at_cabin_tile(state, player, "chest"):
+        return False
+    if is_player_at_stall(state, player):
+        return False
+    return player_ground_place(state, player) is not None
+
+
+def migrate_ground(state: dict, rules: dict | None = None) -> bool:
+    """Install the ground map and fold legacy mine tile drops into it. Idempotent."""
+    changed = False
+    raw = state.get("ground")
+    if not isinstance(raw, dict):
+        state["ground"] = {}
+        changed = True
+    else:
+        # Re-normalize keys and merge stacks so older saves compact cleanly.
+        store = state["ground"]
+        cleaned: dict = {}
+        for key, val in list(store.items()):
+            stacks = _normalize_ground_stacks(val, rules)
+            if stacks:
+                cleaned[str(key)] = stacks
+        if cleaned != store:
+            state["ground"] = cleaned
+            changed = True
+    mine = state.get("mine")
+    if isinstance(mine, dict):
+        floors = mine.get("floors")
+        if isinstance(floors, dict):
+            for fkey, data in floors.items():
+                try:
+                    floor = int(fkey)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                tiles = data.get("tiles")
+                if not isinstance(tiles, list):
+                    continue
+                for r, row in enumerate(tiles, 1):
+                    if not isinstance(row, list):
+                        continue
+                    for c, tile in enumerate(row, 1):
+                        if not isinstance(tile, dict):
+                            continue
+                        drop = tile.get("drop")
+                        if not drop:
+                            continue
+                        item = normalize_item(drop) or str(drop).strip().lower()
+                        if item:
+                            add_to_ground(state, "mine", r, c, item, 1, floor=floor, rules=rules)
+                        tile["drop"] = None
+                        changed = True
+    return changed
+
+
 def pack_of(state: dict, player: str | None, rules: dict | None = None) -> list:
     from engine import player_slot
 
@@ -1226,20 +1480,25 @@ def pack_has(state: dict, player: str | None, item: str, n: int = 1, rules: dict
     return stack_count(pack_of(state, player, rules), item) >= n
 
 
+def pack_space_count(state: dict, player: str | None, item: str, rules: dict | None = None) -> int:
+    """How many of this item still fit in the player's backpack."""
+    if not player:
+        return 0
+    pack = pack_of(state, player, rules)
+    cap = max_stack_for(item, in_chest=False, rules=rules)
+    room = 0
+    for slot in pack:
+        if slot is None:
+            room += cap
+        elif slot.get("item") == item:
+            room += max(0, cap - int(slot.get("count") or 0))
+    return room
+
+
 def pack_space_for(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> bool:
     if not player or n <= 0:
         return False
-    pack = pack_of(state, player, rules)
-    cap = max_stack_for(item, in_chest=False, rules=rules)
-    remaining = n
-    for slot in pack:
-        if slot is None:
-            remaining -= cap
-        elif slot.get("item") == item:
-            remaining -= max(0, cap - int(slot.get("count") or 0))
-        if remaining <= 0:
-            return True
-    return remaining <= 0
+    return pack_space_count(state, player, item, rules) >= n
 
 
 def add_to_pack(state: dict, player: str | None, item: str, n: int = 1, rules: dict | None = None) -> int:

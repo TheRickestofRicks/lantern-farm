@@ -1,5 +1,11 @@
 # Patch notes
 
+## 2026-11-27
+
+- You can drop items on the tile you stand on anywhere except the cabin chest and the market stall (`drop stone 1`, `drop stone all`). `take` or `pick up` retrieves them from that tile, for free, like chest take/drop. Ground piles are listed in look and in the web UI's This tile panel, with a small badge on the map tile. They persist in the save, including on a mine floor after the season's mine re-rolls. Legacy mine loot left on a tile is folded into the same ground map.
+- `take stone all` from the chest (or the stall, or the ground) now takes as many as will fit in the backpack, instead of refusing when the whole pile is too big. Same-item chest stacks merge on load, and an overfilled stack is split instead of truncated.
+- `leave cabin` from any interior tile walks you to the door (free, like other moves inside) and steps out onto the farm cabin tile.
+
 ## 2026-11-26
 
 Rick and Lumen’s first official-project day on Lantern Farm. A full day of engine, art, and cabin work landed on `main`.

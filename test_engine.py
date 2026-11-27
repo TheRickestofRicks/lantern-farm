@@ -3055,7 +3055,8 @@ class PackChestAndCraft(unittest.TestCase):
         stand(self.state, P1, 1, 1)
         ok, msg = do_action(self.state, self.crops, "take hoe", player=P1)
         self.assertFalse(ok)
-        self.assertIn("cabin", msg.lower())
+        self.assertIn("ground", msg.lower())
+        self.assertIn("chest", msg.lower())
         ok, msg = do_action(self.state, self.crops, "buy strawberry 1", player=P1)
         self.assertFalse(ok)
         self.assertIn("cabin", msg.lower())
@@ -4034,6 +4035,8 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
             f"buy June-bearing strawberry seed 1 (\u2212{15}G, leaves {gold - 15}G)",
         )
         # Chest starts with 2 strawberry seeds and 1 hoe.
+        # Take/drop descriptors follow the tile you're on (chest, stall, or ground).
+        inside(self.state, P1, "chest")
         self.assertEqual(
             format_legal_action("take strawberry_seed 1", self.state, self.crops, P1, self.rules),
             "take June-bearing strawberry seed 1 (leaves 1 in chest)",
@@ -8697,20 +8700,26 @@ class CabinInterior(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("cabin tile", msg.lower())
 
-    def test_leave_cabin_only_from_the_door_and_is_free(self):
+    def test_leave_cabin_walks_to_the_door_and_is_free(self):
         from hills import player_area, AREA_FARM
         inside(self.state, P1, "kitchen")
         energy = self.state["players"][P1]["energy"]
+        self.assertIn("leave cabin", legal_actions(self.state, self.crops, P1, self.rules))
         ok, msg = do_action(self.state, self.crops, "leave cabin", player=P1, rules=self.rules)
-        self.assertFalse(ok)
+        self.assertTrue(ok, msg)
         self.assertIn("door", msg.lower())
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+        self.assertEqual(self.state["players"][P1]["energy"], energy)
+        self.assertTrue(is_player_in_cabin(self.state, P1))
+        # Already at the door: still free, and the walk isn't mentioned.
         inside(self.state, P1, "door")
+        energy = self.state["players"][P1]["energy"]
         ok, msg = do_action(self.state, self.crops, "leave cabin", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertEqual(player_area(self.state, P1), AREA_FARM)
         self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
         self.assertEqual(self.state["players"][P1]["energy"], energy)
-        self.assertTrue(is_player_in_cabin(self.state, P1))
 
     def test_walking_inside_costs_no_energy_even_at_zero(self):
         inside(self.state, P1, "door")
@@ -9631,3 +9640,191 @@ class SleepingBagAndMineDifficulty(unittest.TestCase):
         self.assertEqual(player_where(self.state, P1), MINE_ENTRANCE)
         self.assertEqual(self.state["players"][P1]["energy"], 50)
 
+
+
+class GroundDropsChestMergeAndTakeAll(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+
+    def _clear_pack(self, player=P1):
+        from inventory import empty_pack, sync_inventory_view
+        self.state["players"][player]["pack"] = empty_pack(self.rules)
+        sync_inventory_view(self.state, self.rules)
+
+    def test_chest_merges_same_item_stacks_on_load(self):
+        from inventory import chest_of, stack_count
+        self.state["chest"] = [
+            {"item": "stone", "count": 8},
+            {"item": "wood", "count": 2},
+            {"item": "stone", "count": 5},
+        ]
+        chest = chest_of(self.state, self.rules)
+        stones = [s for s in chest if s and s.get("item") == "stone"]
+        self.assertEqual(len(stones), 1)
+        self.assertEqual(int(stones[0]["count"]), 13)
+        self.assertEqual(stack_count(chest, "stone"), 13)
+        self.assertEqual(stack_count(chest, "wood"), 2)
+
+    def test_chest_splits_an_overfilled_stack_instead_of_truncating(self):
+        from inventory import chest_of, stack_count
+        self.state["chest"] = [{"item": "stone", "count": 20}]
+        chest = chest_of(self.state, self.rules)
+        self.assertEqual(stack_count(chest, "stone"), 20)
+        self.assertEqual(sum(int(s.get("count") or 0) for s in chest if s and s.get("item") == "stone"), 20)
+        self.assertGreaterEqual(len([s for s in chest if s and s.get("item") == "stone"]), 2)
+
+    def test_take_all_from_chest_takes_as_much_as_fits(self):
+        from inventory import add_to_chest, add_to_pack, stack_count, chest_of, pack_of, sync_inventory_view
+        self._clear_pack()
+        add_to_pack(self.state, P1, "wood", 8, self.rules)
+        add_to_pack(self.state, P1, "copper_ore", 8, self.rules)
+        add_to_pack(self.state, P1, "quartz", 8, self.rules)
+        add_to_chest(self.state, "stone", 16, self.rules)
+        add_to_chest(self.state, "stone", 5, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "stone"), 21)
+        inside(self.state, P1, "chest")
+        # One empty pack slot (stack 8) cannot hold 21 stone, so the old
+        # take-all path refused. It should now take 8 and leave the rest.
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("take stone all", actions)
+        ok, msg = do_action(self.state, self.crops, "take stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 8)
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "stone"), 13)
+        self.assertIn("rest stays in the chest", msg.lower())
+
+    def test_drop_and_take_on_a_farm_tile_and_pick_up_alias(self):
+        from inventory import add_to_pack, stack_count, pack_of, ground_counts, sync_inventory_view
+        from hills import AREA_FARM
+        from describe import describe_state
+        self._clear_pack()
+        add_to_pack(self.state, P1, "stone", 5, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        stand(self.state, P1, 1, 1)
+        actions = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("drop stone 1", actions)
+        self.assertIn("drop stone all", actions)
+        ok, msg = do_action(self.state, self.crops, "drop stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("on the ground", msg.lower())
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 0)
+        self.assertEqual(ground_counts(self.state, AREA_FARM, 1, 1, rules=self.rules).get("stone"), 5)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("On the ground: 5 stone", look)
+        self.assertIn("take stone all", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "pick up stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("picks up", msg.lower())
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 5)
+        self.assertEqual(ground_counts(self.state, AREA_FARM, 1, 1, rules=self.rules).get("stone"), None)
+
+    def test_chest_and_stall_drop_are_unchanged(self):
+        from inventory import add_to_pack, stack_count, chest_of, pack_of, sync_inventory_view
+        from town import stall_of
+        self._clear_pack()
+        add_to_pack(self.state, P1, "stone", 3, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        inside(self.state, P1, "chest")
+        ok, msg = do_action(self.state, self.crops, "drop stone 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("chest", msg.lower())
+        self.assertEqual(stack_count(chest_of(self.state, self.rules), "stone"), 1)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 2)
+        # Stall still takes a drop for sale, not a ground pile.
+        at_town(self.state, P1, "stall")
+        ok, msg = do_action(self.state, self.crops, "drop stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(stack_count(stall_of(self.state), "stone"), 2)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 0)
+        from inventory import ground_counts
+        from hills import AREA_TOWN
+        from town import TOWN_STALL
+        self.assertFalse(ground_counts(self.state, AREA_TOWN, *TOWN_STALL, rules=self.rules))
+
+    def test_mine_ground_persists_when_floors_reroll(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import ensure_mine, get_floor, mine_of
+        from inventory import add_to_pack, add_to_ground, ground_counts, sync_inventory_view
+        self._clear_pack()
+        add_to_pack(self.state, P1, "stone", 4, self.rules)
+        add_to_pack(self.state, P1, "wood", 4, self.rules)
+        add_to_pack(self.state, P1, "copper_ore", 4, self.rules)
+        add_to_pack(self.state, P1, "quartz", 4, self.rules)
+        sync_inventory_view(self.state, self.rules)
+        ensure_mine(self.state, self.rules)
+        get_floor(self.state, 2, self.rules)
+        set_player_place(self.state, P1, AREA_MINE, 2, 2, floor=2)
+        self.state["current_player"] = P1
+        # Full 4-slot pack: dropping is the way to free a slot.
+        ok, msg = do_action(self.state, self.crops, "drop stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(ground_counts(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules).get("stone"), 4)
+        # Season change wipes generated floors; ground items stay on that floor and tile.
+        mine = mine_of(self.state)
+        mine["season"] = "winter" if mine.get("season") != "winter" else "spring"
+        self.assertTrue(ensure_mine(self.state, self.rules))
+        self.assertEqual(mine_of(self.state).get("floors"), {})
+        get_floor(self.state, 2, self.rules)
+        self.assertEqual(ground_counts(self.state, AREA_MINE, 2, 2, floor=2, rules=self.rules).get("stone"), 4)
+        # Taking still works on the new layout.
+        ok, msg = do_action(self.state, self.crops, "take stone all", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        from inventory import pack_of, stack_count
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "stone"), 4)
+
+    def test_legacy_mine_tile_drop_migrates_and_can_be_picked_up(self):
+        from hills import set_player_place, AREA_MINE
+        from mine import ensure_mine, get_floor, get_mine_tile, migrate_mine
+        from inventory import ground_counts, pack_of, stack_count
+        self._clear_pack()
+        ensure_mine(self.state, self.rules)
+        get_floor(self.state, 1, self.rules)
+        get_mine_tile(self.state, 1, 1, 1, self.rules)["drop"] = "goo"
+        set_player_place(self.state, P1, AREA_MINE, 1, 1, floor=1)
+        self.assertTrue(migrate_mine(self.state, self.rules))
+        self.assertFalse(get_mine_tile(self.state, 1, 1, 1, self.rules).get("drop"))
+        self.assertEqual(ground_counts(self.state, AREA_MINE, 1, 1, floor=1, rules=self.rules).get("goo"), 1)
+        ok, msg = do_action(self.state, self.crops, "take goo 1", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(stack_count(pack_of(self.state, P1, self.rules), "goo"), 1)
+
+    def test_web_payload_and_this_tile_panel_list_ground_items(self):
+        import web
+        from inventory import add_to_ground
+        from hills import AREA_FARM
+        stand(self.state, P1, 2, 2)
+        add_to_ground(self.state, AREA_FARM, 2, 2, "stone", 5, rules=self.rules)
+        add_to_ground(self.state, AREA_FARM, 2, 2, "wood", 2, rules=self.rules)
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        tile = payload["view_tiles"][1][1]
+        items = {slot["item"]: int(slot["count"]) for slot in tile.get("ground") or []}
+        self.assertEqual(items.get("stone"), 5)
+        self.assertEqual(items.get("wood"), 2)
+        html = web.render_page(viewer=P1)
+        self.assertIn('id="tile-ground"', html)
+        self.assertIn("On the ground", html)
+        self.assertIn('id="tile-ground-list"', html)
+
+
+class LeaveCabinFromAnywhere(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = load_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["current_player"] = P1
+
+    def test_leave_cabin_from_the_bed_at_zero_energy(self):
+        from hills import player_area, AREA_FARM
+        inside(self.state, P1, "bed")
+        self.state["players"][P1]["energy"] = 0
+        self.assertIn("leave cabin", legal_actions(self.state, self.crops, P1, self.rules))
+        ok, msg = do_action(self.state, self.crops, "leave cabin", player=P1, rules=self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("walks to the door", msg.lower())
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+        self.assertEqual(self.state["players"][P1]["energy"], 0)
