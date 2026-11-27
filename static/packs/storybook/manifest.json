@@ -321,7 +321,11 @@
     "runestone_ore": "items/runestone_ore.png",
     "runestone": "items/runestone.png",
     "goo": "items/goo.png",
-    "sleeping_bag": "items/sleeping_bag.png"
+    "sleeping_bag": "items/sleeping_bag.png",
+    "leather_boots": "items/leather_boots.png",
+    "hiking_boots": "items/hiking_boots.png",
+    "green_hoodie": "items/green_hoodie.png",
+    "blue_sweater": "items/blue_sweater.png"
   },
   "sprites": {
     "vine_leaf": "sprites/vine_leaf.png",
