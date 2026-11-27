@@ -424,6 +424,7 @@ def deposit_in_stall(
         log_append,
         who,
         _parse_count,
+        _is_all_count,
         normalize_kind,
     )
 
@@ -443,12 +444,20 @@ def deposit_in_stall(
     price = stall_sell_price(item, crops, rules)
     if price is None:
         return False, stall_unsellable_reason(item, crops, rules)
-    count, err = _parse_count(n)
-    if err:
-        return False, err
     if not player:
         return False, "Stand at the stall to put goods in it."
     have = stack_count(pack_of(state, player, rules), item)
+    if _is_all_count(n):
+        count = have
+    else:
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+    if have < 1 or count < 1:
+        return False, (
+            f"There's no {item_name(item, 1, crops, rules, state=state).split(' ', 1)[-1]} "
+            "in the backpack. Take goods from the chest, then walk them to the stall."
+        )
     if have < count:
         noun = item_name(item, max(have, 1), crops, rules, state=state)
         if have < 1:

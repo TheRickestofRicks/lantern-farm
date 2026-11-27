@@ -8749,3 +8749,134 @@ class EastMarketTown(unittest.TestCase):
         self.assertIn("town", look.lower())
         self.assertIn("market", look.lower())
 
+
+    def _run_town_ui(self, payload, html):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        runner = Path(__file__).resolve().parent / "tests" / "town-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-town-jsdom-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_web_town_tiles_use_row_col_labels(self):
+        import web
+        at_town(self.state, P1, "entrance")
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        data = self._run_town_ui(payload, html)
+        expected = [
+            "r1 c1", "r1 c2", "r1 c3",
+            "r2 c1", "r2 c2", "r2 c3",
+            "r3 c1", "r3 c2", "r3 c3",
+        ]
+        self.assertEqual(data["labels"], expected)
+        self.assertNotIn("stall", data["labels"])
+        self.assertNotIn("store", data["labels"])
+        self.assertNotIn("forge", data["labels"])
+        titles = " ".join(data["titles"]).lower()
+        self.assertIn("stall", titles)
+        self.assertIn("honour store", titles)
+        self.assertIn("forge", titles)
+        self.assertIn("row 1 col 2", titles)
+        self.assertIn("row 2 col 1", titles)
+        self.assertIn("row 2 col 3", titles)
+        self.assertTrue(data["shopHidden"])
+        self.assertFalse(data["shopOpenAfterS"])
+        self.assertNotRegex((data["keysText"] or ""), r"\bS\b\s+shop")
+
+    def test_web_shop_button_and_s_key_only_at_the_store(self):
+        import web
+        at_town(self.state, P1, "store")
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        data = self._run_town_ui(payload, html)
+        self.assertTrue(payload.get("at_store"))
+        self.assertFalse(data["shopHidden"])
+        self.assertFalse(data["shopDisabled"])
+        self.assertRegex((data["shopText"] or ""), r"Shop")
+        self.assertTrue(data["shopOpenAfterS"])
+        self.assertRegex((data["keysText"] or ""), r"\bS\b\s+shop")
+
+        at_town(self.state, P1, "stall")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        data = self._run_town_ui(payload, html)
+        self.assertTrue(data["shopHidden"])
+        self.assertFalse(data["shopOpenAfterS"])
+        self.assertIn("honour store", (data["toastAfterS"] or "").lower())
+
+        at_town(self.state, P1, "forge")
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        data = self._run_town_ui(payload, html)
+        self.assertTrue(data["shopHidden"])
+        self.assertFalse(data["shopOpenAfterS"])
+
+    def test_put_all_in_stall_accepts_all(self):
+        from town import stall_item_count, stall_is_empty
+        from inventory import pack_has
+        give_item(self.state, "wood", 3, player=P1)
+        at_town(self.state, P1, "stall")
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("drop wood all", legal)
+        ok, msg = do_action(self.state, self.crops, "drop wood all", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertNotIn("how many", msg.lower())
+        self.assertIn("stall", msg.lower())
+        self.assertEqual(stall_item_count(self.state, "wood"), 3)
+        self.assertFalse(pack_has(self.state, P1, "wood", 1, self.rules))
+
+        give_item(self.state, "carrot", 2, player=P1)
+        ok, msg = do_action(self.state, self.crops, "put all carrot in stall", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertNotIn("how many", msg.lower())
+        self.assertNotIn("buy kabocha", msg.lower())
+        self.assertEqual(stall_item_count(self.state, "carrot"), 2)
+        self.assertFalse(stall_is_empty(self.state))
+
+    def test_web_stall_buttons_are_not_redundant(self):
+        import web
+        give_item(self.state, "carrot", 1, player=P1)
+        give_item(self.state, "wood", 3, player=P1)
+        at_town(self.state, P1, "stall")
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        data = self._run_town_ui(payload, html)
+        buttons = data.get("stallButtons") or []
+        put_buttons = [b for b in buttons if "put" in b.lower() and "stall" in b.lower()]
+        self.assertIn("Put in stall (32G later)", put_buttons)
+        self.assertNotIn("Put in stall", put_buttons)
+        self.assertIn("Put 1 in stall (4G later)", put_buttons)
+        self.assertIn("Put all in stall (12G later)", put_buttons)
+        # One put action for the single carrot, and put-1 plus put-all for the wood.
+        self.assertEqual(len(put_buttons), 3)

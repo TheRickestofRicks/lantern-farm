@@ -39,9 +39,9 @@ Rick and Lumen’s first official-project day on Lantern Farm. A full day of eng
 
 ### East market town
 
-- A 3×3 market town is east of the cabin tile, unlocked from day 1. Walk east from the cabin (or `go town`) to enter at town row 1 col 1. The stall is row 1 col 2, the honour store row 2 col 1, and the forge row 2 col 3. The rest is grass. (`this change`)
-- The stall replaces selling at the cabin. Drop goods into the stall; they sell automatically when the day ends. Spend 50 energy at the stall to sell everything now. The stall takes what the cabin shop used to buy, plus fresh produce, jam, wood, stone, and ore, at the existing prices. Foraged goods and cooked meals other than jam still are not sold. (`this change`)
-- Buying moved to the honour store. There is no shopkeeper: coins come straight from the purse, with a line like “left 20G in the tin.” The pickaxe stays hidden until someone finds the mine entrance. (`this change`)
+- A 3×3 market town is east of the cabin tile, unlocked from day 1. Walk east from the cabin (or `go town`) to enter at town row 1 col 1. The stall is row 1 col 2, the honour store row 2 col 1, and the forge row 2 col 3. The rest is grass. Town tiles show the same rN cN labels as the hills; building names stay in the tooltip. (`this change`)
+- The stall replaces selling at the cabin. Drop goods into the stall; they sell automatically when the day ends. Spend 50 energy at the stall to sell everything now. The stall takes what the cabin shop used to buy, plus fresh produce, jam, wood, stone, and ore, at the existing prices. Foraged goods and cooked meals other than jam still are not sold. `drop <item> all`, `put all <item> in stall`, and the Put all in stall button all work. Each backpack item has one put-in-stall button (with the later gold hint) plus Put all when you are holding more than one. (`this change`)
+- Buying moved to the honour store. There is no shopkeeper: coins come straight from the purse, with a line like “left 20G in the tin.” The pickaxe stays hidden until someone finds the mine entrance. The Shop button and S key open the store only while you are standing on that tile. (`this change`)
 - The forge moved from the cabin to town row 2 col 3, with the same upgrade recipes. (`this change`)
 - Older saves gain the town on load without changing the day, season, weather, gold, energy, or the current turn. (`this change`)
 

@@ -1006,7 +1006,7 @@ PAGE = r"""<!DOCTYPE html>
       <div class="toast" id="toast"></div>
       <div class="inv" id="inv"></div>
       <div class="shop-launch">
-        <button class="btn primary" id="open-shop" type="button">Shop <kbd>S</kbd></button>
+        <button class="btn primary" id="open-shop" type="button" hidden>Shop <kbd>S</kbd></button>
         <button class="btn" id="open-journal" type="button">Journal <kbd>J</kbd></button>
         <button class="btn" id="open-saves" type="button">Saves</button>
         <label class="art-pack-wrap">Art
@@ -1781,9 +1781,6 @@ PAGE = r"""<!DOCTYPE html>
 
     function tileLabel(tile, r, c, data) {
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
-      if (tile && tile.type === "town_stall") return "stall";
-      if (tile && tile.type === "town_store") return "store";
-      if (tile && tile.type === "town_forge") return "forge";
       return "r" + r + " c" + c;
     }
     function describeTile(tile, r, c, data) {
@@ -1941,6 +1938,7 @@ PAGE = r"""<!DOCTYPE html>
       if (data && data.viewer) PLAYER = data.viewer;
       renderForecast(data);
       renderKeys(data);
+      syncLocationLaunch(data);
       const s = data.state;
       const sky = weatherWord[s.weather] || s.weather;
       const capE = data.max_energy || 100;
@@ -2573,7 +2571,20 @@ PAGE = r"""<!DOCTYPE html>
         return "<div class='journal-entry'>" + formatNoteHtml(entry) + "</div>";
       }).join("");
     }
+    function syncLocationLaunch(data) {
+      const shopBtn = $("open-shop");
+      const atStore = !!(data && data.at_store);
+      if (shopBtn) {
+        shopBtn.hidden = !atStore;
+        shopBtn.disabled = !atStore;
+      }
+      if (!atStore && shopOpen) closeShop();
+    }
     function openShop() {
+      if (!lastData || !lastData.at_store) {
+        showToast("Walk to the honour store (row 2 col 1) to shop.", true);
+        return;
+      }
       closeSaves();
       closeJournal();
       shopOpen = true;
@@ -2992,11 +3003,19 @@ PAGE = r"""<!DOCTYPE html>
           addBtn("Drop all", "drop " + slot.item + " all", true);
         }
       }
+      const rec = recipeInfo(slot.item, opts.data);
+      const crops = (opts.data && opts.data.crops) || {};
+      const crop = crops[slot.item];
+      const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
+      const sellPrice = named.sell_price || (crop && crop.sell_price) || (rec && rec.sellable && rec.sell_price);
       if (opts.drop && atStall) {
-        if (count <= 1) addBtn("Put in stall", "drop " + slot.item + " 1", true);
-        else {
-          addBtn("Put 1 in stall", "drop " + slot.item + " 1", true);
-          addBtn("Put all in stall", "drop " + slot.item + " all", true);
+        const unitHint = sellPrice ? (" (" + sellPrice + "G later)") : "";
+        if (count <= 1) {
+          addBtn("Put in stall" + unitHint, "drop " + slot.item + " 1", true);
+        } else {
+          addBtn("Put 1 in stall" + unitHint, "drop " + slot.item + " 1", true);
+          const allHint = sellPrice ? (" (" + (sellPrice * count) + "G later)") : "";
+          addBtn("Put all in stall" + allHint, "drop " + slot.item + " all", true);
         }
       }
       if (opts.take && atStall) {
@@ -3005,14 +3024,6 @@ PAGE = r"""<!DOCTYPE html>
           addBtn("Take 1 back", "take " + slot.item + " 1", true);
           addBtn("Take all back", "take " + slot.item + " all", true);
         }
-      }
-      const rec = recipeInfo(slot.item, opts.data);
-      const crops = (opts.data && opts.data.crops) || {};
-      const crop = crops[slot.item];
-      const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
-      const sellPrice = named.sell_price || (crop && crop.sell_price) || (rec && rec.sellable && rec.sell_price);
-      if (sellPrice && atStall && opts.drop) {
-        addBtn("Put in stall (" + sellPrice + "G later)", "sell " + slot.item + " 1", true);
       }
       const energy = snackEnergy(slot.item, opts.data);
       if (energy) {
@@ -3516,7 +3527,10 @@ PAGE = r"""<!DOCTYPE html>
       const area = currentArea(data);
       const walk = '<kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> walk'
         + ' &middot; <kbd>1</kbd>&ndash;<kbd>9</kbd> walk to that plot';
-      const common = ' &middot; <kbd>S</kbd> shop'
+      const shop = (data && data.at_store)
+        ? ' &middot; <kbd>S</kbd> shop'
+        : '';
+      const common = shop
         + ' &middot; <kbd>J</kbd> journal'
         + ' &middot; <kbd>E</kbd> enter or interact'
         + ' &middot; <kbd>Shift</kbd>+<kbd>E</kbd> then <kbd>Enter</kbd> ends the turn'
@@ -3534,6 +3548,8 @@ PAGE = r"""<!DOCTYPE html>
           + ' &middot; <kbd>R</kbd> rest';
       } else if (area === "cabin") {
         work = ' &middot; <kbd>E</kbd> leave or interact';
+      } else if (area === "town") {
+        work = '';
       } else {
         work = ' &middot; <kbd>T</kbd> till'
           + ' &middot; <kbd>W</kbd> water'
@@ -3881,7 +3897,8 @@ PAGE = r"""<!DOCTYPE html>
       const letter = (key && key.length === 1) ? key.toLowerCase() : "";
       if (letter === "s") {
         ev.preventDefault();
-        openShop();
+        if (lastData && lastData.at_store) openShop();
+        else showToast("Walk to the honour store (row 2 col 1) to shop.", true);
         return;
       }
       if (letter === "j") {

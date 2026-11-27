@@ -1246,15 +1246,43 @@ def store_item(
     return left
 
 
+_DESTINATION_SUFFIXES = (
+    ("into", "the", "stall"),
+    ("in", "the", "stall"),
+    ("into", "stall"),
+    ("in", "stall"),
+    ("into", "the", "chest"),
+    ("in", "the", "chest"),
+    ("into", "chest"),
+    ("in", "chest"),
+)
+
+
+def strip_item_destination(args: list[str]) -> list[str]:
+    """Drop a trailing 'in stall' / 'in the chest' phrase from a take/drop command."""
+    tokens = [str(a) for a in args]
+    lower = [t.lower() for t in tokens]
+    for suffix in _DESTINATION_SUFFIXES:
+        n = len(suffix)
+        if len(lower) >= n and tuple(lower[-n:]) == suffix:
+            return tokens[:-n]
+    return tokens
+
+
 def parse_item_and_count(args: list[str]) -> tuple[str | None, int | str | None, str | None]:
-    """Parse `hoe`, `2 carrot`, `strawberry 3`, or `everbearing all`."""
+    """Parse `hoe`, `2 carrot`, `strawberry 3`, `everbearing all`, or `all wood in stall`."""
     if not args:
         return None, None, "Say which item, like: take hoe"
-    tokens = [str(a) for a in args]
+    tokens = strip_item_destination([str(a) for a in args])
+    if not tokens:
+        return None, None, "Say which item, like: take hoe"
     count = None
-    # Leading or trailing whole number is the count; trailing "all" means the whole stack.
+    # Leading or trailing whole number is the count; "all" means the whole stack.
     if tokens[0].isdigit():
         count = int(tokens[0])
+        tokens = tokens[1:]
+    elif tokens[0].lower() == "all" and len(tokens) > 1:
+        count = "all"
         tokens = tokens[1:]
     elif tokens[-1].lower() == "all" and len(tokens) > 1:
         count = "all"
