@@ -11,8 +11,8 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Fixed
 | Found | Bug | Fixed in |
 |---|---|---|
-| 2026-11-27 | After `build chest` at cabin r1c2, ground drops on that tile become unreachable | 7465e8c |
-| 2026-11-27 | Shop shows "everbearing strawberry seed"; everbearing ones are starters | 7465e8c |
+| 2026-11-27 | After `build chest` at cabin r1c2, ground drops on that tile become unreachable | 7c51fd7 |
+| 2026-11-27 | Shop shows "everbearing strawberry seed"; everbearing ones are starters | 7c51fd7 |
 | 2026-11-27 | E on the cabin door tile didn't leave the cabin | 3f9354c |
 | 2026-11-27 | Hands slot rejected every tool except the pickaxe | fb5eb5d |
 | 2026-11-27 | Autopass ended the turn immediately; used count never reset; no countdown | 41f9654 |
