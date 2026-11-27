@@ -42,7 +42,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, `docs/granular-growth.md`):
 
-- Taking items off the floor costs 5 energy (Rick, 2026-11-27), so building a chest becomes necessary.
+- Picking up loose items off the floor costs 1 energy per item (Rick, 2026-11-27; was 5 energy). Dumping a whole pack becomes costly, so a chest is worth building, but grabbing a few things early barely hurts.
   - New games start with a piece of bread to share, to offset part of the early pickup cost.
 - Week 2 of development (Rick, 2026-11-27): unique tools, so upgrades apply to each tool rather than farm-wide. For a challenge.
 - A mobile-friendly version of the web UI.
