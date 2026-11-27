@@ -89,6 +89,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Trees are purchasable, so players can plant an orchard in the hills.
 - Cuttings can be taken from trees and planted; they grow faster than wild trees.
 - Tree kinds: maple (tappable for syrup), apple, cherry, and pear.
+- Cherry blossoms (hanami): while cherries bloom, resting under them together gives +25 energy, once per day.
 - Open to decide when we scope it: which trees, where they're sold, what they cost, how long they take to grow, what they yield by season, and which hills tiles can take one.
 
 ## Idea: fishing minigame (Rick, 2026-11-27)
