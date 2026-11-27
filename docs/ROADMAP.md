@@ -75,6 +75,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - A big future system built on runes. Enchanting is in; teleportation (waystones, homeward rune) is planned.
 - Healing spells. Purpose: make adventuring together, passing turns back and forth, a viable play style (healing can target the other player).
 - Offensive ranged spells that cost runes (for slimes and the deeper mine).
+- Pits to Plums (silly spell, named after RuneScape's Bones to Bananas): turns all stone in your backpack into plums.
 - Speak with Creature (see befriending slimes) also belongs here. Lumen's suggestion: imbued rune kinds from the altars could fuel different schools of spells.
 
 ## Idea: keepsake display case (Rick, 2026-11-27)
