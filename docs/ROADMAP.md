@@ -83,6 +83,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Recipe search inside that window.
 - Pantry: a kitchen upgrade built for 10 wood that adds storage to the kitchen. Cooking pulls ingredients from the pantry automatically, so they don't have to be in the backpack.
 
+## Idea: more runestones (Rick, 2026-11-27)
+- Raise the base runestone drop to 1–3 per drop. Runes are meant to be plentiful, since spells, altars, crafting and slime friends all use them.
+- Not now: we play with the current rate for a while first.
+
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
