@@ -99,6 +99,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Staying up past 21:30 costs energy the next day.
 - Staying up too long makes you sleep in and builds sleep debt: a stacking debuff that lasts until the sleep is paid back.
 - Napping in bed pays sleep back: 30 minutes for 15 energy, or 1 hour for 30 energy.
+- An early night (going to bed before 21:30) also pays back some sleep debt, so a busy week can't spiral (agreed 2026-11-27).
 - Open questions (Lumen): how much energy each late hour costs; whether debt is paid back by early nights, naps, or both; and whether the rug or fire gives naps a small bonus.
 
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
