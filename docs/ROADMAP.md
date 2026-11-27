@@ -71,6 +71,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Eating food at the table gives +5 energy.
 - Sitting in the chair gives +10 energy for 30 minutes of time.
 
+## Idea: basic crafting table first (Rick, 2026-11-27)
+- Today the creation table is free from the start. Later, start with a plain basic crafting table instead, and unlock the creation table as an upgrade to it.
+- Sprite idea: `docs/art-ideas/basic_crafting_table.png`, a wooden bench with a hammer-and-chisel tool box, a lantern and a small copper nugget. It hints that ore exists but shows nothing magic, so enchanting stays a surprise.
+
 ## Idea: action-time day-to-night cycle (Rick, 2026-11-27)
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
