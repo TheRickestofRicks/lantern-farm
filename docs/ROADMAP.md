@@ -81,3 +81,6 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - A night in the cabin clears it.
 - If both players sleep on the same mine floor the same night (or on the same tile elsewhere), neither takes the penalty that night and the counter stays put.
 - Homesickness is shown on the look status line and in the web view (e.g. homesick −15).
+
+## Bag of holding (idea)
+- Backpack upgrade from 4 to 8 slots, called the "bag of holding", unlocked with rune enchantments.

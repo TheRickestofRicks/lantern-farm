@@ -1553,8 +1553,14 @@ PAGE = r"""<!DOCTYPE html>
           fire = true;
           rest = rest.slice(0, -4);
         }
+        let tier = "";
+        const tierMatch = /^chest_(copper|iron|gold)$/.exec(rest);
+        if (tierMatch) {
+          tier = tierMatch[1];
+          rest = "chest";
+        }
         const tiles = {floor: 1, bed: 1, chest: 1, fireplace: 1, door: 1, kitchen: 1};
-        if (tiles[rest]) return {kind: "cabin_interior", tile: rest, fire: fire};
+        if (tiles[rest]) return {kind: "cabin_interior", tile: rest, fire: fire, tier: tier};
       }
       if (key === "cabin" || key.indexOf("cabin_") === 0) {
         let weather = "sun";
@@ -1707,7 +1713,8 @@ PAGE = r"""<!DOCTYPE html>
           const name = (parsed.fire && (tile === "fireplace" || tile === "kitchen"))
             ? ("cabin_" + tile + "_lit")
             : ("cabin_" + tile);
-          const f = ov[name];
+          const tierName = (tile === "chest" && parsed.tier) ? ("cabin_chest_" + parsed.tier) : "";
+          const f = (tierName && ov[tierName]) || ov[name];
           if (!f) return null;
           layers.push("/static/packs/" + pack.id + "/" + f);
         }
