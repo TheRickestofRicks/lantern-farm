@@ -42,6 +42,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 
 Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, `docs/granular-growth.md`):
 
+- Taking items off the floor costs 5 energy (Rick, 2026-11-27), so building a chest becomes necessary.
 - A mobile-friendly version of the web UI.
 - Sound effects and background music (Rick, 2026-11-27): what a real game has.
 - Swords or other weapons for fighting slimes, and clothing or armor equipment slots. HP is meant as a progression gate even with the sleeping bag.
