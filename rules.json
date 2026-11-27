@@ -406,5 +406,26 @@
       }
     }
   },
-  "chest_stack": 16
+  "chest_stack": 16,
+  "xp": {
+    "mining": {
+      "stone": 2,
+      "copper_ore": 5,
+      "iron_ore": 8,
+      "gold_ore": 12,
+      "runestone_ore": 15,
+      "gem_bonus": 5
+    },
+    "woodcutting": {
+      "tree": 5
+    },
+    "farming": {
+      "plant": 1,
+      "harvest": 4,
+      "water": 0
+    },
+    "combat": {
+      "slime": 10
+    }
+  }
 }

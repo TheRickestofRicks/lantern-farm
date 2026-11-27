@@ -5127,6 +5127,62 @@ class HillsPhaseOne(unittest.TestCase):
         self.assertIsNone(get_hills_tile(self.state, 2, 2).get("forage"))
         self.assertEqual(self.state["players"][P1]["energy"], 20)
 
+    def test_mushroom_log_expires_after_one_in_game_year(self):
+        from hills import (
+            make_tree, make_forage, get_hills_tile, tick_hills,
+            migrate_mushroom_log_dates, log_lifetime_days, stump_becomes_log,
+            tree_days_for,
+        )
+        from engine import days_per_year, days_per_season, SEASONS
+        year = log_lifetime_days(self.crops)
+        self.assertEqual(year, days_per_year(self.crops))
+        self.assertEqual(year, days_per_season(self.crops) * len(SEASONS))
+        self.assertEqual(year, 60)
+
+        tile = get_hills_tile(self.state, 3, 2)
+        typ = tile.get("type")
+        tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=2, log_placed_day=10)
+        tile["forage"] = make_forage("oyster_mushroom", 10)
+        self.state["day"] = 10 + year - 1
+        tick_hills(self.state, self.rules)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "mushroom_log")
+
+        self.state["day"] = 10 + year
+        notes = tick_hills(self.state, self.rules)
+        tile = get_hills_tile(self.state, 3, 2)
+        self.assertIsNone(tile.get("tree"))
+        self.assertIsNone(tile.get("forage"))
+        self.assertEqual(tile.get("type"), typ)
+        self.assertTrue(any("finished its year" in n for n in notes))
+
+        # Existing logs without a placed day are stamped today and do not expire yet.
+        tile = get_hills_tile(self.state, 3, 2)
+        tile["tree"] = make_tree("mushroom_log", planted_day=1, days_grown=0)
+        self.assertNotIn("log_placed_day", tile["tree"])
+        self.state["day"] = 65
+        self.assertTrue(migrate_mushroom_log_dates(self.state))
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["log_placed_day"], 65)
+        self.assertFalse(migrate_mushroom_log_dates(self.state))
+        tick_hills(self.state, self.rules)
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["stage"], "mushroom_log")
+        self.assertEqual(get_hills_tile(self.state, 3, 2)["tree"]["log_placed_day"], 65)
+
+        # A stump that becomes a log is dated the day it appears.
+        tile = get_hills_tile(self.state, 2, 2)
+        tile["tree"] = make_tree("stump", planted_day=1, days_grown=0)
+        tile["forage"] = None
+        seed = 1
+        self.state["weather_seed"] = seed
+        self.state["day"] = 12
+        while not stump_becomes_log(self.state, 2, 2):
+            seed += 1
+            self.state["weather_seed"] = seed
+        for _ in range(tree_days_for("stump", self.rules)):
+            tick_hills(self.state, self.rules)
+        tree = get_hills_tile(self.state, 2, 2)["tree"]
+        self.assertEqual(tree["stage"], "mushroom_log")
+        self.assertEqual(tree["log_placed_day"], 12)
+
     def test_take_axe_1_from_the_chest(self):
         from inventory import pack_has, TOOL_AXE
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
@@ -10868,3 +10924,63 @@ class ChestBuildingAndWindow(unittest.TestCase):
             # The wooden lid stays the same; the metal strap is retinted.
             self.assertEqual(wood.getpixel((250, 175)), copper.getpixel((250, 175)))
             self.assertNotEqual(wood.getpixel((125, 160)), copper.getpixel((125, 160)))
+
+
+class XpTable(unittest.TestCase):
+    """Experience amounts live in one rules.json table and are easy to tune."""
+
+    def setUp(self):
+        self.rules = load_rules()
+
+    def test_rules_table_matches_the_agreed_amounts(self):
+        from xp import (
+            mining_xp,
+            woodcutting_xp,
+            farming_xp,
+            combat_xp,
+            MINING_ROCKS,
+            xp_table,
+        )
+        table = xp_table(self.rules)
+        mining = table["mining"]
+        self.assertEqual(mining["stone"], 2)
+        self.assertEqual(mining["copper_ore"], 5)
+        self.assertEqual(mining["iron_ore"], 8)
+        self.assertEqual(mining["gold_ore"], 12)
+        self.assertEqual(mining["runestone_ore"], 15)
+        self.assertEqual(mining["gem_bonus"], 5)
+        self.assertEqual(table["woodcutting"]["tree"], 5)
+        self.assertEqual(table["farming"]["plant"], 1)
+        self.assertEqual(table["farming"]["harvest"], 4)
+        self.assertEqual(table["farming"]["water"], 0)
+        self.assertEqual(table["combat"]["slime"], 10)
+        # Every mine rock kind has its own amount (gem_bonus is not a rock).
+        for rock in MINING_ROCKS:
+            self.assertIn(rock, mining)
+            self.assertEqual(mining_xp(rock, rules=self.rules), mining[rock])
+        self.assertEqual(mining_xp("stone", gem=True, rules=self.rules), 7)
+        self.assertEqual(woodcutting_xp(rules=self.rules), 5)
+        self.assertEqual(farming_xp("plant", self.rules), 1)
+        self.assertEqual(farming_xp("harvest", self.rules), 4)
+        self.assertEqual(farming_xp("water", self.rules), 0)
+        self.assertEqual(combat_xp("slime", self.rules), 10)
+        self.assertEqual(combat_xp("grey", self.rules), 10)
+
+    def test_amounts_are_read_from_the_single_table(self):
+        from xp import mining_xp, farming_xp, combat_xp, woodcutting_xp
+        custom = {
+            "xp": {
+                "mining": {"stone": 3, "copper_ore": 9, "gem_bonus": 4},
+                "woodcutting": {"tree": 6},
+                "farming": {"plant": 2, "harvest": 8, "water": 1},
+                "combat": {"slime": 11, "grey": 20},
+            }
+        }
+        self.assertEqual(mining_xp("stone", rules=custom), 3)
+        self.assertEqual(mining_xp("copper_ore", gem=True, rules=custom), 13)
+        self.assertEqual(woodcutting_xp(rules=custom), 6)
+        self.assertEqual(farming_xp("plant", custom), 2)
+        self.assertEqual(farming_xp("harvest", custom), 8)
+        self.assertEqual(farming_xp("water", custom), 1)
+        self.assertEqual(combat_xp("grey", custom), 20)
+        self.assertEqual(combat_xp("slime", custom), 11)

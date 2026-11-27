@@ -262,12 +262,27 @@ def forage_count(state: dict) -> int:
     return sum(1 for _r, _c, tile in iter_hills_tiles(state) if has_forage(tile))
 
 
-def make_tree(stage: str, planted_day: int = 1, days_grown: int = 0) -> dict:
-    return {
+def make_tree(
+    stage: str,
+    planted_day: int = 1,
+    days_grown: int = 0,
+    log_placed_day: int | None = None,
+) -> dict:
+    tree = {
         "stage": stage,
         "planted_day": int(planted_day),
         "days_grown": int(days_grown),
     }
+    if log_placed_day is not None:
+        tree["log_placed_day"] = int(log_placed_day)
+    return tree
+
+
+def log_lifetime_days(crops: dict | None = None) -> int:
+    """Mushroom logs last one in-game year (days_per_season × the four seasons)."""
+    from engine import days_per_year
+
+    return max(1, int(days_per_year(crops)))
 
 
 def make_forage(kind: str, appeared_day: int) -> dict:
@@ -390,6 +405,23 @@ def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> 
         if stage == "grown":
             continue
         if stage == "mushroom_log":
+            if tree.get("log_placed_day") is None:
+                tree["log_placed_day"] = day
+            try:
+                placed = int(tree.get("log_placed_day") or day)
+            except (TypeError, ValueError):
+                placed = day
+                tree["log_placed_day"] = day
+            lifetime = log_lifetime_days(load_crops())
+            if day >= placed + lifetime:
+                tile["tree"] = None
+                tile["forage"] = None
+                if log:
+                    notes.append(
+                        f"A mushroom log at hills row {r} col {c} has finished its year "
+                        "and the ground is grass again."
+                    )
+                continue
             tree["days_grown"] = int(tree.get("days_grown") or 0) + 1
             needed = log_forage_days(rules)
             kind = log_forage_kind_for_season(season)
@@ -409,6 +441,7 @@ def _grow_trees(state: dict, rules: dict | None = None, *, log: bool = True) -> 
             if stump_becomes_log(state, r, c, day):
                 tree["stage"] = "mushroom_log"
                 tree["days_grown"] = 0
+                tree["log_placed_day"] = day
                 if log:
                     notes.append(f"A stump at hills row {r} col {c} has become a mushroom log.")
             else:
@@ -1217,6 +1250,26 @@ def forage(state: dict, player: str, rules: dict | None = None) -> tuple[bool, s
     return True, msg
 
 
+def migrate_mushroom_log_dates(state: dict) -> bool:
+    """Give existing mushroom logs a placed day of today if they have none."""
+    if not hills_tiles(state):
+        return False
+    try:
+        today = int(state.get("day") or 1)
+    except (TypeError, ValueError):
+        today = 1
+    changed = False
+    for _r, _c, tile in iter_hills_tiles(state):
+        tree = tile.get("tree")
+        if not isinstance(tree, dict) or tree.get("stage") != "mushroom_log":
+            continue
+        if tree.get("log_placed_day") is not None:
+            continue
+        tree["log_placed_day"] = today
+        changed = True
+    return changed
+
+
 def migrate_hills(state: dict, rules: dict | None = None) -> bool:
     """Idempotent hills + HP + area fields. Does not touch farm tiles or gold."""
     changed = False
@@ -1226,6 +1279,8 @@ def migrate_hills(state: dict, rules: dict | None = None) -> bool:
         changed = True
     if "mine_entrance_found" not in state:
         state["mine_entrance_found"] = False
+        changed = True
+    if migrate_mushroom_log_dates(state):
         changed = True
     from mine import migrate_mine
     if migrate_mine(state, rules):

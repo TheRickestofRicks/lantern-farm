@@ -26,6 +26,7 @@ The east market town is in: stall, honour store, and forge, east of the cabin.
 - Pantry: a cabin upgrade beside the stove that cooking can draw ingredients from.
 - Well-rested bed upgrade (+5 when you sleep in the upgraded bed above 10 energy). Together rest is already in and stays a separate bonus.
 - Journal history: the human player can browse journals from previous years in the journal UI, with a “Copy year” / export button that produces a clean text summary of that year to paste to the AI player.
+- Skills / XP (amounts pending a final okay): a single `xp` table in `rules.json`. Mining differs by rock (plain stone 2, copper ore 5, iron 8, gold 12, runestone ore 15, plus 5 when a gem such as quartz drops). Woodcutting is 5 per tree. Farming is 1 per plant and 4 per harvest; watering gives 0. Combat is 10 per slime.
 
 ## Later
 
@@ -66,6 +67,13 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Bites depend on weather and bait type, which affects which fish bite and how often.
 - Overfishing is possible and tracked per species.
 - Purpose: late-game activities for both players — one farms and fishes while the other mines, or both fish and camp at the lake.
+
+## Idea: skills / XP (Rick, 2026-11-27; amounts pending okay)
+- Experience amounts live in one `xp` table in `rules.json` so they are easy to tune. They are not granted during play yet.
+- Mining XP differs per rock: plain stone 2, copper ore 5, iron ore 8, gold ore 12, runestone ore 15. A +5 bonus applies when a gem drops (today that is quartz from plain stone on floors 1–4).
+- Woodcutting: 5 XP per tree chopped.
+- Farming: 1 XP per plant and 4 XP per harvest. Watering gives 0.
+- Combat: 10 XP per slime.
 
 ## In: chest redesign (Rick, 2026-11-27; built 2026-11-27)
 - The chest is its own window, like the store, with a draggable grid of rows and columns. You can drag to rearrange slots and drag between the backpack and the chest.
