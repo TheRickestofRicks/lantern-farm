@@ -71,6 +71,20 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Next week: the day should move from day to night by the time actions take, not only by ending a turn.
 - Each action takes time depending on the action and the tool tier. Example: watering is 30 minutes base, 25 with a copper watering can, 20 with iron, 15 with gold.
 
+## Idea: keepsake display case (Rick, 2026-11-27)
+- Built from 5 wood on the reserved cabin tile r1c3, opened like the chest.
+- Holds one item per slot (no stacks). Each slot has a placard for its item.
+- Each keepsake logs when it was picked up and by whom (e.g. "first runestone, found by Lumen, Day 12").
+
+## Idea: rune altars in the mine (Rick, 2026-11-27)
+- A rune altar on every 5th mine floor.
+- Generic runestones cut at the Creation Table are imbued at an altar into different kinds of rune.
+- Imbued runes are also crafting ingredients and add progression. Lumen's suggestion: deeper altars give stronger kinds (for example earth on floor 5, frost on 10, tide on 15, tying into fishing).
+
+## Idea: befriending slimes (Rick, 2026-11-27)
+- Slimes become capturable later through a "Speak with Creature" spell that costs runestones (possibly a specific imbued kind).
+- Lumen's suggestion: befriended slimes live in a small pen in the hills, and each colour gives something (for example green goo as fertilizer, grey for ore luck).
+
 ## Idea: hill orchard (Rick, 2026-11-27)
 - Trees are purchasable, so players can plant an orchard in the hills.
 - Open to decide when we scope it: which trees, where they're sold, what they cost, how long they take to grow, what they yield by season, and which hills tiles can take one.
