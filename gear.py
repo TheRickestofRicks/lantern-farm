@@ -137,14 +137,12 @@ def _as_stack(slot: Any, *, allowed) -> dict | None:
     if not cleaned:
         return None
     item = cleaned.get("item")
-    if item not in allowed and not (allowed is True):
-        # allowed may be a container or a predicate
-        if callable(allowed):
-            if not allowed(item):
-                return None
-        elif item not in allowed:
-            return None
-    return cleaned
+    # allowed may be True, a predicate, or a container.
+    if allowed is True:
+        return cleaned
+    if callable(allowed):
+        return cleaned if allowed(item) else None
+    return cleaned if item in allowed else None
 
 
 def gear_of(state: dict, player: str | None, kind: str) -> dict | None:

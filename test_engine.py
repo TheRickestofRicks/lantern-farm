@@ -11765,6 +11765,21 @@ class DawnPreservesXpAndGear(unittest.TestCase):
             self.assertEqual(int(player_xp_map(loaded, P1)["mining"]), 17)
             self.assertEqual(world_item_count(loaded, LEATHER_BOOTS, self.rules), before)
 
+    def test_every_basic_tool_can_be_moved_into_the_hands_slot(self):
+        from inventory import add_to_pack, pack_of, transfer_inventory_slot
+        from gear import gear_of, SLOT_HANDS
+
+        for tool in ("axe", "hoe", "shovel", "watering_can", "pickaxe"):
+            self.state["players"][P1]["pack"] = [None, None, None, None]
+            self.state["players"][P1][SLOT_HANDS] = None
+            add_to_pack(self.state, P1, tool, 1, self.rules)
+            pack = pack_of(self.state, P1, self.rules)
+            idx = next(i + 1 for i, s in enumerate(pack) if s and s.get("item") == tool)
+            ok, msg = transfer_inventory_slot(self.state, P1, "pack", idx, "hands", 1, self.rules)
+            self.assertTrue(ok, tool + ": " + msg)
+            held = gear_of(self.state, P1, SLOT_HANDS)
+            self.assertEqual((held or {}).get("item"), tool)
+
     def test_equip_unequip_and_transfer_conserve_item_counts(self):
         from inventory import (
             add_to_pack,
