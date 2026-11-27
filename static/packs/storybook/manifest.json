@@ -20,7 +20,9 @@
     "mine_entrance_closed_snow": "grounds/mine_entrance_closed_snow.png",
     "mine_floor": "grounds/mine_floor.png",
     "mine_safe": "grounds/mine_safe.png",
-    "cabin_floor": "grounds/cabin_floor.png"
+    "cabin_floor": "grounds/cabin_floor.png",
+    "town_grass": "grounds/town_grass.png",
+    "town_grass_snow": "grounds/town_grass_snow.png"
   },
   "overlays": {
     "everbearing_dormant": "overlays/everbearing_dormant.png",
@@ -193,7 +195,10 @@
     "spinach_frost_bitten": "overlays/spinach_frost_bitten.png",
     "strawberry_frost_bitten": "overlays/strawberry_frost_bitten.png",
     "tomato_frost_bitten": "overlays/tomato_frost_bitten.png",
-    "zucchini_frost_bitten": "overlays/zucchini_frost_bitten.png"
+    "zucchini_frost_bitten": "overlays/zucchini_frost_bitten.png",
+    "town_stall": "overlays/town_stall.png",
+    "town_store": "overlays/town_store.png",
+    "town_forge": "overlays/town_forge.png"
   },
   "aliases": {
     "everbearing_withered": "strawberry_withered",

@@ -283,5 +283,8 @@
     "together_bonus": 5,
     "together_energy": 10,
     "stove_wood": 1
+  },
+  "town": {
+    "instant_sell_energy": 50
   }
 }

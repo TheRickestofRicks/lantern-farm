@@ -9,6 +9,7 @@ Finish Year 1: all four seasons playable, then settle into daily play sessions.
 ## Now
 
 Year 1 winter is in play. See Next for the remaining season work.
+The east market town is in: stall, honour store, and forge, east of the cabin.
 
 ## Next
 

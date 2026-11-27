@@ -51,7 +51,8 @@ kind of 3×3, behind a boarded entrance.
 
 ## Areas and walking
 
-Three area ids: `farm`, `hills`, and later `mine`. A player’s place is
+Three area ids: `farm`, `hills`, `mine`, and `town`. The east market
+town is described under East market town. A player’s place is
 `(area, row, col)`, plus `floor` in the mine. `state["tiles"]` stays
 the farm, so old saves and crop / weed ticks keep working. Hills live
 under `state["hills"]["tiles"]`.
@@ -153,7 +154,7 @@ down ladder (none on 25), and an elevator checkpoint. The elevator
 (cost 5) runs from the elevator tile to any reached checkpoint or the
 entrance.
 
-The forge is at the cabin (cost 5). Upgrade a hoe, watering can, axe,
+The forge is at town row 2 col 3 (cost 5); see East market town. Upgrade a hoe, watering can, axe,
 or pickaxe one tier at a time (copper, then iron, then gold) with 5 of
 that tier’s ore. Tiers now only change energy: basic 10, copper 8, iron 6, gold 4.
 Iron yield and gold pickaxe splash are parked for a later rune system (Bounty and Shatter).
@@ -175,6 +176,106 @@ Slimes appear from floor 6 on, never on safe floors. They deal HP
 damage. `strike` and `flee` as previously sketched. 100 HP, snacks
 heal HP, 0 HP wakes at the mine entrance with 25 energy. Goo drops
 for one recipe.
+
+
+## East market town
+
+Built as decided below. Rick asked for a new area: an east market
+town, reached by a path east from the farm.
+
+The town is a 3×3, like the hills. The cabin is the travel hub: the
+east path leaves from the cabin (farm row 1 col 3, the same tile that
+already leads north to the hills) and enters the town at **r1c1**,
+which is grassy. **r1c2** is the stall. **r2c1** is the store, so the
+entrance is one arrow key from both.
+
+The town has a selling **stall**, a **store**, and a **forge**. The
+stall replaces the cabin’s sell option: you drop items into the stall,
+and they are sold automatically when the day ends, like a shipping
+bin. You can also spend 50 energy to sell everything in the stall
+instantly. The store also lives in the town and runs on an honour
+system, with no NPCs — coins come straight from the purse. The rest
+is grassy, town-like open space, left open for later growth. The town
+unlocks on **day 1**.
+
+### Lumen’s suggestions
+
+These are suggestions, not settled decisions:
+
+- Start small: the stall, the forge, a lantern post or two, and the
+  path, with grass left for later additions. (The store is now a
+  decided part of the first town, alongside the stall, at r2c1.)
+- The forge turns mine ore into tool upgrades, which ties the hills,
+  the mine, and the town together. A free tile for the forge is
+  **r2c3** (mid-right): a short walk from the entrance, and it does
+  not sit on the stall/store cluster at r1c2 and r2c1.
+- The stall has a blue awning or sign (Lumen’s colour).
+
+### Decisions
+
+- The stall **replaces** the cabin’s sell option. You drop items into
+  the stall. They are sold automatically when the **day** ends, like a
+  shipping bin. There is also an option to spend **50 energy** to sell
+  everything in the stall instantly.
+- The town unlocks on day 1.
+- The town also contains the **store**, at **r2c1**, so the entrance
+  (r1c1) is one arrow key from both the stall (r1c2) and the store.
+  The store runs on an honour system with no NPCs. Coins come
+  straight from the purse, with a line like “left 20g in the tin.”
+- Sellable at the stall: everything that sells currently, plus fresh
+  produce, jam, wood, stones, ore, and so on. This **widens** today’s
+  list (right now the cabin shop only buys jam, and wood still sells
+  at the cabin; foraged goods and other cooked meals are unsellable).
+- The forge gets more recipes later. Phase 2 already forges each tool
+  up copper, then iron, then gold, for 5 of that tier’s ore; that list
+  stays, and more can be added later.
+- The **forge** is at **r2c3** (decided Nov 26).
+- The east path leaves from the cabin, so the cabin is the travel
+  hub. It enters the town at r1c1, which is grassy. r1c2 is the
+  stall. The town is a 3×3 like the hills.
+
+### How it fits the phase order
+
+Phase 1 (built) is the hills, trees, and forage. Phase 2 (this pass)
+is the mine, ores, **and the forge** — the forge already appears in
+Phase 2, at the cabin, and already upgrades the hoe, watering can,
+axe, and pickaxe with mine ore. Phase 3 is slimes and combat, still
+later.
+
+Because the town unlocks on day 1, the town (stall and store) came
+earlier than a late follow-on after Phase 2 and 3. Moving the
+Phase 2 cabin forge into town is natural: ore from the mine is
+upgraded at the town forge, farm goods are sold at the stall, and
+buying happens at the town store, which ties the hills, the mine,
+and the town together, rather than adding a second forge.
+
+### Conflicts with what was already in
+
+These conflicts were resolved when the town was built.
+
+- **Sell** was a cabin action. The stall
+  replaces that with a drop-and-sell-when-the-day-ends mechanic,
+  plus an optional 50-energy instant sell. Today the shop only buys
+  jam (and wood still sells at the cabin); foraged goods and other
+  cooked meals are unsellable. The decided stall list is wider:
+  current sellables, plus fresh produce, jam, wood, stones, ore, and
+  so on.
+- **Store / shop** lived at the cabin. Seeds, staples, fertilizer,
+  herbal tea, and the pickaxe now sell at the honour store in town.
+- **Pickaxe shop unlock:** the pickaxe appears in the shop only after
+  someone finds the mine entrance (`mine_entrance_found`). That
+  unlock can stay even if the store moves to town on day 1 — the
+  store is open from day 1, but the pickaxe still waits until the
+  entrance is found.
+- **Forge** was at the cabin. It is now at town row 2 col 3, with the
+  same recipes.
+- The cabin is already the hub north to the hills (farm r1c3 ↔ hills
+  r3c3). East from that same tile is currently out of bounds.
+
+### Open questions
+
+- What about r1c3, r2c2, and row 3? (Lumen suggests leaving them grass
+  for later growth.)
 
 
 ## Energy, commands, and items (Phase 1)
@@ -289,7 +390,8 @@ Each phase should be its own playable stretch, not one giant commit.
 ## Open questions (still, for later phases)
 
 1. Deepest floor is 25 for this pass (decided).
-2. The forge is at the cabin (decided).
+2. The forge is at town row 2 col 3 (moved from the cabin; see East
+   market town).
 3. Tool tiers cost 10 / 8 / 6 / 4 energy (basic / copper / iron / gold).
    Iron +1 yield and gold pickaxe splash are reserved for a later rune
    system (Bounty and Shatter).

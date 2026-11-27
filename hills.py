@@ -9,7 +9,8 @@ AREA_FARM = "farm"
 AREA_HILLS = "hills"
 AREA_MINE = "mine"
 AREA_CABIN = "cabin"
-AREAS = (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN)
+AREA_TOWN = "town"
+AREAS = (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, AREA_TOWN)
 
 HILLS_ROWS = 3
 HILLS_COLS = 3
@@ -609,7 +610,31 @@ def path_places(src_area: str, src: tuple[int, int], dest_area: str, dest: tuple
         return []
     if src_area == dest_area:
         return [(src_area, r, c) for r, c in path_steps(src, dest)]
-    # Only the cabin ↔ hills r3c3 crossing is legal.
+    from town import TOWN_ENTRANCE, AREA_TOWN as _TOWN
+    # Cabin tile ↔ town entrance, possibly chained through the cabin for hills ↔ town.
+    if src_area == AREA_FARM and dest_area == _TOWN:
+        to_cabin = path_steps(src, (CABIN_ROW, CABIN_COL))
+        places = [(AREA_FARM, r, c) for r, c in to_cabin]
+        places.append((_TOWN, TOWN_ENTRANCE[0], TOWN_ENTRANCE[1]))
+        if dest != TOWN_ENTRANCE:
+            places.extend((_TOWN, r, c) for r, c in path_steps(TOWN_ENTRANCE, dest))
+        return places
+    if src_area == _TOWN and dest_area == AREA_FARM:
+        to_gate = path_steps(src, TOWN_ENTRANCE)
+        places = [(_TOWN, r, c) for r, c in to_gate]
+        places.append((AREA_FARM, CABIN_ROW, CABIN_COL))
+        if dest != (CABIN_ROW, CABIN_COL):
+            places.extend((AREA_FARM, r, c) for r, c in path_steps((CABIN_ROW, CABIN_COL), dest))
+        return places
+    if src_area == AREA_HILLS and dest_area == _TOWN:
+        via_cabin = path_places(src_area, src, AREA_FARM, (CABIN_ROW, CABIN_COL))
+        onward = path_places(AREA_FARM, (CABIN_ROW, CABIN_COL), _TOWN, dest)
+        return via_cabin + onward
+    if src_area == _TOWN and dest_area == AREA_HILLS:
+        via_cabin = path_places(src_area, src, AREA_FARM, (CABIN_ROW, CABIN_COL))
+        onward = path_places(AREA_FARM, (CABIN_ROW, CABIN_COL), AREA_HILLS, dest)
+        return via_cabin + onward
+    # Cabin ↔ hills r3c3 crossing.
     if src_area == AREA_FARM and dest_area == AREA_HILLS:
         to_cabin = path_steps(src, (CABIN_ROW, CABIN_COL))
         places = [(AREA_FARM, r, c) for r, c in to_cabin]
@@ -639,6 +664,11 @@ def area_crossing(area: str, row: int, col: int, direction: str) -> tuple[str, i
         return (AREA_HILLS, HILLS_GATE[0], HILLS_GATE[1])
     if area == AREA_HILLS and (row, col) == HILLS_GATE and direction == "down":
         return (AREA_FARM, CABIN_ROW, CABIN_COL)
+    from town import TOWN_ENTRANCE, AREA_TOWN as _TOWN
+    if area == AREA_FARM and (row, col) == (CABIN_ROW, CABIN_COL) and direction == "right":
+        return (_TOWN, TOWN_ENTRANCE[0], TOWN_ENTRANCE[1])
+    if area == _TOWN and (row, col) == TOWN_ENTRANCE and direction == "left":
+        return (AREA_FARM, CABIN_ROW, CABIN_COL)
     return None
 
 
@@ -652,6 +682,8 @@ def area_title(area: str | None, floor: int | None = None) -> str:
         return "the mine"
     if area == AREA_CABIN:
         return "the cabin"
+    if area == AREA_TOWN:
+        return "the market town"
     return "the farm"
 
 
@@ -673,6 +705,17 @@ def describe_place(area: str, row: int, col: int, floor: int | None = None) -> s
         if floor:
             return f"{here} on mine floor {int(floor)}"
         return f"{here} in the mine"
+    if area == AREA_TOWN:
+        from town import TOWN_STALL, TOWN_STORE, TOWN_FORGE, TOWN_ENTRANCE
+        if (row, col) == TOWN_STALL:
+            return f"the market stall ({here} in town)"
+        if (row, col) == TOWN_STORE:
+            return f"the honour store ({here} in town)"
+        if (row, col) == TOWN_FORGE:
+            return f"the town forge ({here} in town)"
+        if (row, col) == TOWN_ENTRANCE:
+            return f"the town entrance ({here} in town)"
+        return f"{here} in town"
     return here
 
 
@@ -694,6 +737,17 @@ def describe_where(area: str, row: int, col: int, floor: int | None = None) -> s
         if floor:
             return f"at {here} on mine floor {int(floor)}"
         return f"at {here} in the mine"
+    if area == AREA_TOWN:
+        from town import TOWN_STALL, TOWN_STORE, TOWN_FORGE, TOWN_ENTRANCE
+        if (row, col) == TOWN_STALL:
+            return f"at the market stall ({here} in town)"
+        if (row, col) == TOWN_STORE:
+            return f"at the honour store ({here} in town)"
+        if (row, col) == TOWN_FORGE:
+            return f"at the town forge ({here} in town)"
+        if (row, col) == TOWN_ENTRANCE:
+            return f"at the town entrance ({here} in town)"
+        return f"at {here} in town"
     return f"at {here}"
 
 
@@ -733,7 +787,7 @@ def describe_hills_tile(state: dict, row: int, col: int, weather: str | None = N
         elif state.get("mine_entrance_found"):
             hint = (
                 "The boarded mine entrance you found is still shut. "
-                "Buy a pickaxe from the shop, then enter mine to pry it open."
+                "Buy a pickaxe from the honour store in town, then enter mine to pry it open."
             )
         else:
             hint = (
@@ -860,7 +914,16 @@ def exit_summary(area: str) -> str:
         return "Climb up the shaft, or ride the elevator to the entrance, then walk home from the hills."
     if area == AREA_CABIN:
         return "Leave through the door at bottom-left (row 3 col 1) to step back onto the farm cabin tile."
-    return "Walk north from the cabin to reach the hills (bottom-right, row 3 col 3). Press E to step inside the cabin."
+    if area == AREA_TOWN:
+        return (
+            "Walk west from the town entrance (row 1 col 1) to return to the cabin. "
+            "The stall is row 1 col 2, the honour store row 2 col 1, and the forge row 2 col 3."
+        )
+    return (
+        "Walk north from the cabin to reach the hills (bottom-right, row 3 col 3). "
+        "Walk east from the cabin to reach the market town (entrance row 1 col 1). "
+        "Press E to step inside the cabin."
+    )
 
 
 def elsewhere_lines(state: dict, viewer: str | None, crops: dict | None = None) -> list[str]:
@@ -869,20 +932,29 @@ def elsewhere_lines(state: dict, viewer: str | None, crops: dict | None = None) 
 
     lines = ["Elsewhere:"]
     view_area = player_area(state, viewer) if viewer else AREA_FARM
+    from town import town_summary, AREA_TOWN as _TOWN
     if view_area == AREA_FARM:
         lines.append("  " + hills_summary(state))
+        lines.append("  " + town_summary(state))
         lines.append("  " + mine_summary(state))
     elif view_area == AREA_HILLS:
         lines.append("  " + farm_summary(state, crops))
+        lines.append("  " + town_summary(state))
         lines.append("  " + mine_summary(state))
     elif view_area == AREA_CABIN:
         from cabin import cabin_summary
         lines.append("  " + farm_summary(state, crops))
         lines.append("  " + hills_summary(state))
+        lines.append("  " + town_summary(state))
         lines.append("  " + cabin_summary(state))
+    elif view_area == _TOWN:
+        lines.append("  " + farm_summary(state, crops))
+        lines.append("  " + hills_summary(state))
+        lines.append("  " + mine_summary(state))
     else:
         lines.append("  " + farm_summary(state, crops))
         lines.append("  " + hills_summary(state))
+        lines.append("  " + town_summary(state))
     lines.append("  " + exit_summary(view_area))
     for name in known_players():
         if viewer and name == viewer:

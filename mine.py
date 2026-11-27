@@ -727,7 +727,8 @@ def take_elevator(state: dict, player: str, dest, rules: dict | None = None) -> 
 
 
 def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules: dict | None = None) -> tuple[bool, str]:
-    from engine import display_name, log_append, is_player_in_cabin
+    from engine import display_name, log_append
+    from town import is_player_at_forge, forge_too_far_message
     from inventory import (
         normalize_item,
         take_available,
@@ -739,8 +740,8 @@ def forge_tool(state: dict, player: str, tool: str, want_tier: str | None, rules
         TOOL_PICKAXE,
     )
 
-    if not is_player_in_cabin(state, player):
-        return False, "Forge at the cabin."
+    if not is_player_at_forge(state, player):
+        return False, forge_too_far_message()
     raw = normalize_item(tool) or str(tool or "").strip().lower().replace(" ", "_")
     if raw not in FORGE_TOOLS:
         return False, "You can forge the hoe, watering can, axe, or pickaxe."

@@ -54,6 +54,11 @@ def runner_vine_direction(crop: dict | None, row: int | None = None, col: int | 
 def sprite_key(tile: dict, weather: str | None = None, row: int | None = None, col: int | None = None, floor: int | None = None) -> str:
     """Map a state.json tile to a sprite key. Used by both renderers."""
     typ = (tile or {}).get("type")
+    if typ in {"town_grass", "town_stall", "town_store", "town_forge"}:
+        key = typ
+        if (weather or "").strip().lower() == "snow":
+            key += "_snow"
+        return key
     if typ in {"mine_floor", "mine_safe"}:
         key = "mine_safe" if typ == "mine_safe" else "mine_floor"
         rock = tile.get("rock")
@@ -180,12 +185,34 @@ def _parse_hills_sprite_key(key: str) -> dict | None:
     }
 
 
+def _parse_town_sprite_key(key: str) -> dict | None:
+    raw = (key or "").strip().lower()
+    snow = False
+    body = raw
+    if body.endswith("_snow"):
+        snow = True
+        body = body[: -len("_snow")]
+    if body in {"town_grass", "town_stall", "town_store", "town_forge"}:
+        return {
+            "kind": "town",
+            "tile": body[len("town_"):],
+            "type": body,
+            "snow": snow,
+            "town": True,
+            "raw": raw,
+        }
+    return None
+
+
 def parse_sprite_key(key: str) -> dict:
     """Inverse of sprite_key, for the SVG generator."""
     key = (key or "").strip().lower()
     mine = _parse_mine_sprite_key(key)
     if mine:
         return mine
+    town = _parse_town_sprite_key(key)
+    if town:
+        return town
     hills = _parse_hills_sprite_key(key)
     if hills:
         return hills
@@ -1449,6 +1476,85 @@ def _cabin_interior_overlay(tile: str, fire: bool = False) -> str:
     return ""
 
 
+
+def _town_ground(snow: bool = False) -> str:
+    grass = "#7a9a4a" if not snow else "#d8e4ef"
+    path = "#c4b496" if not snow else "#e8eef4"
+    edge = "#5a7038" if not snow else "#b8c8d4"
+    cobble = "#b8a888" if not snow else "#d9e2ea"
+    flakes = ""
+    if snow:
+        flakes = (
+            '  <circle cx="24" cy="22" r="3" fill="#f7fbff" opacity="0.9"/>\n'
+            '  <circle cx="128" cy="30" r="4" fill="#f7fbff" opacity="0.85"/>\n'
+            '  <circle cx="50" cy="140" r="3.2" fill="#f7fbff" opacity="0.8"/>\n'
+            '  <circle cx="110" cy="148" r="2.6" fill="#f7fbff" opacity="0.8"/>\n'
+        )
+    return (
+        f'  <rect width="{SIZE}" height="{SIZE}" fill="{grass}"/>\n'
+        f'  <rect x="18" y="18" width="124" height="124" rx="8" fill="{path}"/>\n'
+        f'  <rect x="28" y="28" width="104" height="104" rx="6" fill="{cobble}"/>\n'
+        f'  <path d="M40,60 h20 v14 h-20 z M70,86 h22 v12 h-22 z M100,48 h16 v14 h-16 z" fill="{edge}" opacity="0.25"/>\n'
+        f'  <rect x="0" y="0" width="{SIZE}" height="{SIZE}" fill="none" stroke="{edge}" stroke-width="4"/>\n'
+        + flakes
+    )
+
+
+def _town_stall_overlay() -> str:
+    return (
+        '  <rect x="28" y="88" width="104" height="44" rx="4" fill="#8a5520" stroke="#3a2414" stroke-width="2"/>\n'
+        '  <rect x="32" y="94" width="44" height="22" fill="#c45a3a" stroke="#6b2a18" stroke-width="1"/>\n'
+        '  <rect x="84" y="96" width="40" height="20" fill="#e8d48a" stroke="#6b4a10" stroke-width="1"/>\n'
+        '  <rect x="36" y="98" width="10" height="10" rx="2" fill="#6aaa3a"/>\n'
+        '  <rect x="50" y="97" width="10" height="12" rx="2" fill="#d45a6a"/>\n'
+        '  <rect x="88" y="99" width="12" height="10" rx="2" fill="#c9a227"/>\n'
+        '  <polygon points="20,88 80,52 140,88" fill="#2a5f9e" stroke="#1a3a68" stroke-width="2"/>\n'
+        '  <polygon points="28,88 80,58 132,88" fill="#3a7ad0"/>\n'
+        '  <line x1="44" y1="80" x2="44" y2="132" stroke="#3a2414" stroke-width="5"/>\n'
+        '  <line x1="116" y1="80" x2="116" y2="132" stroke="#3a2414" stroke-width="5"/>\n'
+        '  <path d="M28,88 q52,-8 104,0" fill="none" stroke="#1e4e8a" stroke-width="3"/>\n'
+    )
+
+
+def _town_store_overlay() -> str:
+    return (
+        '  <rect x="30" y="40" width="100" height="90" fill="#d8c4a0" stroke="#4a3420" stroke-width="2"/>\n'
+        '  <rect x="30" y="30" width="100" height="18" fill="#6b3e16" stroke="#3a2414" stroke-width="2"/>\n'
+        '  <rect x="44" y="56" width="28" height="36" fill="#7ec8e8" stroke="#2a4050" stroke-width="1.5"/>\n'
+        '  <rect x="88" y="56" width="28" height="36" fill="#7ec8e8" stroke="#2a4050" stroke-width="1.5"/>\n'
+        '  <rect x="68" y="84" width="24" height="46" fill="#8a5520" stroke="#3a2414" stroke-width="2"/>\n'
+        '  <circle cx="86" cy="108" r="3" fill="#c9a227"/>\n'
+        '  <rect x="58" y="108" width="22" height="10" rx="3" fill="#c9a227" stroke="#6b4a10" stroke-width="1.4"/>\n'
+        '  <rect x="62" y="110" width="14" height="6" rx="2" fill="#8a7018"/>\n'
+    )
+
+
+def _town_forge_overlay() -> str:
+    return (
+        '  <rect x="36" y="70" width="88" height="54" fill="#5a4a44" stroke="#2a2018" stroke-width="2"/>\n'
+        '  <rect x="48" y="40" width="64" height="50" fill="#6a5a52" stroke="#2a2018" stroke-width="2"/>\n'
+        '  <rect x="58" y="54" width="44" height="32" fill="#f0a030"/>\n'
+        '  <path d="M80,78 c-8,-16 -4,-28 0,-36 c6,10 12,16 8,36 z" fill="#f4d060"/>\n'
+        '  <path d="M80,78 c-5,-10 -2,-20 0,-26 c4,6 7,10 5,26 z" fill="#f07a20"/>\n'
+        '  <rect x="24" y="108" width="48" height="16" rx="3" fill="#4a4a52" stroke="#202028" stroke-width="2"/>\n'
+        '  <rect x="40" y="96" width="16" height="16" fill="#3a3a42" stroke="#202028" stroke-width="2"/>\n'
+        '  <rect x="100" y="100" width="28" height="22" fill="#3a322c" stroke="#2a2018" stroke-width="2"/>\n'
+    )
+
+
+def svg_town_tile(info: dict) -> str:
+    tile = (info or {}).get("tile") or "grass"
+    snow = bool((info or {}).get("snow"))
+    body = _town_ground(snow)
+    if tile == "stall":
+        body += _town_stall_overlay()
+    elif tile == "store":
+        body += _town_store_overlay()
+    elif tile == "forge":
+        body += _town_forge_overlay()
+    return _svg(body)
+
+
 def svg_cabin_interior(info: dict) -> str:
     tile = (info or {}).get("tile") or "floor"
     fire = bool((info or {}).get("fire"))
@@ -1461,6 +1567,8 @@ def svg_for_key(key: str) -> str:
     kind = info.get("kind")
     if info.get("hills"):
         return svg_hills_tile(info)
+    if info.get("town") or kind == "town":
+        return svg_town_tile(info)
     if info.get("mine") or kind in {"mine_floor", "mine_safe"}:
         return svg_mine_tile(info)
     if kind == "cabin_interior":

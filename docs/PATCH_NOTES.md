@@ -36,6 +36,15 @@ Rick and Lumen’s first official-project day on Lantern Farm. A full day of eng
 - The mine opened, with a forge at the cabin, mine actions in the web UI, Storybook mine art, and stone from plain rock. The pickaxe appears in a shop Tools section once the mine is found. (`f22f892`, `4b6c38d`, `74d869f`, `e709e37`)
 - Chopping a grown tree always reports a success or a clear refusal (still growing, no axe, pack full). A dawn “grown tall” note matches a tree you can chop. `python3 cli.py chop` works without wrapping the verb in `do`. (`this change`)
 
+
+### East market town
+
+- A 3×3 market town is east of the cabin tile, unlocked from day 1. Walk east from the cabin (or `go town`) to enter at town row 1 col 1. The stall is row 1 col 2, the honour store row 2 col 1, and the forge row 2 col 3. The rest is grass. (`this change`)
+- The stall replaces selling at the cabin. Drop goods into the stall; they sell automatically when the day ends. Spend 50 energy at the stall to sell everything now. The stall takes what the cabin shop used to buy, plus fresh produce, jam, wood, stone, and ore, at the existing prices. Foraged goods and cooked meals other than jam still are not sold. (`this change`)
+- Buying moved to the honour store. There is no shopkeeper: coins come straight from the purse, with a line like “left 20G in the tin.” The pickaxe stays hidden until someone finds the mine entrance. (`this change`)
+- The forge moved from the cabin to town row 2 col 3, with the same upgrade recipes. (`this change`)
+- Older saves gain the town on load without changing the day, season, weather, gold, energy, or the current turn. (`this change`)
+
 ### Tools
 
 - Forged tool tiers now only change energy: basic 10, copper 8, iron 6, gold 4, for the hoe, watering can, axe, and pickaxe. Iron no longer adds +1 yield, and a gold pickaxe no longer breaks a neighbouring rock. Existing upgraded tools keep their tier. (`this change`)

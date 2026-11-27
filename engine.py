@@ -654,12 +654,14 @@ def sleep_outlook(state: dict, player: str, rules: dict | None = None) -> str:
         if together_rest_applies(state, rules):
             line += ", sleeping close tonight"
         return line
-    from hills import AREA_HILLS
+    from hills import AREA_HILLS, AREA_TOWN, AREA_MINE
     area = str(player_slot(state, player).get("area") or "").strip().lower()
     if area == AREA_HILLS or area == "hills":
         where = "in the hills"
-    elif area == "mine":
+    elif area == AREA_MINE or area == "mine":
         where = "in the mine"
+    elif area == AREA_TOWN or area == "town":
+        where = "in town"
     else:
         where = "in the field"
     return f"You'll pass out {where} — {faint} energy tomorrow"
@@ -1883,9 +1885,13 @@ def farm_action_refused(state: dict, player: str | None, verb: str) -> str | Non
 
 
 def get_tile(state: dict, row: int, col: int, area: str | None = None) -> dict:
-    from hills import AREA_HILLS, normalize_area, get_hills_tile
+    from hills import AREA_HILLS, AREA_TOWN, normalize_area, get_hills_tile
     if area and normalize_area(area) == AREA_HILLS:
         return get_hills_tile(state, row, col)
+    if area and normalize_area(area) == AREA_TOWN:
+        from town import ensure_town, get_town_tile
+        ensure_town(state)
+        return get_town_tile(state, row, col)
     return state["tiles"][row - 1][col - 1]
 
 
@@ -1971,6 +1977,8 @@ def fresh_state(crops: dict | None = None, weather_seed: int | None = None, rule
     migrate_inventory(state, crops, rules)
     from hills import migrate_hills
     migrate_hills(state, rules)
+    from town import migrate_town
+    migrate_town(state, rules)
     if is_wet_weather(weather):
         dawn_water(state, rules)
         log_append(state, weather_arrive_message(weather))
@@ -2442,10 +2450,15 @@ def migrate_state(state: dict, rules: dict | None = None) -> bool:
         from hills import migrate_hills
         if migrate_hills(state, rules):
             changed = True
+        from town import migrate_town
+        if migrate_town(state, rules):
+            changed = True
         return changed
     apply_new_day_turns(state, rules)
     from hills import migrate_hills
     migrate_hills(state, rules)
+    from town import migrate_town
+    migrate_town(state, rules)
     return True
 
 
@@ -3521,6 +3534,22 @@ def fertilize(
     return True, msg
 
 
+
+def _player_at_honour_store(state: dict, player: str | None) -> bool:
+    from town import is_player_at_store
+    return is_player_at_store(state, player)
+
+
+def _honour_store_too_far() -> str:
+    from town import store_too_far_message
+    return store_too_far_message()
+
+
+def _honour_buy_msg(player: str | None, label: str, price: int, where: str, gold_left: int) -> str:
+    from town import honour_purchase_message
+    return honour_purchase_message(player, label, price, where, gold_left)
+
+
 def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[bool, str]:
     from inventory import (
         store_item,
@@ -3553,17 +3582,13 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         gold = int(state["gold"])
         if gold < price:
             return False, f"Not enough gold. A pickaxe costs {price}G; you have {gold}G."
-        if player and not is_player_in_cabin(state, player):
-            return False, "The shop is at the cabin. Walk there to buy."
+        if player and not _player_at_honour_store(state, player):
+            return False, _honour_store_too_far()
         state["gold"] = gold - price
         prefer = "pack" if player and pack_space_for(state, player, TOOL_PICKAXE, 1) else "chest"
         store_item(state, TOOL_PICKAXE, 1, player, prefer=prefer if player else "chest")
         where = "the backpack" if prefer == "pack" and player else "the cabin chest"
-        msg = (
-            f"{who(player, 'buy', 'buys')} a pickaxe for {price}G ({where}). "
-            f"{display_name(player) if player else 'You'} "
-            f"{'has' if player else 'have'} {state['gold']}G left."
-        )
+        msg = _honour_buy_msg(player, "a pickaxe", price, where, state["gold"])
         log_append(state, msg, player)
         return True, msg
     fert_item = fertilizer_item_for_kind(str(kind))
@@ -3586,18 +3611,13 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
                 False,
                 f"Not enough gold. {label} cost {price}G; you have {gold}G.",
             )
-        if player and not is_player_in_cabin(state, player):
-            return False, "The shop is at the cabin. Walk there to buy."
+        if player and not _player_at_honour_store(state, player):
+            return False, _honour_store_too_far()
         state["gold"] = gold - price
         prefer = "pack" if player and pack_space_for(state, player, fert_item, count) else "chest"
         store_item(state, fert_item, count, player, prefer=prefer if player else "chest")
         where = "the backpack" if prefer == "pack" and player else "the cabin chest"
-        msg = (
-            f"{who(player, 'buy', 'buys')} {label} for {price}G "
-            f"({where}). "
-            f"{display_name(player) if player else 'You'} "
-            f"{'has' if player else 'have'} {state['gold']}G left."
-        )
+        msg = _honour_buy_msg(player, label, price, where, state["gold"])
         log_append(state, msg, player)
         return True, msg
     from inventory import is_staple, staple_info, STAPLES, normalize_item as _norm_item
@@ -3620,18 +3640,13 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
                 False,
                 f"Not enough gold. {label} cost {price}G; you have {gold}G.",
             )
-        if player and not is_player_in_cabin(state, player):
-            return False, "The shop is at the cabin. Walk there to buy."
+        if player and not _player_at_honour_store(state, player):
+            return False, _honour_store_too_far()
         state["gold"] = gold - price
         prefer = "pack" if player and pack_space_for(state, player, staple, count) else "chest"
         store_item(state, staple, count, player, prefer=prefer if player else "chest")
         where = "the backpack" if prefer == "pack" and player else "the cabin chest"
-        msg = (
-            f"{who(player, 'buy', 'buys')} {label} for {price}G "
-            f"({where}). "
-            f"{display_name(player) if player else 'You'} "
-            f"{'has' if player else 'have'} {state['gold']}G left."
-        )
+        msg = _honour_buy_msg(player, label, price, where, state["gold"])
         log_append(state, msg, player)
         return True, msg
     kind = normalize_kind(str(kind))
@@ -3657,8 +3672,8 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
             False,
             f"Not enough gold. {count} {label} cost {price}G; you have {gold}G.",
         )
-    if player and not is_player_in_cabin(state, player):
-        return False, "The shop is at the cabin. Walk there to buy."
+    if player and not _player_at_honour_store(state, player):
+        return False, _honour_store_too_far()
     state["gold"] = gold - price
     seed_key = stock_key(kind, info)
     from inventory import store_item, pack_space_for, item_name as inv_item_name
@@ -3667,72 +3682,21 @@ def buy(state: dict, crops: dict, kind, n, player: str | None = None) -> tuple[b
         prefer = "chest"
     store_item(state, seed_key, count, player, prefer=prefer if player else "chest")
     where = "the backpack" if prefer == "pack" and player else "the cabin chest"
-    msg = (
-        f"{who(player, 'buy', 'buys')} {count} {label} for {price}G "
-        f"({where}). "
-        f"{display_name(player) if player else 'You'} "
-        f"{'has' if player else 'have'} {state['gold']}G left."
-    )
+    msg = _honour_buy_msg(player, f"{count} {label}", price, where, state["gold"])
     log_append(state, msg, player)
     return True, msg
 
 
 def sell(state: dict, crops: dict, kind, n, player: str | None = None, rules: dict | None = None) -> tuple[bool, str]:
-    from inventory import (
-        item_name,
-        item_sell_price,
-        normalize_item,
-        take_available,
-        pack_has,
-        item_count,
-        sync_inventory_view,
-    )
-    if player and not is_player_in_cabin(state, player):
-        return False, "Sell from the cabin. Carry the goods home first."
-    item = normalize_item(str(kind)) or normalize_kind(str(kind))
-    from inventory import pack_of, chest_of, prefer_available_stock
-    holders = []
-    if player:
-        holders.append(pack_of(state, player, rules))
-    holders.append(chest_of(state, rules))
-    item = prefer_available_stock(item, holders, crops, rules)
-    price = item_sell_price(item, crops, rules)
-    if price is None:
-        from inventory import is_forage_item, recipes, recipe_is_sellable
-        if is_forage_item(item) or is_forage_item(normalize_item(str(kind))):
-            return False, "The shop doesn't buy foraged goods."
-        recs = recipes(rules)
-        rec = recs.get(item)
-        if rec and not recipe_is_sellable(item, rec):
-            return False, (
-                "The shop only buys jam for now. Eat cooked meals, or keep them for later."
-            )
-        known = ", ".join(crops.get("crops", {}))
-        return False, f"Unknown or unsellable item {kind!r}. You can sell: {known}."
-    count, err = _parse_count(n)
-    if err:
-        return False, err
-    have = item_count(state, item, rules)
-    if player:
-        from inventory import pack_of, chest_of, stack_count
-        have = stack_count(pack_of(state, player, rules), item) + stack_count(chest_of(state, rules), item)
-    if have < count:
-        return False, f"You only have {have} {item_name(item, max(have, 1), crops, rules).split(' ', 1)[-1] if have != 1 else item_name(item, 1, crops, rules)[2:]} to sell."
-    taken = take_available(state, item, count, player, pack_only=False, rules=rules)
-    if taken < count:
-        # refund nothing; take_available is all-or-we already checked
-        return False, f"You only have {taken} to sell."
-    gold = int(price) * count
-    state["gold"] = int(state["gold"]) + gold
-    noun = item_name(item, count, crops, rules, state=state)
-    # item_name already includes the count
-    msg = (
-        f"{who(player, 'sell', 'sells')} {noun} for {gold}G. "
-        f"{display_name(player) if player else 'You'} now "
-        f"{'has' if player else 'have'} {state['gold']}G."
-    )
-    log_append(state, msg, player)
-    return True, msg
+    """Put sellable goods in the market stall. They sell when the day ends.
+
+    Calls with no player cash out immediately from the chest (test / unattended path).
+    """
+    from town import deposit_in_stall, cash_out_item
+    if not player:
+        return cash_out_item(state, crops, kind, n, rules)
+    return deposit_in_stall(state, crops, kind, n, player, rules)
+
 
 
 def weed_rules(rules: dict | None = None) -> dict:
@@ -4404,7 +4368,13 @@ def _apply_frost(state: dict, crops: dict, *, winter_arrived: bool = False) -> l
 def advance_day(state: dict, crops: dict, rules: dict | None = None) -> tuple[bool, str]:
     """Apply evening growth and dawn the next day. Used when both players end their turn."""
     rules = rules or load_rules()
-    notes = _apply_evening_growth(state, crops, rules)
+    from town import ensure_town, settle_stall
+    ensure_town(state, rules)
+    _gold, stall_msg = settle_stall(state, crops, rules, log=False)
+    notes = []
+    if stall_msg:
+        notes.append(stall_msg)
+    notes.extend(_apply_evening_growth(state, crops, rules))
     prior_season = state.get("season")
     state["day"] = int(state["day"]) + 1
     state["season"] = season_for_day(state["day"], crops)
@@ -4539,10 +4509,15 @@ def move_one(state: dict, player: str, direction: str, rules: dict | None = None
     dest = (row + delta[0], col + delta[1])
     if not in_bounds(*dest):
         from hills import AREA_MINE
+        from hills import AREA_TOWN as _TOWN
         if area == AREA_CABIN:
             return False, "There's no path that way. Leave through the door at bottom-left."
         if area == AREA_FARM and canonical == "up":
             return False, "There's no farm that way. Walk north from the cabin to reach the hills."
+        if area == AREA_FARM and canonical == "right":
+            return False, "There's no farm that way. Walk east from the cabin to reach the market town."
+        if area == _TOWN:
+            return False, "There's no path that way. Walk west from the town entrance to return to the cabin."
         if area == AREA_HILLS or area == AREA_MINE:
             return False, "There's no path that way."
         return False, "There's no farm that way."
@@ -4629,6 +4604,91 @@ def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     )
 
 
+def go_town(state: dict, player: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Walk to the market town entrance (east of the cabin)."""
+    rules = rules or load_rules()
+    from hills import (
+        player_area, path_places, set_player_place, is_cabin_place,
+        describe_where as describe_area_where, AREA_FARM, AREA_CABIN, AREA_MINE, AREA_TOWN,
+    )
+    from town import TOWN_ENTRANCE
+    src = player_where(state, player)
+    area = player_area(state, player)
+    if area == AREA_MINE:
+        return False, (
+            "Leave the mine first. Climb up or take the elevator to the entrance, then walk to town."
+        )
+    if area == AREA_CABIN:
+        return False, (
+            "Leave the cabin first. Step out through the door, then walk east into town."
+        )
+    if area == AREA_TOWN:
+        return True, f"{display_name(player)} is already {describe_area_where(area, *src)}."
+    if is_cabin_place(area, *src):
+        return move_one(state, player, "east", rules)
+    places = path_places(area, src, AREA_TOWN, TOWN_ENTRANCE)
+    if not places:
+        return False, "There's no path to town from here."
+    cost = step_energy(rules) * len(places)
+    slot = player_slot(state, player)
+    energy = int(slot["energy"])
+    if cost > energy:
+        return (
+            False,
+            f"Not enough energy. Walking to town is "
+            f"{steps_phrase(len(places))} ({cost} energy); "
+            f"{display_name(player)} has {energy} left.",
+        )
+    set_player_place(state, player, AREA_TOWN, TOWN_ENTRANCE[0], TOWN_ENTRANCE[1])
+    slot["energy"] = energy - cost
+    return (
+        True,
+        f"{display_name(player)} walks to the market town "
+        f"({steps_phrase(len(places))}, {cost} energy).",
+    )
+
+
+def go_town_feature(state: dict, player: str, feature: str, rules: dict | None = None) -> tuple[bool, str]:
+    """Walk to the stall, store, or forge. From outside town, go via the entrance."""
+    rules = rules or load_rules()
+    from hills import player_area, path_places, set_player_place, AREA_TOWN, AREA_CABIN, AREA_MINE
+    from town import TOWN_STALL, TOWN_STORE, TOWN_FORGE, TOWN_ENTRANCE
+    from hills import describe_place as describe_area_place
+    dest = {"stall": TOWN_STALL, "store": TOWN_STORE, "forge": TOWN_FORGE}[feature]
+    area = player_area(state, player)
+    here = player_where(state, player)
+    if area == AREA_MINE:
+        return False, "Leave the mine first, then walk to town."
+    if area == AREA_CABIN:
+        return False, "Leave the cabin first, then walk east into town."
+    if area == AREA_TOWN and here == dest:
+        return True, f"{display_name(player)} is already at the {feature}."
+    if area != AREA_TOWN:
+        ok, msg = go_town(state, player, rules)
+        if not ok:
+            return ok, msg
+        area = AREA_TOWN
+        here = TOWN_ENTRANCE
+    places = path_places(area, here, AREA_TOWN, dest)
+    # path_places same-area includes dest and starts after src, so cost is correct,
+    # but if we just arrived at the entrance this turn we already paid to get there.
+    steps = path_steps(here, dest)
+    cost = step_energy(rules) * len(steps)
+    slot = player_slot(state, player)
+    energy = int(slot["energy"])
+    if cost > energy:
+        return (
+            False,
+            f"Not enough energy. Walking to the {feature} is "
+            f"{steps_phrase(len(steps))} ({cost} energy); "
+            f"{display_name(player)} has {energy} left.",
+        )
+    set_player_place(state, player, AREA_TOWN, dest[0], dest[1])
+    slot["energy"] = energy - cost
+    paid = f" ({steps_phrase(len(steps))}, {cost} energy)" if cost else ""
+    return True, f"{display_name(player)} walks to {describe_area_place(AREA_TOWN, *dest)}{paid}."
+
+
 def do_move_command(
     state: dict,
     player: str,
@@ -4645,7 +4705,7 @@ def do_move_command(
     if words and words[0] == "to":
         words = words[1:]
     if not words:
-        return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
+        return False, "Usage: move up/down/left/right, move to <row> <col>, go cabin, or go town"
     from hills import normalize_direction
     if len(words) == 1 and (words[0] in MOVE_DELTA or normalize_direction(words[0]) in MOVE_DELTA):
         return move_one(state, player, words[0], rules)
@@ -4664,6 +4724,10 @@ def do_move_command(
         if not is_cabin_place(area, *here):
             return False, "Walk to the cabin first, then go north into the hills."
         return move_one(state, player, "north", rules)
+    if words and words[0] in {"town", "market"}:
+        return go_town(state, player, rules)
+    if words and words[0] in {"stall", "store", "forge"}:
+        return go_town_feature(state, player, words[0], rules)
     if words and words[0] in {"mine", "mines", "cave"}:
         from mine import enter_mine
         from hills import player_area, AREA_MINE
@@ -4684,7 +4748,7 @@ def do_move_command(
         return ok, msg
     if len(words) == 2:
         return move_to(state, player, words[0], words[1], rules)
-    return False, "Usage: move up/down/left/right, move to <row> <col>, or go cabin"
+    return False, "Usage: move up/down/left/right, move to <row> <col>, go cabin, or go town"
 
 
 def eat(
@@ -4900,8 +4964,14 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     rules = rules or load_rules()
     crops = crops or load_crops()
     from cabin import player_at_cabin_tile
+    from town import is_player_at_stall, remove_from_stall, stall_of, stall_item_count
+    if is_player_at_stall(state, player):
+        return _take_from_stall(state, item, n, player, rules, crops)
     if not player_at_cabin_tile(state, player, "chest"):
-        return False, "The chest is inside the cabin. Walk to the chest to take something."
+        return False, (
+            "The chest is inside the cabin. Walk to the chest to take something, "
+            "or to the market stall in town to take unsold goods back."
+        )
     if isinstance(item, list):
         item, n, err = parse_item_and_count(item)
         if err:
@@ -4938,8 +5008,50 @@ def take_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     return True, msg
 
 
+def _take_from_stall(state, item, n, player, rules, crops) -> tuple[bool, str]:
+    from inventory import (
+        normalize_item, parse_item_and_count, pack_space_for, add_to_pack,
+        item_name, prefer_available_stock, stall_of as _unused,
+        sync_inventory_view,
+    )
+    from town import stall_of, remove_from_stall
+    from inventory import stack_count
+    if isinstance(item, list):
+        item, n, err = parse_item_and_count(item)
+        if err:
+            return False, err
+    else:
+        item = normalize_item(str(item)) or str(item).strip().lower()
+        count, err = _parse_count(n)
+        if err:
+            return False, err
+        n = count
+    item = prefer_available_stock(item, [stall_of(state)], crops, rules)
+    have = stack_count(stall_of(state), item)
+    if _is_all_count(n):
+        n = have
+    if n < 1 or have < 1:
+        return False, "The stall doesn't have that item."
+    if not pack_space_for(state, player, item, n, rules):
+        return False, f"{display_name(player)}'s backpack has no room for {item_name(item, n, crops, rules, state=state)}."
+    if have < n:
+        return False, f"The stall only has {item_name(item, have, crops, rules, state=state)}."
+    removed = remove_from_stall(state, item, n, rules)
+    leftover = add_to_pack(state, player, item, removed, rules)
+    if leftover:
+        from town import add_to_stall
+        add_to_stall(state, item, leftover, rules)
+        removed -= leftover
+    sync_inventory_view(state, rules)
+    if removed <= 0:
+        return False, "Nothing was taken."
+    msg = f"{display_name(player)} takes {item_name(item, removed, crops, rules, state=state)} back from the stall."
+    log_append(state, msg, player)
+    return True, msg
+
+
 def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crops: dict | None = None) -> tuple[bool, str]:
-    """Move items from the pack into the cabin chest. Must be at the cabin."""
+    """Move items from the pack into the cabin chest, or into the market stall."""
     from inventory import (
         normalize_item,
         parse_item_and_count,
@@ -4952,8 +5064,14 @@ def drop_item(state: dict, item, n, player: str, rules: dict | None = None, crop
     rules = rules or load_rules()
     crops = crops or load_crops()
     from cabin import player_at_cabin_tile
+    from town import is_player_at_stall, deposit_in_stall
+    if is_player_at_stall(state, player):
+        return deposit_in_stall(state, crops, item, n, player, rules)
     if not player_at_cabin_tile(state, player, "chest"):
-        return False, "The chest is inside the cabin. Walk to the chest to drop something."
+        return False, (
+            "The chest is inside the cabin. Walk to the chest to drop something, "
+            "or to the market stall in town to leave goods for sale."
+        )
     if isinstance(item, list):
         item, n, err = parse_item_and_count(item)
         if err:
@@ -5334,10 +5452,16 @@ def legal_actions(
     actions: list[str] = []
     from hills import (
         player_area, area_crossing, path_places, is_cabin_place,
-        AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, iter_hills_tiles, get_hills_tile,
+        AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, AREA_TOWN, iter_hills_tiles, get_hills_tile,
         has_grown_tree, has_forage, hills_tiles, is_mine_entrance_tile,
         finish_pending_tree_growth,
     )
+    from town import (
+        ensure_town, iter_town_tiles, is_player_at_stall, is_player_at_store,
+        is_player_at_forge, stall_counts, stall_is_empty, stall_sell_price,
+        instant_sell_energy,
+    )
+    ensure_town(state, rules)
     from cabin import (
         iter_cabin_tiles, is_farm_cabin_tile, player_at_cabin_tile, is_cabin_interior,
         cabin_tile_kind,
@@ -5360,6 +5484,10 @@ def legal_actions(
                     actions.append("go north")
                 elif direction == "down":
                     actions.append("go south")
+                elif direction == "left":
+                    actions.append("go west")
+                elif direction == "right":
+                    actions.append("go east")
             continue
         dest = (here[0] + delta[0], here[1] + delta[1])
         if in_bounds(*dest) and energy >= step_here:
@@ -5369,12 +5497,17 @@ def legal_actions(
         walk = step * len(places) if places else path_cost(here, (CABIN_ROW, CABIN_COL), rules)
         if places and energy >= walk:
             actions.append("go cabin")
+    if is_farm_cabin_tile(area, *here) and energy >= step:
+        actions.append("go town")
+        actions.append("go hills")
     if area == AREA_HILLS:
         tile_iter = iter_hills_tiles(state) if hills_tiles(state) else []
     elif area == AREA_MINE and floor:
         tile_iter = iter_mine_tiles(state, floor, rules)
     elif area == AREA_CABIN:
         tile_iter = iter_cabin_tiles(state)
+    elif area == AREA_TOWN:
+        tile_iter = iter_town_tiles(state)
     else:
         tile_iter = iter_tiles(state)
     for r, c, tile in tile_iter:
@@ -5410,6 +5543,10 @@ def legal_actions(
     elif area == AREA_CABIN:
         from cabin import get_cabin_tile
         tile = get_cabin_tile(state, r, c)
+        tile_type = tile.get("type")
+    elif area == AREA_TOWN:
+        from town import get_town_tile
+        tile = get_town_tile(state, r, c)
         tile_type = tile.get("type")
     elif area == AREA_MINE and floor:
         tile = get_mine_tile(state, floor, r, c, rules)
@@ -5499,8 +5636,10 @@ def legal_actions(
         item_sell_price,
         stack_count,
     )
-    at_cabin = is_cabin_place(area, *here)
-    if at_cabin:
+    at_store = is_player_at_store(state, actor)
+    at_stall = is_player_at_stall(state, actor)
+    at_forge = is_player_at_forge(state, actor)
+    if at_store:
         for kind, info in crops.get("crops", {}).items():
             if crop_for_sale(info, state.get("season"), day=state.get("day"), crops=crops):
                 price = int(info["seed_price"])
@@ -5519,31 +5658,44 @@ def legal_actions(
         from inventory import TOOL_PICKAXE, item_count, item_label
         if pickaxe_unlocked(state) and not pickaxe_in_world(state, rules):
             # Always list it once the entrance is found, even if gold is short,
-            # so the shop, look, and CLI can show the price.
+            # so the store, look, and CLI can show the price.
             actions.append("buy pickaxe 1")
-        if actor and energy >= energy_cost("forge", rules):
-            for tool in FORGE_TOOLS:
-                nxt = next_tool_tier(tool_tier(state, tool))
-                if not nxt:
-                    continue
-                if tool == TOOL_PICKAXE and not pickaxe_in_world(state, rules):
-                    continue
-                if tool != TOOL_PICKAXE and item_count(state, tool, rules) < 1:
-                    continue
-                ore = TIER_ORE[nxt]
-                if item_count(state, ore, rules) >= upgrade_ore_cost(rules):
-                    actions.append(f"forge {tool}")
+    if at_forge and actor and energy >= energy_cost("forge", rules):
+        from inventory import TOOL_PICKAXE, item_count
+        for tool in FORGE_TOOLS:
+            nxt = next_tool_tier(tool_tier(state, tool))
+            if not nxt:
+                continue
+            if tool == TOOL_PICKAXE and not pickaxe_in_world(state, rules):
+                continue
+            if tool != TOOL_PICKAXE and item_count(state, tool, rules) < 1:
+                continue
+            ore = TIER_ORE[nxt]
+            if item_count(state, ore, rules) >= upgrade_ore_cost(rules):
+                actions.append(f"forge {tool}")
+    if at_stall and actor:
+        from inventory import pack_space_for
         sellable = {}
-        if actor:
-            for slot in (pack_of(state, actor, rules) + chest_of(state, rules)):
-                if not slot:
-                    continue
-                item = slot.get("item")
-                if item and item_sell_price(item, crops, rules) is not None:
-                    sellable[item] = sellable.get(item, 0) + int(slot.get("count") or 0)
+        for slot in pack_of(state, actor, rules):
+            if not slot:
+                continue
+            item = slot.get("item")
+            if item and stall_sell_price(item, crops, rules) is not None:
+                sellable[item] = sellable.get(item, 0) + int(slot.get("count") or 0)
         for item, have in sellable.items():
             if have > 0:
                 actions.append(f"sell {item} 1")
+                actions.extend(take_drop_actions("drop", item, have))
+        for item, have in stall_counts(state, rules).items():
+            if have > 0:
+                actions.extend(take_drop_actions(
+                    "take",
+                    item,
+                    have,
+                    room_for=lambda n, item=item: pack_space_for(state, actor, item, n, rules),
+                ))
+        if not stall_is_empty(state):
+            actions.append("sell now")
     if is_farm_cabin_tile(area, *here):
         actions.append("enter cabin")
     if player_at_cabin_tile(state, actor, "door"):
@@ -5823,6 +5975,19 @@ def action_descriptor(
         cost = steps * step
         step_word = "step" if steps == 1 else "steps"
         return f"to the cabin, {steps} {step_word}, {_energy_word(cost)}"
+    if verb == "go" and args and args[0] in {"town", "market"}:
+        from town import TOWN_ENTRANCE
+        from hills import AREA_TOWN as _TOWN
+        places = path_places(actor_area, here, _TOWN, TOWN_ENTRANCE)
+        steps = len(places) if places else 1
+        cost = steps * step
+        step_word = "step" if steps == 1 else "steps"
+        return f"to the market town, {steps} {step_word}, {_energy_word(cost)}"
+    if verb == "go" and args and args[0] in {"stall", "store", "forge"}:
+        return f"to the {args[0]} in town"
+    if verb == "sell" and args and " ".join(args).strip().lower() in {"now", "stall", "stall now", "now stall", "all", "everything"}:
+        from town import instant_sell_energy
+        return f"{_energy_word(instant_sell_energy(rules))}, sell everything in the stall now"
     if verb == "go" and args and args[0] in {"north", "south", "east", "west", "hills", "hill"}:
         if args[0] in {"hills", "hill"}:
             direction = "up"
@@ -5831,7 +5996,13 @@ def action_descriptor(
         crossing = area_crossing(actor_area, here[0], here[1], direction)
         if crossing:
             dest_area, dr, dc = crossing
-            label = "the hills" if dest_area == AREA_HILLS else "the cabin"
+            from hills import AREA_TOWN as _TOWN
+            if dest_area == AREA_HILLS:
+                label = "the hills"
+            elif dest_area == _TOWN:
+                label = "the market town"
+            else:
+                label = "the cabin"
             return f"to {label} r{dr} c{dc}, {_energy_word(step)}"
         delta = MOVE_DELTA.get(direction)
         if delta:
@@ -6315,6 +6486,11 @@ def do_action(
             return False, err or "Usage: buy <kind> <count>   example: buy kabocha 2"
         ok, msg = buy(state, crops, item, count, actor)
     elif verb == "sell":
+        joined = " ".join(args).strip().lower()
+        if joined in {"now", "stall", "stall now", "now stall", "all", "everything"}:
+            from town import sell_stall_now
+            ok, msg = sell_stall_now(state, actor, crops, rules)
+            return ok, msg
         from inventory import parse_item_and_count
         item, count, err = parse_item_and_count(args)
         if err or not item:
@@ -6419,9 +6595,9 @@ def do_action(
     else:
         return (
             False,
-            "Unknown action. Try look, move, go cabin, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
+            "Unknown action. Try look, move, go cabin, go town, go north, enter cabin, leave cabin, enter mine, climb, mine, rest, "
             "elevator, forge, till, plant, water, harvest, pluck, unearth, fertilize, chop, forage, "
-            "eat, buy, sell, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
+            "eat, buy, sell, sell now, take, drop, craft, recipes, fuel fireplace, fuel stove, or end turn.",
         )
 
     if ok and cost:

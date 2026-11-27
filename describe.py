@@ -226,10 +226,11 @@ def _avatar_mark(state: dict, row: int, col: int, area: str | None = None) -> st
 
 def ascii_map(state: dict, area: str | None = None, viewer: str | None = None) -> str:
     from hills import (
-        AREA_HILLS, AREA_FARM, AREA_MINE, normalize_area, player_area, hills_tiles,
+        AREA_HILLS, AREA_FARM, AREA_MINE, AREA_TOWN, normalize_area, player_area, hills_tiles,
         get_hills_tile, map_cell_lines, area_title,
     )
     from mine import get_mine_tile, player_floor, map_cell_lines as mine_map_cell_lines
+    from town import get_town_tile, map_cell_lines as town_map_cell_lines, ensure_town
     if area is None and viewer:
         area = player_area(state, viewer)
     area = normalize_area(area)
@@ -246,6 +247,10 @@ def ascii_map(state: dict, area: str | None = None, viewer: str | None = None) -
             elif area == AREA_MINE and floor:
                 tile = get_mine_tile(state, floor, r, c)
                 a, b = mine_map_cell_lines(tile)
+            elif area == AREA_TOWN:
+                ensure_town(state)
+                tile = get_town_tile(state, r, c)
+                a, b = town_map_cell_lines(tile)
             else:
                 a, b = _ascii_cell(get_tile(state, r, c))
             mark = _avatar_mark(state, r, c, area=area)
@@ -332,8 +337,10 @@ def describe_tile(state: dict, crops: dict, row: int, col: int) -> str:
         if state.get("fireplace_fueled") or tile.get("fire"):
             cabin = cabin.rstrip(".") + ". A fire is laid in the fireplace for tonight."
         return (
-            f"  {here} — {cabin}{who_bit} "
-            f"(sprite: {key})"
+            f"  {here} — {cabin} "
+            "Walk east for the market town, or north for the hills. "
+            "Press E to step inside."
+            f"{who_bit} (sprite: {key})"
         )
     moist = "watered today" if tile.get("watered") else "dry today"
     tilled = "tilled" if tile.get("tilled") else "untilled"
@@ -537,9 +544,10 @@ def describe_state(
     if forecast:
         lines += [""] + forecast
     from hills import (
-        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, area_title, elsewhere_lines,
+        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_TOWN, area_title, elsewhere_lines,
         describe_hills_tile, hills_tiles, normalize_area,
     )
+    from town import describe_town_tile, ensure_town
     from mine import describe_mine_tile, player_floor
     view_area = player_area(state, viewer) if viewer else AREA_FARM
     view_floor = player_floor(state, viewer) if viewer and view_area == AREA_MINE else None
@@ -565,6 +573,9 @@ def describe_state(
                 lines.append(describe_hills_tile(state, r, c, state.get("weather")))
             elif view_area == AREA_MINE and view_floor:
                 lines.append(describe_mine_tile(state, view_floor, r, c))
+            elif view_area == AREA_TOWN:
+                ensure_town(state)
+                lines.append(describe_town_tile(state, r, c, state.get("weather")))
             else:
                 lines.append(describe_tile(state, crops, r, c))
 
@@ -623,13 +634,19 @@ def describe_state(
         "`move to <row> <col>`, or `go cabin`; "
         "each step costs 5 energy, diagonals included. "
         "Walk north from the cabin to reach the hills at the bottom-right tile; "
-        "walk south from that tile to come home. In the hills, `chop` a grown tree "
+        "walk south from that tile to come home. Walk east from the cabin to the "
+        "market town (entrance row 1 col 1): the stall is row 1 col 2, the honour "
+        "store row 2 col 1, and the forge row 2 col 3. In the hills, `chop` a grown tree "
         "(axe, 10 energy) or `forage` a wild plant (5 energy). "
         "Ending your turn in the cabin is sleep (full energy tomorrow, in the cabin). "
         "Ending it anywhere else is passing out (half energy tomorrow, where you fell). "
         "Till needs a hoe in your backpack; water needs a watering can. One hoe and two cans "
         "start in the cabin chest. Each player has a 4-slot backpack. Harvest goes into the backpack; "
-        "carry it home to share or sell. `take` and `drop` at the cabin move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). `buy`, `sell`, and `craft` only work at the cabin too. "
+        "carry it home to share or sell. `take` and `drop` at the cabin chest move items between the backpack and the chest (`take everbearing 1` or `take everbearing all`, and the same for `drop`). "
+        "Buy at the honour store in town (`buy`, coins come straight from the purse). "
+        "Sell at the market stall: drop goods there and they sell when the day ends, "
+        "or `sell now` for 50 energy. `craft` is still at the cabin kitchen, and "
+        "`forge` is at the town forge. "
         "Eat a snack from the backpack with `eat <crop>` (free, up to 2 snacks a turn). "
         "The shop sells a seed when the days left in this season plus the following "
         "consecutive growing seasons are enough for it to finish (planting today still "

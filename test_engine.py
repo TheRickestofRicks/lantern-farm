@@ -107,6 +107,28 @@ def stand(state, player, row=1, col=1):
     return player_where(state, player)
 
 
+def at_town(state, player, feature="entrance"):
+    """Place a player on a town tile without charging movement."""
+    from hills import set_player_place, AREA_TOWN
+    from town import TOWN_ENTRANCE, TOWN_STALL, TOWN_STORE, TOWN_FORGE
+    spots = {
+        "entrance": TOWN_ENTRANCE,
+        "stall": TOWN_STALL,
+        "store": TOWN_STORE,
+        "forge": TOWN_FORGE,
+    }
+    row, col = spots[feature]
+    set_player_place(state, player, AREA_TOWN, row, col)
+    return player_where(state, player)
+
+
+def settle(state, crops=None, rules=None):
+    """Sell whatever is in the stall right now (same as day end), without advancing the day."""
+    from town import settle_stall
+    from engine import load_crops, load_rules
+    return settle_stall(state, crops or load_crops(), rules or load_rules(), log=False)
+
+
 def inside(state, player, kind="door"):
     """Place a player on a cabin interior tile without charging movement."""
     from hills import set_player_place, AREA_CABIN
@@ -601,10 +623,14 @@ class TurnsAndEnergy(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
         gold = self.state["gold"]
-        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell turnip 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
+        gold_earned, _ = settle(self.state, self.crops, self.rules)
+        self.assertEqual(gold_earned, 22)
+        self.assertEqual(self.state["players"][P1]["energy"], 7)
+        at_town(self.state, P1, "store")
         ok, msg = do_action(self.state, self.crops, "buy strawberry 1", player=P1)
         self.assertTrue(ok, msg)
         self.assertEqual(self.state["players"][P1]["energy"], 7)
@@ -1615,8 +1641,10 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "eat carrot_seed", player=P1)
         self.assertFalse(ok)
         gold = self.state["gold"]
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell carrot 1", player=P1)
         self.assertTrue(ok, msg)
+        settle(self.state, self.crops, self.rules)
         self.assertEqual(self.state["gold"], gold + 32)
         self.assertEqual(self.state["inventory"]["carrot"], 0)
 
@@ -1700,6 +1728,7 @@ class SpringCropsAndShop(unittest.TestCase):
         ):
             self.assertIn(kind, spring, kind)
             self.assertTrue(crop_in_shop(self.crops["crops"][kind]), kind)
+        at_town(self.state, P1, "store")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
         self.assertIn("buy everbearing 1", actions)
@@ -1746,7 +1775,7 @@ class SpringCropsAndShop(unittest.TestCase):
             item_name("everbearing_seedling", 2, self.crops, self.rules),
             "2 everbearing strawberry seeds",
         )
-        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        at_town(self.state, P1, "store")
         self.state["gold"] = 500
         ok, msg = buy(self.state, self.crops, "strawberry", 2, player=P1)
         self.assertTrue(ok, msg)
@@ -1898,6 +1927,7 @@ class SpringCropsAndShop(unittest.TestCase):
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         check(self.state, "starting cabin")
 
+        at_town(self.state, P1, "store")
         ok, msg = do_action(self.state, self.crops, "buy radish seed 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertGreaterEqual(item_count(self.state, "radish_seed"), 1)
@@ -2083,6 +2113,7 @@ class SpringCropsAndShop(unittest.TestCase):
 
     def test_shop_sells_strawberry_in_summer_but_not_autumn(self):
         from engine import shop_kinds, legal_actions, buy
+        at_town(self.state, P1, "store")
         # Season-only (no day) is treated as day 1 of that season.
         summer_open = shop_kinds(self.crops, "summer")
         self.assertIn("strawberry", summer_open)
@@ -3420,10 +3451,12 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         self.assertNotIn("strawberry_jam", msg)
         self.assertEqual(self.state["players"][P1]["energy"], 60)
         self.assertTrue(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell strawberry jam 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("strawberry jam", msg)
         self.assertNotIn("strawberry_jam", msg)
+        settle(self.state, self.crops, self.rules)
         self.assertEqual(int(self.state["gold"]), gold + 90)
         self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
 
@@ -3455,15 +3488,18 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("eat strawberry_jam", actions)
-        self.assertIn("sell strawberry_jam 1", actions)
         self.assertIn("eat kabocha_soup chest", actions)
+        self.assertNotIn("sell strawberry_jam 1", actions)
+        at_town(self.state, P1, "stall")
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("sell strawberry_jam 1", actions)
         self.assertNotIn("sell kabocha_soup 1", actions)
 
     def test_shop_only_buys_jam_among_cooked_meals(self):
         from inventory import add_to_pack, pack_has, item_sell_price, recipes
         give_item(self.state, "kabocha_soup", 1, player=P1)
         give_item(self.state, "strawberry_jam", 1, player=P1)
-        inside(self.state, P1, "chest")
+        at_town(self.state, P1, "stall")
         self.assertIsNone(item_sell_price("kabocha_soup", self.crops, self.rules))
         self.assertEqual(item_sell_price("strawberry_jam", self.crops, self.rules), 90)
         gold = int(self.state["gold"])
@@ -3474,6 +3510,7 @@ class CraftedFoodSellAndEat(unittest.TestCase):
         self.assertEqual(int(self.state["gold"]), gold)
         ok, msg = do_action(self.state, self.crops, "sell strawberry jam 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+        settle(self.state, self.crops, self.rules)
         self.assertEqual(int(self.state["gold"]), gold + 90)
         self.assertFalse(pack_has(self.state, P1, "strawberry_jam", 1, self.rules))
         # Data still keeps a future price on unsellable meals.
@@ -3635,6 +3672,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
             self.assertIn("herbal_tea", listing)
         self.state["season"] = "winter"
         gold = int(self.state["gold"])
+        at_town(self.state, P1, "store")
         ok, msg = do_action(self.state, self.crops, "buy bread 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
         self.assertIn("bread", msg)
@@ -3762,6 +3800,7 @@ class StaplesAndRecipeBook(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], energy - 5)
         self.assertTrue(pack_has(self.state, P1, "bread_and_butter", 1, self.rules))
         gold = int(self.state["gold"])
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell bread and butter 1", player=P1, rules=self.rules)
         self.assertFalse(ok, msg)
         self.assertIn("only buys jam", msg.lower())
@@ -4013,16 +4052,20 @@ class ActionDescriptorsUnearthAndShovel(unittest.TestCase):
         # Take/drop are offered at the chest inside the cabin.
         inside(self.state, P1, "chest")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
-        self.assertIn("buy strawberry 1", actions)
+        self.assertNotIn("buy strawberry 1", actions)
         self.assertIn("take strawberry_seed 1", actions)
         self.assertIn("take hoe 1", actions)
         self.assertIn("end turn", actions)
         look = describe_state(self.state, self.crops, viewer=P1)
         self.assertIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
+        at_town(self.state, P1, "store")
+        actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
+        self.assertIn("buy strawberry 1", actions)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("buy June-bearing strawberry seed 1", look)
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         look = describe_state(self.state, self.crops, viewer=P1)
         self.assertIn("move down (to r2 c3, 5 energy)", look)
-        self.assertIn("buy June-bearing strawberry seed 1", look)
         self.assertIn("enter cabin (steps inside, free)", look)
         self.assertIn("end turn (ready for bed, 105 energy tomorrow; day turns when both are ready, sleeping close tonight)", look)
         self.assertNotIn("take June-bearing strawberry seed 1 (leaves 1 in chest)", look)
@@ -4291,6 +4334,7 @@ class SpringPlantedCrops(unittest.TestCase):
         self.assertNotIn("rhubarb", summer)  # crown, shop_seasons spring only
         self.assertTrue(crop_for_sale(crop_info(self.crops, "corn"), "summer", day=16, crops=self.crops))
         self.assertFalse(crop_for_sale(crop_info(self.crops, "corn"), "summer", day=19, crops=self.crops))
+        at_town(self.state, P1, "store")
         actions = legal_actions(self.state, self.crops, player=P1, rules=self.rules)
         self.assertIn("buy strawberry 1", actions)
         self.assertIn("buy kabocha 1", actions)
@@ -4428,8 +4472,10 @@ class SpringPlantedCrops(unittest.TestCase):
         self.assertTrue(ok, msg)
         self.assertTrue(pack_has(self.state, P1, "rhubarb_strawberry_jam", 1))
         gold = self.state["gold"]
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell rhubarb_strawberry_jam 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+        settle(self.state, self.crops, self.rules)
         self.assertEqual(self.state["gold"], gold + item_sell_price("rhubarb_strawberry_jam", self.crops, self.rules))
         add_to_pack(self.state, P1, "lettuce", 1, self.rules)
         add_to_pack(self.state, P1, "tomato", 1, self.rules)
@@ -5101,16 +5147,17 @@ class ForageFood(unittest.TestCase):
 
         give_item(self.state, "wild_onion", 1, player=P1)
         gold = int(self.state["gold"])
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell wild onion", player=P1, rules=self.rules)
         self.assertFalse(ok, msg)
-        self.assertEqual(msg, "The shop doesn't buy foraged goods.")
+        self.assertEqual(msg, "The stall doesn't buy foraged goods.")
         self.assertEqual(self.state["gold"], gold)
         self.assertTrue(pack_has(self.state, P1, "wild_onion", 1, self.rules))
 
         for cmd in ("sell wild berry", "sell wild mushroom", "sell oyster mushroom", "sell wild_onion 1"):
             ok, msg = do_action(self.state, self.crops, cmd, player=P1, rules=self.rules)
             self.assertFalse(ok, msg)
-            self.assertEqual(msg, "The shop doesn't buy foraged goods.", cmd)
+            self.assertEqual(msg, "The stall doesn't buy foraged goods.", cmd)
 
     def test_forage_recipes_craft_and_wild_berries_count_toward_jam(self):
         from inventory import (
@@ -5189,6 +5236,7 @@ class ForageFood(unittest.TestCase):
         ok, msg = do_action(self.state, self.crops, "eat oyster mushroom", player=P1, rules=self.rules)
         self.assertFalse(ok, msg)
         self.assertIn("isn't edible raw", msg)
+        at_town(self.state, P1, "stall")
         ok, msg = do_action(self.state, self.crops, "sell oyster mushroom 1", player=P1, rules=self.rules)
         self.assertFalse(ok, msg)
         self.assertIn("foraged", msg.lower())
@@ -5541,7 +5589,7 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("entrance", msg.lower())
         self.state["mine_entrance_found"] = True
-        set_player_place(self.state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        at_town(self.state, P1, "store")
         self.state["players"][P1]["energy"] = 100
         self.state["current_player"] = P1
         self.assertIn("buy pickaxe 1", legal_actions(self.state, self.crops, P1, self.rules))
@@ -5572,6 +5620,7 @@ class MinePhaseTwo(unittest.TestCase):
         # Listed (and priced) even when gold is short of 40G.
         self.state["mine_entrance_found"] = True
         self.state["gold"] = 9
+        at_town(self.state, P1, "store")
         payload = web.api_payload(self.state, self.crops, player=P1)
         tools = payload.get("tools") or {}
         self.assertIn("pickaxe", tools)
@@ -5790,7 +5839,7 @@ class MinePhaseTwo(unittest.TestCase):
     def test_forge_upgrades_reduce_tool_energy(self):
         from inventory import TOOL_HOE, add_to_pack, sync_inventory_view
         from mine import tool_action_cost, tool_tier, set_tool_tier
-        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        at_town(self.state, P1, "forge")
         self.state["players"][P1]["energy"] = 100
         self.state["current_player"] = P1
         # Hoe starts in the chest on a fresh farm; take it and add ore.
@@ -5963,10 +6012,11 @@ class MinePhaseTwo(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 100)
         self.assertTrue(get_mine_tile(self.state, 1, r, c, self.rules).get("rock"))
 
-        set_player_place(self.state, P1, AREA_FARM, CABIN_ROW, CABIN_COL)
+        at_town(self.state, P1, "stall")
         gold = int(self.state["gold"] or 0)
         ok, msg = do_action(self.state, self.crops, "sell stone 1", player=P1, rules=self.rules)
         self.assertTrue(ok, msg)
+        settle(self.state, self.crops, self.rules)
         self.assertEqual(int(self.state["gold"]), gold + 1)
 
     def test_iron_and_gold_pickaxe_no_longer_bonus_yield_or_splash(self):
@@ -6195,9 +6245,9 @@ class ShopChestWebUi(unittest.TestCase):
         self.assertFalse(data.get("shopBackpackDropPresent"), "backpack drop should not appear in the shop panel")
         self.assertFalse(data.get("shopKitchenPresent"), "kitchen should not appear in the shop panel")
         self.assertTrue(any(t.lower().startswith("eat") for t in data.get("eatButtons") or []))
-        self.assertTrue(
-            any("sell" in t.lower() and "4" in t for t in data["invChestButtons"]),
-            "wood in the chest should still be sellable from the cabin chest panel: "
+        self.assertFalse(
+            any("sell" in t.lower() for t in data["invChestButtons"]),
+            "selling moved to the market stall; the cabin chest should not offer Sell: "
             + repr(data.get("invChestButtons")),
         )
 
@@ -8238,11 +8288,14 @@ class CabinInterior(unittest.TestCase):
         self.assertEqual(self.state["players"][P1]["energy"], 105)
         self.assertEqual(self.state["players"][P2]["energy"], 105)
 
-    def test_shop_still_works_on_the_farm_cabin_tile_and_inside(self):
+    def test_shop_is_in_town_not_on_the_farm_cabin_tile_or_inside(self):
         stand(self.state, P1, CABIN_ROW, CABIN_COL)
         legal = legal_actions(self.state, self.crops, P1, self.rules)
-        self.assertTrue(any(a.startswith("buy ") for a in legal))
+        self.assertFalse(any(a.startswith("buy ") for a in legal))
         inside(self.state, P1, "floor")
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertFalse(any(a.startswith("buy ") for a in legal))
+        at_town(self.state, P1, "store")
         legal = legal_actions(self.state, self.crops, P1, self.rules)
         self.assertTrue(any(a.startswith("buy ") for a in legal))
 
@@ -8543,3 +8596,156 @@ class FrostAndWitheredDisplay(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EastMarketTown(unittest.TestCase):
+    def setUp(self):
+        self.crops = load_crops()
+        self.rules = no_weed_rules()
+        self.state = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        self.state["gold"] = 200
+
+    def test_town_is_on_fresh_and_migrated_saves(self):
+        from town import town_tiles, TOWN_STALL, TOWN_STORE, TOWN_FORGE, TILE_STALL, TILE_STORE, TILE_FORGE
+        tiles = town_tiles(self.state)
+        self.assertIsNotNone(tiles)
+        self.assertEqual(len(tiles), 3)
+        self.assertEqual(tiles[TOWN_STALL[0] - 1][TOWN_STALL[1] - 1]["type"], TILE_STALL)
+        self.assertEqual(tiles[TOWN_STORE[0] - 1][TOWN_STORE[1] - 1]["type"], TILE_STORE)
+        self.assertEqual(tiles[TOWN_FORGE[0] - 1][TOWN_FORGE[1] - 1]["type"], TILE_FORGE)
+        # Migration on a pre-town save does not move the day, season, gold, or players.
+        bare = fresh_state(self.crops, weather_seed=1, rules=self.rules)
+        bare.pop("town", None)
+        day, season, gold = bare["day"], bare["season"], bare["gold"]
+        places = {n: dict(p) for n, p in bare["players"].items()}
+        self.assertTrue(migrate_state(bare, self.rules))
+        self.assertIsNotNone(town_tiles(bare))
+        self.assertEqual(bare["day"], day)
+        self.assertEqual(bare["season"], season)
+        self.assertEqual(bare["gold"], gold)
+        for name, slot in places.items():
+            self.assertEqual(bare["players"][name]["row"], slot["row"])
+            self.assertEqual(bare["players"][name]["col"], slot["col"])
+            self.assertEqual(bare["players"][name].get("area"), slot.get("area"))
+            self.assertEqual(bare["players"][name]["energy"], slot["energy"])
+            self.assertEqual(bare["players"][name]["ended_turn"], slot["ended_turn"])
+
+    def test_east_from_cabin_enters_town(self):
+        from hills import player_area, AREA_TOWN, AREA_FARM
+        from town import TOWN_ENTRANCE
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("go east", legal)
+        self.assertIn("go town", legal)
+        ok, msg = do_action(self.state, self.crops, "go east", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_TOWN)
+        self.assertEqual(player_where(self.state, P1), TOWN_ENTRANCE)
+        ok, msg = do_action(self.state, self.crops, "go west", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(player_area(self.state, P1), AREA_FARM)
+        self.assertEqual(player_where(self.state, P1), (CABIN_ROW, CABIN_COL))
+
+    def test_buy_is_at_the_honour_store_not_the_cabin(self):
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "buy turnip 1", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("honour store", msg.lower())
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertFalse(any(a.startswith("buy ") for a in legal))
+        at_town(self.state, P1, "store")
+        ok, msg = do_action(self.state, self.crops, "buy turnip 1", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("left", msg.lower())
+        self.assertIn("tin", msg.lower())
+        self.assertIn("buy turnip 1", legal_actions(self.state, self.crops, P1, self.rules))
+
+    def test_pickaxe_stays_hidden_until_the_entrance_is_found(self):
+        at_town(self.state, P1, "store")
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertNotIn("buy pickaxe 1", legal)
+        ok, msg = do_action(self.state, self.crops, "buy pickaxe 1", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("mine entrance", msg)
+        self.state["mine_entrance_found"] = True
+        legal = legal_actions(self.state, self.crops, P1, self.rules)
+        self.assertIn("buy pickaxe 1", legal)
+
+    def test_stall_sells_at_day_end_and_for_energy_now(self):
+        from town import stall_of, stall_is_empty
+        from engine import advance_day
+        give_item(self.state, "wood", 2, player=P1)
+        give_item(self.state, "stone", 3, player=P1)
+        at_town(self.state, P1, "stall")
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "sell wood 2", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertIn("day ends", msg)
+        self.assertEqual(self.state["gold"], gold)
+        self.assertFalse(stall_is_empty(self.state))
+        ok, msg = do_action(self.state, self.crops, "sell stone 3", P1, self.rules)
+        self.assertTrue(ok, msg)
+        # Day-end sale: wood 4G each, stone 1G each -> 11G
+        self.state["players"][P1]["ended_turn"] = True
+        self.state["players"][P2]["ended_turn"] = True
+        ok, dawn = advance_day(self.state, self.crops, self.rules)
+        self.assertTrue(ok)
+        self.assertIn("stall sold", dawn.lower())
+        self.assertIn("11G", dawn)
+        self.assertEqual(self.state["gold"], gold + 11)
+        self.assertTrue(stall_is_empty(self.state))
+
+        # Instant sell
+        give_item(self.state, "copper_ore", 1, player=P1)
+        at_town(self.state, P1, "stall")
+        self.state["players"][P1]["energy"] = 50
+        gold = self.state["gold"]
+        ok, msg = do_action(self.state, self.crops, "sell copper_ore 1", P1, self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "sell now", P1, self.rules)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.state["gold"], gold + 8)
+        self.assertEqual(self.state["players"][P1]["energy"], 0)
+        self.assertTrue(stall_is_empty(self.state))
+
+        self.state["players"][P1]["energy"] = 40
+        give_item(self.state, "wood", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "sell wood 1", P1, self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "sell now", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("50", msg)
+        self.assertFalse(stall_is_empty(self.state))
+
+    def test_stall_widens_sellables_but_not_forage_or_meals(self):
+        at_town(self.state, P1, "stall")
+        give_item(self.state, "carrot", 1, player=P1)
+        give_item(self.state, "wild_onion", 1, player=P1)
+        give_item(self.state, "kabocha_soup", 1, player=P1)
+        ok, msg = do_action(self.state, self.crops, "sell carrot 1", P1, self.rules)
+        self.assertTrue(ok, msg)
+        ok, msg = do_action(self.state, self.crops, "sell wild_onion 1", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("foraged", msg.lower())
+        ok, msg = do_action(self.state, self.crops, "sell kabocha_soup 1", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("jam", msg.lower())
+
+    def test_forge_is_in_town_not_the_cabin(self):
+        give_item(self.state, "copper_ore", 5, player=P1)
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        ok, msg = do_action(self.state, self.crops, "forge hoe", P1, self.rules)
+        self.assertFalse(ok)
+        self.assertIn("town", msg.lower())
+        at_town(self.state, P1, "forge")
+        ok, msg = do_action(self.state, self.crops, "forge hoe", P1, self.rules)
+        self.assertTrue(ok, msg)
+
+    def test_cabin_look_hints_east_to_town(self):
+        from describe import describe_state
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        look = describe_state(self.state, self.crops, viewer=P1)
+        self.assertIn("east", look.lower())
+        self.assertIn("town", look.lower())
+        self.assertIn("market", look.lower())
+

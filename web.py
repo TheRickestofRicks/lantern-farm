@@ -1249,10 +1249,23 @@ PAGE = r"""<!DOCTYPE html>
         hills: true
       };
     }
+    function parseTownSpriteKey(key) {
+      key = String(key || "").trim().toLowerCase();
+      let snow = false;
+      if (key.length >= 5 && key.slice(-5) === "_snow") {
+        snow = true;
+        key = key.slice(0, -5);
+      }
+      const tiles = {town_grass: "grass", town_stall: "stall", town_store: "store", town_forge: "forge"};
+      if (!tiles[key]) return null;
+      return {kind: "town", tile: tiles[key], type: key, snow: snow, town: true};
+    }
     function parseSpriteKey(key) {
       key = String(key || "").trim().toLowerCase();
       const mineParsed = parseMineSpriteKey(key);
       if (mineParsed) return mineParsed;
+      const townParsed = parseTownSpriteKey(key);
+      if (townParsed) return townParsed;
       const hillsParsed = parseHillsSpriteKey(key);
       if (hillsParsed) return hillsParsed;
       if (key.indexOf("cabin_interior_") === 0) {
@@ -1342,6 +1355,9 @@ PAGE = r"""<!DOCTYPE html>
     function groundKeyFor(parsed) {
       if (!parsed || parsed.kind === "cabin" || parsed.kind === "unknown") return null;
       if (parsed.kind === "cabin_interior") return "cabin_floor";
+      if (parsed.town || parsed.kind === "town") {
+        return parsed.snow ? "town_grass_snow" : "town_grass";
+      }
       if (parsed.mine || parsed.kind === "mine_floor" || parsed.kind === "mine_safe" || parsed.type === "mine_floor" || parsed.type === "mine_safe") {
         return parsed.type || parsed.kind;
       }
@@ -1399,6 +1415,17 @@ PAGE = r"""<!DOCTYPE html>
             ? ("cabin_" + tile + "_lit")
             : ("cabin_" + tile);
           const f = ov[name];
+          if (!f) return null;
+          layers.push("/static/packs/" + pack.id + "/" + f);
+        }
+        return layers;
+      }
+      if (parsed.town || parsed.kind === "town") {
+        const ov = pack.overlays || {};
+        const tile = parsed.tile || "grass";
+        if (tile !== "grass") {
+          const name = "town_" + tile + (parsed.snow ? "_snow" : "");
+          const f = ov[name] || ov["town_" + tile];
           if (!f) return null;
           layers.push("/static/packs/" + pack.id + "/" + f);
         }
@@ -1754,10 +1781,29 @@ PAGE = r"""<!DOCTYPE html>
 
     function tileLabel(tile, r, c, data) {
       if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
+      if (tile && tile.type === "town_stall") return "stall";
+      if (tile && tile.type === "town_store") return "store";
+      if (tile && tile.type === "town_forge") return "forge";
       return "r" + r + " c" + c;
     }
     function describeTile(tile, r, c, data) {
       if (!tile) return "Click a plot.";
+      if (tile.type === "town_stall") {
+        const stall = (data && data.stall) || [];
+        const held = stall.filter(function (s) { return s && s.item; });
+        const stock = held.length ? (" In the stall: " + held.map(function (s) { return itemName(s.item, s.count || 1); }).join(", ") + ".") : " The stall is empty.";
+        return tileName(r, c) + " — the market stall, under a blue awning. Drop goods here; they sell when the day ends. Spend " + ((data && data.instant_sell_energy) || 50) + " energy to sell everything now." + stock;
+      }
+      if (tile.type === "town_store") {
+        return tileName(r, c) + " — the honour store. There's no shopkeeper; leave coins in the tin for seeds, fertilizer, staples, and (once the mine is found) a pickaxe.";
+      }
+      if (tile.type === "town_forge") {
+        return tileName(r, c) + " — the town forge. Upgrade a hoe, watering can, axe, or pickaxe here.";
+      }
+      if (tile.type === "town_grass") {
+        if (r === 1 && c === 1) return tileName(r, c) + " — the grassy entrance to the market town. West leads back to the cabin. The stall is to the east, the store to the south.";
+        return tileName(r, c) + " — a grassy square in the market town.";
+      }
       if (tile.type === "mine_entrance") {
         if (tile.closed === false) {
           return tileName(r, c) + " — the mine entrance is open. Step in with enter mine.";
@@ -1791,7 +1837,7 @@ PAGE = r"""<!DOCTYPE html>
       if (tile.type === "cabin") {
         const w = (lastData && lastData.state && lastData.state.weather) || "sun";
         const byWeather = (typeof CABIN_BY_WEATHER !== "undefined") ? CABIN_BY_WEATHER[w] : "";
-        return tileName(r, c) + " — " + (byWeather || CABIN_SHORT) + " Press E to step inside.";
+        return tileName(r, c) + " — " + (byWeather || CABIN_SHORT) + " Walk east for the market town, or north for the hills. Press E to step inside.";
       }
       if (String(tile.type || "").indexOf("cabin_") === 0) {
         const labels = {
@@ -2657,7 +2703,7 @@ PAGE = r"""<!DOCTYPE html>
         buy.type = "button";
         buy.className = "btn primary";
         buy.textContent = "Buy";
-        buy.disabled = gold < info.seed_price || !data.your_turn || !data.in_cabin;
+        buy.disabled = gold < info.seed_price || !data.your_turn || !data.at_store;
         buy.addEventListener("click", function () {
           actCmd("buy " + kind + " " + readQty());
         });
@@ -2671,7 +2717,7 @@ PAGE = r"""<!DOCTYPE html>
         sell.type = "button";
         sell.className = "btn";
         sell.textContent = "Sell 1";
-        sell.disabled = fruit < 1 || !data.your_turn || !data.in_cabin;
+        sell.disabled = fruit < 1 || !data.your_turn || !data.at_stall;
         sell.addEventListener("click", function () { actCmd("sell " + kind + " 1"); });
         row.appendChild(sell);
       }
@@ -2702,7 +2748,7 @@ PAGE = r"""<!DOCTYPE html>
       buy.type = "button";
       buy.className = "btn primary";
       buy.textContent = "Buy";
-      buy.disabled = gold < price || !data.your_turn || !data.in_cabin;
+      buy.disabled = gold < price || !data.your_turn || !data.at_store;
       buy.addEventListener("click", function () { actCmd("buy " + kind + " 1"); });
       row.appendChild(buy);
       body.appendChild(row);
@@ -2872,6 +2918,35 @@ PAGE = r"""<!DOCTYPE html>
       parent.appendChild(wrap);
     }
 
+    function appendTownStallSection(parent, data) {
+      if (!data || !data.at_stall) return;
+      const title = document.createElement("div");
+      title.className = "shop-section-title";
+      title.textContent = "Market stall";
+      parent.appendChild(title);
+      const slots = (data.stall || []).filter(function (s) { return s && s.item; });
+      const note = document.createElement("p");
+      note.className = "inv-slots";
+      if (!slots.length) note.textContent = "The stall is empty. Put goods here; they sell when the day ends.";
+      else note.textContent = "These goods sell when the day ends.";
+      parent.appendChild(note);
+      slots.forEach(function (slot) {
+        appendItemCard(parent, slot, {take: true, canAct: !!data.your_turn, yourTurn: !!data.your_turn, data: data});
+      });
+      if (slots.length && data.your_turn) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn primary";
+        const cost = (data.instant_sell_energy != null) ? data.instant_sell_energy : 50;
+        btn.textContent = "Sell now (" + cost + " energy)";
+        const me = (data.players || {})[PLAYER] || {};
+        const haveE = (me.energy != null) ? me.energy : 0;
+        btn.disabled = haveE < cost;
+        btn.addEventListener("click", function () { actCmd("sell now"); });
+        parent.appendChild(btn);
+      }
+    }
+
     function appendItemCard(parent, slot, opts) {
       opts = opts || {};
       if (!slot || !slot.item) return;
@@ -2891,6 +2966,7 @@ PAGE = r"""<!DOCTYPE html>
       const cabinTurn = !!opts.canAct;
       const yourTurn = !!opts.yourTurn;
       const atCabin = !!(opts.data && opts.data.in_cabin && opts.data.your_turn);
+      const atStall = !!(opts.data && opts.data.at_stall && opts.data.your_turn);
       const atChest = !!(opts.data && opts.data.at_chest && opts.data.your_turn);
       const atFire = !!(opts.data && opts.data.at_fireplace && opts.data.your_turn);
       function addBtn(label, cmd, enabled) {
@@ -2916,13 +2992,27 @@ PAGE = r"""<!DOCTYPE html>
           addBtn("Drop all", "drop " + slot.item + " all", true);
         }
       }
+      if (opts.drop && atStall) {
+        if (count <= 1) addBtn("Put in stall", "drop " + slot.item + " 1", true);
+        else {
+          addBtn("Put 1 in stall", "drop " + slot.item + " 1", true);
+          addBtn("Put all in stall", "drop " + slot.item + " all", true);
+        }
+      }
+      if (opts.take && atStall) {
+        if (count <= 1) addBtn("Take back", "take " + slot.item + " 1", true);
+        else {
+          addBtn("Take 1 back", "take " + slot.item + " 1", true);
+          addBtn("Take all back", "take " + slot.item + " all", true);
+        }
+      }
       const rec = recipeInfo(slot.item, opts.data);
       const crops = (opts.data && opts.data.crops) || {};
       const crop = crops[slot.item];
       const named = (opts.data && opts.data.item_names && opts.data.item_names[slot.item]) || {};
       const sellPrice = named.sell_price || (crop && crop.sell_price) || (rec && rec.sellable && rec.sell_price);
-      if (sellPrice && atCabin) {
-        addBtn("Sell 1 (" + sellPrice + "G)", "sell " + slot.item + " 1", true);
+      if (sellPrice && atStall && opts.drop) {
+        addBtn("Put in stall (" + sellPrice + "G later)", "sell " + slot.item + " 1", true);
       }
       const energy = snackEnergy(slot.item, opts.data);
       if (energy) {
@@ -3069,27 +3159,28 @@ PAGE = r"""<!DOCTYPE html>
       if (!held.length) meta.textContent = "The backpack is empty.";
       else if (open <= 0) meta.textContent = "Backpack is full.";
       else meta.textContent = open + " open slot" + (open === 1 ? "" : "s") + ".";
-      if (held.length && !data.at_chest) {
+      if (held.length && !data.at_chest && !data.at_stall) {
         meta.textContent += data.in_cabin
-          ? " Walk to the chest inside the cabin to drop items."
-          : " Walk to the cabin to drop items in the chest.";
+          ? " Walk to the chest inside the cabin to drop items, or east to the market stall to sell."
+          : " Walk to the cabin chest to store items, or east to the market stall to sell.";
       }
       el.appendChild(meta);
-      const canAct = !!(data.your_turn && data.at_chest);
+      const canAct = !!(data.your_turn && (data.at_chest || data.at_stall));
       held.forEach(function (slot) {
         appendItemCard(el, slot, {drop: true, canAct: canAct, yourTurn: !!data.your_turn, data: data});
       });
       appendCabinChestSection(el, data);
+      appendTownStallSection(el, data);
     }
 
     function renderShop(data) {
       const shop = $("shop");
       if (!shop) return;
       shop.innerHTML = "";
-      if (!data.in_cabin) {
+      if (!data.at_store) {
         const note = document.createElement("p");
         note.className = "shop-empty";
-        note.textContent = "Walk to the cabin to buy from the shop. Selling, crafting, and the chest all live in the cabin panels.";
+        note.textContent = "Walk east from the cabin to the market town, then to the honour store (row 2 col 1). Leave coins in the tin to buy. The stall and forge are on this square too.";
         shop.appendChild(note);
       }
       const crops = data.crops || {};
@@ -4313,12 +4404,17 @@ def api_payload(
     current = normalize_player(state.get("current_player")) or starting_player()
     sky = state.get("weather") or "sun"
     from hills import (
-        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_CABIN, hills_tiles, elsewhere_lines,
+        player_area, AREA_HILLS, AREA_FARM, AREA_MINE, AREA_CABIN, AREA_TOWN, hills_tiles, elsewhere_lines,
         area_title, hills_summary, farm_summary, exit_summary, max_hp as hills_max_hp,
         describe_where as describe_area_where, player_hp,
     )
     from mine import player_floor, get_floor, ensure_mine
     from cabin import cabin_tiles, player_at_cabin_tile
+    from town import (
+        ensure_town, town_tiles, stall_of, is_player_at_stall, is_player_at_store,
+        is_player_at_forge, instant_sell_energy,
+    )
+    ensure_town(state, rules)
     view_area = player_area(state, viewer) if viewer else AREA_FARM
     view_floor = player_floor(state, viewer) if viewer and view_area == AREA_MINE else None
     if view_area == AREA_HILLS and hills_tiles(state):
@@ -4328,9 +4424,11 @@ def api_payload(
         view_tiles = get_floor(state, view_floor)["tiles"]
     elif view_area == AREA_CABIN:
         view_tiles = cabin_tiles(state)
+    elif view_area == AREA_TOWN and town_tiles(state):
+        view_tiles = town_tiles(state)
     else:
         view_tiles = state["tiles"]
-        if view_area not in (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN):
+        if view_area not in (AREA_FARM, AREA_HILLS, AREA_MINE, AREA_CABIN, AREA_TOWN):
             view_area = AREA_FARM
     view_tiles = _payload_view_tiles(view_tiles, crops)
     sprites = [
@@ -4385,6 +4483,11 @@ def api_payload(
         "ready_labels": ready_labels_for(state),
         "at_chest": bool(viewer and player_at_cabin_tile(state, viewer, "chest")),
         "at_fireplace": bool(viewer and player_at_cabin_tile(state, viewer, "fireplace")),
+        "at_stall": bool(viewer and is_player_at_stall(state, viewer)),
+        "at_store": bool(viewer and is_player_at_store(state, viewer)),
+        "at_forge": bool(viewer and is_player_at_forge(state, viewer)),
+        "stall": stall_of(state),
+        "instant_sell_energy": instant_sell_energy(rules),
         "fireplace_fueled": bool(state.get("fireplace_fueled")),
         "fuel_fireplace_energy": energy_cost("fuel_fireplace", rules),
         "stove_fueled": bool(state.get("stove_fueled")),
