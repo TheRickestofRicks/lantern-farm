@@ -47,6 +47,18 @@ kind of 3×3, behind a boarded entrance.
   each player's place. The mini-map names the current area. Hills
   tiles use the same `r* c*` labels as the farm (the cabin tile still
   says "cabin").
+- **Orchard (later).** The hills will be convertible into an orchard
+  later. Planting saplings comes with that conversion.
+- **No elevator.** The mine will not keep an elevator. We're not
+  copying Stardew Valley that much. Teleporting comes later via rune
+  magic. Until then, travel is by climbing ladders, and ending a turn
+  in the mine wakes at the hills entrance. `go cabin` from inside the
+  mine stays refused until you climb out to the hills entrance.
+- **Phase 3 mine finds.** Grey slimes start on floor 6 (first slime
+  type; more types later deeper; never on safe floors). Quartz can
+  drop from plain stone rocks on floors 1–4. Runestone ore rocks are
+  rare on floors 1–4 and become more frequent deeper; they look
+  smooth and rounded, unlike normal rocks.
 
 
 ## Areas and walking
@@ -64,8 +76,9 @@ sleep. Hills (1, 3) is not the cabin.
 the current area, except the cabin ↔ hills r3c3 crossing, which costs
 one ordinary step (5 energy). `move to <row> <col>` never jumps areas.
 `go cabin` from the hills walks to r3c3 and then to the cabin, charging
-every step. From inside the mine (Phase 2) it is refused until you
-climb out.
+every step. From inside the mine it is refused until you climb out
+to the hills entrance. There is no combined elevator-then-walk-home
+command; rune teleport comes later.
 
 Hills layout:
 
@@ -123,7 +136,7 @@ energy are untouched. Players gain `area` (default `farm`) and `hp`
 to the current day. The axe is added to the chest only if missing.
 
 
-## Phase 2 — mine, ores, and the forge
+## Phase 2 — mine, ores, and the forge (built)
 
 `enter mine` (or `go mine`) from the hills entrance at r1c2 opens the
 season’s mine. The first entry needs a pickaxe in the pack to pry the
@@ -135,12 +148,11 @@ entrance tile (`mine_entrance_found`).
 Floors run **1–25**. The layout is seeded from `weather_seed` plus the
 current season and year (no RNG), and it **persists until the season
 changes**, then re-rolls. Both players share the same rocks, ores,
-ladders, and elevator checkpoints all season. You arrive on a clear
-exit/shaft tile. The way down is hidden under a random rock that is
+and ladders all season. You arrive on a clear exit/shaft tile. The way down is hidden under a random rock that is
 not the centre and not the arrival tile; `mine` / `break` reveals the
 ladder. Climbing down costs **10**; climbing up costs **5**. `go cabin`
-from inside the mine is refused until you climb or take the elevator
-out to the hills entrance.
+from inside the mine is refused until you climb out to the hills
+entrance.
 
 Ore bands (remainder is plain stone): floors 1–4 copper 40%; 6–9
 copper 50% iron 15%; 11–14 copper 20% iron 45% gold 5%; 16–19 copper
@@ -149,10 +161,18 @@ copper 50% iron 15%; 11–14 copper 20% iron 45% gold 5%; 16–19 copper
 “gold ore” — not bare “gold”), selling for 8 / 12 / 20G.
 
 Safe floors (5, 10, 15, 20, 25): no rocks, a lantern (`rest` restores
-25 energy, once per player per that floor per day, cost 0), a visible
-down ladder (none on 25), and an elevator checkpoint. The elevator
-(cost 5) runs from the elevator tile to any reached checkpoint or the
-entrance.
+25 energy, once per player per that floor per day, cost 0), and a
+visible down ladder (none on 25).
+
+**Elevator (built, to be removed in Phase 3).** Safe floors currently
+also have an elevator checkpoint. The elevator (cost 5) runs from
+the elevator tile to any reached checkpoint or the entrance. Ending
+a turn in the mine (not 0 HP) currently wakes at the last elevator
+or the entrance. Decision: no elevator. We're not copying Stardew
+Valley that much. Teleporting comes later via rune magic. Phase 3
+removes the elevator. Until rune teleport lands, travel between
+floors is by climbing ladders, and ending a turn in the mine wakes
+at the hills entrance (see Phase 3).
 
 The forge is at town row 2 col 3 (cost 5); see East market town. Upgrade a hoe, watering can, axe,
 or pickaxe one tier at a time (copper, then iron, then gold) with 5 of
@@ -160,9 +180,13 @@ that tier’s ore. Tiers now only change energy: basic 10, copper 8, iron 6, gol
 Iron yield and gold pickaxe splash are parked for a later rune system (Bounty and Shatter).
 
 0 HP still wakes at the hills mine entrance with 25 energy (and full
-HP). Ending a turn in the mine (not 0 HP) wakes at the last elevator
-or the entrance with 50 energy, pack kept; if the season changes at
-that dawn, wake at the hills entrance. Slimes and combat stay Phase 3.
+HP). Until the elevator is removed, ending a turn in the mine (not
+0 HP) wakes at the last elevator or the entrance with 50 energy,
+pack kept; if the season changes at that dawn, wake at the hills
+entrance. After Phase 3 removes the elevator, ending a turn in the
+mine wakes at the hills entrance (same 50 energy, pack kept),
+including when the season changes. Slimes, quartz, and runestone
+ore are Phase 3.
 
 The web view stays free of Elsewhere hints (CLI look may keep them).
 Tile labels stay `r*c*`. The header shows weather / energy / HP icons;
@@ -170,12 +194,77 @@ player locations live in an Overview panel above This Tile, not in the
 top bar.
 
 
-## Phase 3 — slimes and combat (later)
+## Phase 3 — slimes, quartz, runestone, and elevator removal
 
-Slimes appear from floor 6 on, never on safe floors. They deal HP
-damage. `strike` and `flee` as previously sketched. 100 HP, snacks
-heal HP, 0 HP wakes at the mine entrance with 25 energy. Goo drops
-for one recipe.
+This is the next mine pass. It adds grey slimes, quartz, and
+runestone ore, and it removes the elevator.
+
+**Grey slimes** are the first slime type. They appear from floor 6
+on, never on safe floors (5, 10, 15, 20, 25). More slime types come
+later, deeper. They deal HP damage. `strike` and `flee` work as
+previously sketched. Max HP stays **100**. Snacks heal HP (the same
+amount they restore energy). 0 HP still wakes at the hills mine
+entrance with 25 energy (and full HP). Grey slimes drop **goo**,
+which goes into one recipe.
+
+Suggestions, not settled (see Open questions): grey slimes have
+**20 HP** and deal **8** damage; a floor from 6 on (except safe
+floors) has about a 1-in-3 chance of a slime on 6–9, more often
+deeper; `strike` and `flee` cost **5** energy each.
+
+**Quartz** drops randomly from plain stone rocks (not ore rocks) on
+floors **1–4**. The item is `quartz`. Suggestions, not settled: a
+**15%** chance when you mine a plain stone rock on those floors,
+selling for **6G**. Other uses are still open.
+
+**Runestone ore rocks** are a distinct rock type: they look **smooth
+and rounded**, unlike normal rocks (art note for the sprite; see
+Art pass). The item is `runestone_ore`. They are rare on floors
+1–4 and become more frequent deeper. This ore feeds later rune
+magic (Bounty, Shatter, and teleport). Suggestions, not settled:
+they take a small slice of the remainder (plain stone), so they do
+not cut into copper, iron, or gold rates — **3%** on floors 1–4,
+**6%** on 6–9, **9%** on 11–14, **12%** on 16–19, and **16%** on
+21–24; selling for **15G**. What the ore becomes, beyond feeding
+rune magic, is still open.
+
+**Elevator removal.** The elevator is built today and comes out in
+this phase. Until rune teleport lands, the way up and down is
+climbing ladders (down 10, up 5). `go cabin` from inside the mine
+stays refused until you climb out to the hills entrance, then walk
+home as usual. Ending a turn in the mine (not 0 HP) wakes at the
+hills entrance with 50 energy, pack kept, including when the season
+changes. 0 HP still wakes at the hills mine entrance with 25 energy.
+
+Code impact (follow-up for this phase; do not change code from this
+document alone):
+
+- `mine.py`: stop placing elevator tiles on safe floors; drop
+  `take_elevator` and `parse_elevator_dest`; update leave-mine
+  messages; change `wake_place_after_mine_passout` (it currently
+  prefers `last_checkpoint` and the elevator tile on that floor)
+  so a non-faint pass-out wakes at the hills entrance; drop
+  elevator stops from the mine summary and tile descriptions.
+- `engine.py`: drop `_reachable_elevator_floors` and the rescue
+  path that uses the elevator when it is cheaper; update `go cabin`
+  / `go town` refusals that mention the elevator; drop legal
+  actions (`elevator`, `elevator N`, `elevator entrance`), the
+  verb handler, and help text.
+- `rules.json`: the `"elevator": 5` energy cost.
+- `hills.py`: the leave-mine hint that mentions the elevator.
+- `web.py`: elevator sprite-key parsing, look bits, and action
+  buttons.
+- `sprites.py` and `packs.py`: the elevator overlay
+  (`_elevator_overlay`, the `mine_elevator` key). The Storybook
+  PNG can stay unused until a later cleanup.
+- Tests: `test_engine.py` cases for safe-floor elevators, elevator
+  checkpoints, waking at the last elevator, and mine rescue using
+  the elevator when cheaper, plus any case that sets or expects
+  elevator actions; `tests/mine-ui.test.js`.
+- Other docs (README, ROADMAP) still describe the current
+  elevator and will need a matching update when the code lands.
+  ROADMAP still says the elevator stays until runes land; this
+  plan supersedes that.
 
 
 ## East market town
@@ -239,8 +328,9 @@ These are suggestions, not settled decisions:
 Phase 1 (built) is the hills, trees, and forage. Phase 2 (this pass)
 is the mine, ores, **and the forge** — the forge already appears in
 Phase 2, at the cabin, and already upgrades the hoe, watering can,
-axe, and pickaxe with mine ore. Phase 3 is slimes and combat, still
-later.
+axe, and pickaxe with mine ore. Phase 3 is slimes (starting with
+grey slimes on floor 6), quartz, runestone ore, and elevator
+removal.
 
 Because the town unlocks on day 1, the town (stall and store) came
 earlier than a late follow-on after Phase 2 and 3. Moving the
@@ -303,7 +393,10 @@ pattern as crops.
 - **Grounds:** hills grass (and snow), hillside (and snow), boarded
   and open mine entrance (and snow), mine floor, safe-floor stone.
 - **Overlays:** tree sapling / young / grown / stump / mushroom log, each wild plant including oyster mushrooms,
-  rocks and ore rocks, an open ladder, a shaft, a lantern, an elevator.
+  rocks and ore rocks, an open ladder, a shaft, a lantern, an elevator
+  (the elevator overlay is built and comes out in Phase 3). Phase 3
+  adds a runestone ore rock (smooth and rounded, unlike normal rocks)
+  and grey slime sprites; see Art pass.
 - **Items:** axe, wood, wild onion, wild berry, wild mushroom, plus
   Classic SVG placeholders for the pickaxe and copper / iron / gold
   ore (Storybook item icons come later; do not add manifest entries
@@ -315,7 +408,50 @@ map — the hills”, or “Mini map — the mine, floor N”. New labels must
 fit `MAP_LABEL_WIDTH` (10). The web page keeps the 3×3 `.grid`, titled
 with the area. Elsewhere hints stay in the CLI look and in the
 payload for that output; they are not shown on the page. Keys: C chop,
-G forage, and in the mine, mine / climb / rest / elevator.
+G forage, and in the mine, mine / climb / rest / elevator (the
+elevator key comes out in Phase 3).
+
+
+## Art pass
+
+Do these graphics together in one pass, Classic SVG fallbacks and
+Storybook art:
+
+- **Runestone ore rock.** Smooth and rounded, unlike normal angular
+  rocks. Overlay plus a `runestone_ore` item icon.
+- **Grey slime sprites.** The first slime type, for floor 6 and
+  deeper (never on safe floors).
+- **Prettier Storybook town tiles.** Stall, honour store, forge,
+  and grass. The current tiles work; this is a prettier pass.
+- **Redo the snow tile graphics.** The current Storybook farm snow
+  grounds show a pale path down the middle that shouldn't be there.
+  That path is visible on `soil_snow`, and the same mid-tile
+  brightening is on `soil_wet_snow`, `soil_tilled_snow`, and
+  `soil_watered_snow`. `hills_grass_snow` and `hillside_snow` are
+  also brighter down the middle. Redo them as even snow cover, with
+  no path. Include the other snow grounds in the same pass so
+  winter stays consistent: `mine_entrance_closed_snow`,
+  `town_grass_snow`, and `cabin_snow`.
+
+Classic SVG functions in `sprites.py` that draw snow tiles (redo
+these in the same pass where they show a path or need to match the
+new Storybook snow):
+
+- `_snow_ground_overlay(tilled)` — a soft snow blanket on Classic
+  farm soil tiles, applied from `svg_for_key` when the tile is
+  snowy.
+- `_hills_ground(kind, snow=False)` — Classic hills grass, hillside,
+  and mine-entrance grounds. When `snow` is true it swaps to a
+  winter palette and adds flakes. Hillside tiles also draw a stroke
+  across the middle (`M0 70 Q 80 40 160 78`) in both weather and
+  snow, which can read as a path. `svg_hills_tile` composes this.
+- `_town_ground(snow=False)` — Classic town grounds. It always
+  draws a central path and cobble rectangle, including under snow.
+  `svg_town_tile` composes this plus the stall, store, and forge
+  overlays.
+- `_cabin_sky(weather)` and `_cabin_weather_overlay(weather)` —
+  used by `svg_cabin` for the snowy cabin (winter fills, a snow cap
+  on the roof, and falling flakes).
 
 
 ## Save format and migration
@@ -330,8 +466,10 @@ and a basic axe added to the chest only if missing.
 `apply_new_day_turns` must copy `area`, `floor`, `hp`, and `pack`. A
 player who slept in the real cabin wakes there with full HP; one who
 passed out in the hills wakes on that tile; one who passed out in the
-mine wakes at the last elevator or the hills entrance (the hills
-entrance if the season just changed). Existing farms get a `mine`
+mine currently wakes at the last elevator or the hills entrance
+(the hills entrance if the season just changed). After Phase 3
+removes the elevator, a pass-out in the mine wakes at the hills
+entrance, including when the season changes. Existing farms get a `mine`
 block on first load; that migration does not touch farm tiles, gold,
 packs, the chest, mid-turn energy, or whose turn it is. Day turn ticks
 farm crops and weeds as today, then tree growth and forage, then
@@ -364,13 +502,19 @@ Elsewhere note. First Farm is never loaded or written by this work.
   the same seed and season and re-roll when the season changes; the
   ladder is not on the centre, is hidden under a rock, and is revealed
   when mined; climb down costs 10; ores follow the depth bands; safe
-  floors have no rocks, a once-a-day rest, and an elevator; passing
-  out in the mine wakes at the last elevator or the entrance (the
-  entrance if the season changes); 0 HP still wakes at the hills
-  entrance with 25 energy; forge upgrades reduce tool energy; legal
-  actions and short names execute; `go cabin` is refused from the
-  mine; migration does not touch farm tiles, gold, packs, energy, or
-  whose turn it is. First Farm is never loaded or written.
+  floors have no rocks, a once-a-day rest, and (until Phase 3) an
+  elevator; passing out in the mine currently wakes at the last
+  elevator or the entrance (the entrance if the season changes); 0
+  HP still wakes at the hills entrance with 25 energy; forge
+  upgrades reduce tool energy; legal actions and short names
+  execute; `go cabin` is refused from the mine; migration does not
+  touch farm tiles, gold, packs, energy, or whose turn it is. First
+  Farm is never loaded or written. Phase 3 tests: grey slimes from
+  floor 6, never on safe floors; quartz drops from plain stone on
+  floors 1–4; runestone ore rocks are rare early and more frequent
+  deeper; no elevator actions or tiles; ending a turn in the mine
+  wakes at the hills entrance; `go cabin` stays refused until you
+  climb out.
 
 
 ## Build order
@@ -379,10 +523,18 @@ Elsewhere note. First Farm is never loaded or written by this work.
 2. **Phase 1.** Areas, cabin ↔ hills r3c3, hills, trees, forage, axe,
    wood, HP, off-screen context, look / mini-map / web, migration,
    Storybook art, unit and jsdom tests.
-3. **Phase 2 (this pass).** Open the mine, seasonal floors,
+3. **Phase 2 (built).** Open the mine, seasonal floors,
    random-rock ladder, ores, pickaxe shop unlock, forge, upgrades,
    safe floors, elevator, web mine view, status icons, and Overview.
-4. **Phase 3.** Slimes, strike / flee, goo, and one recipe.
+4. **Phase 3.** Grey slimes from floor 6 (more types later deeper),
+   strike / flee, goo and one recipe, quartz from plain stone on
+   floors 1–4, runestone ore rocks (rare early, more frequent
+   deeper), and elevator removal (climb ladders in the meantime;
+   ending a turn in the mine wakes at the hills entrance). Rune
+   teleport comes later.
+5. **Art pass.** The graphics listed under Art pass, done together
+   in one pass: runestone ore rock, grey slime, prettier Storybook
+   town tiles, and redone snow tiles.
 
 Each phase should be its own playable stretch, not one giant commit.
 
@@ -396,19 +548,46 @@ Each phase should be its own playable stretch, not one giant commit.
    Iron +1 yield and gold pickaxe splash are reserved for a later rune
    system (Bounty and Shatter).
 4. May we later plant saplings on the hills, or do they stay wild?
+   **Decided:** the hills will be convertible into an orchard later.
+   Planting saplings comes with that conversion. See Later.
 5. Should `go cabin` from inside the mine ever mean “elevator, then
    walk home” in one command, at the combined energy cost?
+   **Decided: no.** There is no elevator. `go cabin` stays refused
+   until you climb out to the hills entrance, then walk home as
+   usual. Teleporting comes later via rune magic (a homeward rune,
+   and waystones).
 6. Does wood have a use beyond selling and later building (for
    example, forge fuel if coal is short)? `fuel fireplace` now spends
    5 energy and one wood (pack or chest) to lay a fire for the night.
    Cabin sleepers get +10 wake energy, and +10 more if that player ate
    at least 10 energy worth of food that day, up to 120. Forge fuel
    can still wait.
+7. What does runestone ore become, exactly — carving and imbuing
+   steps, waystone and homeward-rune details, and any other uses?
+8. What is quartz used for besides selling (crafting, decoration,
+   rune work)?
+9. Grey slime numbers: HP, damage, spawn rate, and the energy cost
+   of `strike` / `flee`. Suggestions are in Phase 3, not settled.
+10. Later slime types: which colours, and from which floors?
+11. What is the one goo recipe?
 
 ## Later (after all art is working)
 
 These are parked until the current art and engine work is in and playing
 well. Design notes only; not built yet.
+
+- **Orchard.** The hills will be convertible into an orchard later.
+  Planting saplings comes with that conversion. This answers the old
+  open question about planting in the hills: yes, through the
+  orchard, not as a freeform plant-anywhere change now.
+
+- **Rune magic.** Replaces the elevator. Rare runestone ore (see
+  Phase 3) can be carved and imbued for (1) tool enchantments —
+  Bounty (+1 yield) and Shatter (splash), (2) waystones — attune a
+  cleared tile and teleport back to it for a small energy cost, and
+  (3) a homeward rune at high levels (teleport home). Details of
+  carving, imbuing, and what else runestone ore becomes are still
+  open.
 
 - **Cabin interior.** Built. Press E (enter cabin) from the farm cabin
   tile to step into a 3×3 interior, same idea as entering the mine.
