@@ -755,14 +755,14 @@ def plot_number(row: int, col: int) -> int:
 def describe_place(row: int, col: int) -> str:
     """Bare place name, for phrases like 'walks to X'."""
     if is_cabin_at(row, col):
-        return "the cabin"
+        return f"the cabin, row {int(row)} col {int(col)}"
     return position_name(row, col)
 
 
 def describe_where(row: int, col: int) -> str:
     """Prepositional location, for phrases like 'is X' or 'already X'."""
     if is_cabin_at(row, col):
-        return "in the cabin"
+        return f"in the cabin, row {int(row)} col {int(col)}"
     return f"at {position_name(row, col)}"
 
 
@@ -4945,7 +4945,7 @@ def go_cabin(state: dict, player: str, rules: dict | None = None) -> tuple[bool,
     slot["energy"] = energy - cost
     return (
         True,
-        f"{display_name(player)} walks to the cabin "
+        f"{display_name(player)} walks to {describe_place(CABIN_ROW, CABIN_COL)} "
         f"({steps_phrase(len(places))}, {cost} energy).",
     )
 
@@ -6478,13 +6478,13 @@ def action_descriptor(
     if verb == "enter" and args and args[0].lower() in {"cabin", "house", "home"}:
         return "steps inside, free"
     if verb == "leave" and (not args or args[0].lower() in {"cabin", "house", "home"}):
-        return "back to the farm cabin tile, free"
+        return f"back to the farm cabin tile r{CABIN_ROW} c{CABIN_COL}, free"
     if verb == "go" and args and args[0] in {"cabin", "home", "house"}:
         places = path_places(actor_area, here, AREA_FARM, (CABIN_ROW, CABIN_COL))
         steps = len(places) if places else len(path_steps(here, (CABIN_ROW, CABIN_COL)))
         cost = steps * step
         step_word = "step" if steps == 1 else "steps"
-        return f"to the cabin, {steps} {step_word}, {_energy_word(cost)}"
+        return f"to the cabin r{CABIN_ROW} c{CABIN_COL}, {steps} {step_word}, {_energy_word(cost)}"
     if verb == "go" and args and args[0] in {"town", "market"}:
         from town import TOWN_ENTRANCE
         from hills import AREA_TOWN as _TOWN

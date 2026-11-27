@@ -1625,8 +1625,8 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
     def test_walk_messages_name_the_place_cleanly(self):
         from engine import describe_place, describe_where, steps_phrase
         # Cabin is already where a fresh farm starts.
-        self.assertEqual(describe_place(1, 3), "the cabin")
-        self.assertEqual(describe_where(1, 3), "in the cabin")
+        self.assertEqual(describe_place(1, 3), "the cabin, row 1 col 3")
+        self.assertEqual(describe_where(1, 3), "in the cabin, row 1 col 3")
         self.assertEqual(describe_place(2, 3), "mid-right, row 2 col 3")
         self.assertEqual(describe_where(2, 3), "at mid-right, row 2 col 3")
         self.assertEqual(steps_phrase(1), "1 step")
@@ -1641,7 +1641,7 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertEqual(msg, f"{N1} is already at mid-right, row 2 col 3.")
         ok, msg = do_action(self.state, self.crops, "go cabin", player=P1)
         self.assertTrue(ok, msg)
-        self.assertEqual(msg, f"{N1} walks to the cabin (1 step, 5 energy).")
+        self.assertEqual(msg, f"{N1} walks to the cabin, row 1 col 3 (1 step, 5 energy).")
         self.assertNotIn("walks to in the cabin", msg)
         ok, msg = do_action(self.state, self.crops, "move down", player=P1)
         self.assertTrue(ok, msg)
@@ -1652,6 +1652,30 @@ class AvatarsSleepAndSnacks(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("You're out of energy — walking needs 10 and you have 5.", msg)
         self.assertNotIn("step(s)", msg)
+
+    def test_cabin_actions_include_the_farm_tile_coordinates(self):
+        from engine import format_legal_action
+        from hills import set_player_place, AREA_HILLS, HILLS_GATE
+        stand(self.state, P1, 2, 3)
+        self.assertEqual(
+            format_legal_action("go cabin", self.state, self.crops, P1, self.rules),
+            "go cabin (to the cabin r1 c3, 1 step, 5 energy)",
+        )
+        set_player_place(self.state, P1, AREA_HILLS, *HILLS_GATE)
+        self.state["players"][P1]["energy"] = 100
+        self.assertEqual(
+            format_legal_action("go south", self.state, self.crops, P1, self.rules),
+            "go south (to the cabin r1 c3, 5 energy)",
+        )
+        self.assertEqual(
+            format_legal_action("go cabin", self.state, self.crops, P1, self.rules),
+            "go cabin (to the cabin r1 c3, 1 step, 5 energy)",
+        )
+        inside(self.state, P1, "door")
+        self.assertEqual(
+            format_legal_action("leave cabin", self.state, self.crops, P1, self.rules),
+            "leave cabin (back to the farm cabin tile r1 c3, free)",
+        )
 
     def test_sleep_in_cabin_and_pass_out_in_the_field(self):
         self.assertIn("sleep", sleep_outlook(self.state, P1).lower())
@@ -9274,6 +9298,61 @@ class CabinInterior(unittest.TestCase):
         self.assertFalse(data.get("invChestPresent"))
         self.assertNotIn("bed", data["labels"])
         self.assertNotIn("floor", data["labels"])
+
+    def test_web_farm_cabin_tile_uses_row_col_label(self):
+        import json
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        import web
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        stand(self.state, P1, CABIN_ROW, CABIN_COL)
+        self.state["current_player"] = P1
+        payload = web.api_payload(self.state, self.crops, player=P1)
+        html = web.render_page(viewer=P1)
+        runner = Path(__file__).resolve().parent / "tests" / "farm-ui.test.js"
+        self.assertTrue(runner.is_file(), str(runner))
+        with tempfile.TemporaryDirectory(prefix="lantern-farm-ui-") as tmp:
+            tmp = Path(tmp)
+            (tmp / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+            (tmp / "page.html").write_text(html, encoding="utf-8")
+            jsdom_root = Path(tempfile.gettempdir()) / "lantern-farm-jsdom"
+            if not (jsdom_root / "node_modules" / "jsdom").exists():
+                jsdom_root.mkdir(parents=True, exist_ok=True)
+                inst = subprocess.run(
+                    ["npm", "install", "--prefer-offline", "--no-audit", "--no-fund", "jsdom@24"],
+                    cwd=jsdom_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if inst.returncode != 0:
+                    self.skipTest("jsdom install failed: " + (inst.stderr or inst.stdout)[-400:])
+            env = dict(os.environ)
+            env["NODE_PATH"] = str(jsdom_root / "node_modules")
+            proc = subprocess.run(
+                [node, str(runner), str(tmp / "payload.json"), str(tmp / "page.html")],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
+            data = json.loads(proc.stdout.strip().splitlines()[-1])
+        expected = [
+            "r1 c1", "r1 c2", "r1 c3",
+            "r2 c1", "r2 c2", "r2 c3",
+            "r3 c1", "r3 c2", "r3 c3",
+        ]
+        self.assertEqual(data["labels"], expected)
+        self.assertNotIn("cabin", data["labels"])
+        # The cabin tile is still described as the cabin, with its coordinates.
+        cabin_title = data["titles"][2].lower()
+        self.assertIn("row 1 col 3", cabin_title)
+        self.assertIn("cabin", cabin_title)
 
     def test_web_e_enters_the_cabin_and_does_not_end_the_turn(self):
         import web

@@ -789,7 +789,7 @@ def describe_place(area: str, row: int, col: int, floor: int | None = None) -> s
         from cabin import describe_cabin_place
         return describe_cabin_place(row, col)
     if is_cabin_place(area, row, col):
-        return "the cabin"
+        return f"the cabin, row {int(row)} col {int(col)}"
     here = position_name(row, col)
     if area == AREA_HILLS:
         if is_mine_entrance_tile(row, col):
@@ -821,7 +821,7 @@ def describe_where(area: str, row: int, col: int, floor: int | None = None) -> s
         from cabin import describe_cabin_where
         return describe_cabin_where(row, col)
     if is_cabin_place(area, row, col):
-        return "in the cabin"
+        return f"in the cabin, row {int(row)} col {int(col)}"
     here = position_name(row, col)
     if area == AREA_HILLS:
         if is_mine_entrance_tile(row, col):

@@ -2051,7 +2051,7 @@ PAGE = r"""<!DOCTYPE html>
         const plot = "row " + r + " col " + c;
         return label ? ("at " + label + " (" + plot + " in the cabin)") : ("at " + plot + " in the cabin");
       }
-      if (area === "farm" && r === cabin.r && c === cabin.c) return "in the cabin";
+      if (area === "farm" && r === cabin.r && c === cabin.c) return "in the cabin, row " + r + " col " + c;
       const cols = COLS || 3;
       const plot = "at plot " + ((r - 1) * cols + c);
       if (area === "hills") {
@@ -2229,7 +2229,6 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function tileLabel(tile, r, c, data) {
-      if (viewArea(data) === "farm" && tile && tile.type === "cabin") return "cabin";
       return "r" + r + " c" + c;
     }
     function groundStacks(tile) {
