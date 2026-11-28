@@ -200,6 +200,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Partner rings: a matching pair carved from runestone at the Creation Table, only on an aurora night, and only when both players are in the cabin. Each player has to accept their ring, so a partnership is always mutual. Either can take theirs off any time and the bonus simply stops.
 - Wearing a partner ring gives the partner bonuses (sleeping close, homesickness waiver, hanami, etc.), but only when the partners share a tile or floor, so it rewards being together.
 - This answers the 3-4 player "both" question: partner mechanics apply to whoever wears the matching ring. In a 3-player game any two can pair up.
+- Beds (Rick): the cabin starts with a bunk bed. The double bed is a cabin upgrade. With matching partner rings it enables the sleeping-close bonus; without rings it just works as a two-person bed.
 - Ring of self-reliance: for solo games and players without a partner. A flat passive +20 energy cap. Carved alone at the Creation Table on a new moon night. It can't be worn alongside a partner ring; take it off to accept one later.
 - Moon cycle: 5 days per cycle, one phase per day (new moon, waxing, full moon, waning, dark crescent), so 3 full cycles per 15-day season. New and full moons can gate rare crafts and events (night foraging, mushroom flushes on the full moon).
 
