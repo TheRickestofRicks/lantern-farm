@@ -13,6 +13,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-28 | Forging at the town forge logs "forges the watering can to copper at the cabin" | minor | Wrong place name in the log line. Expected: "at the forge". |
 | 2026-11-28 | Forecast strip: the snow day shows its caption inline ("snow (soil stays wet, but crops don't grow)"), unlike the other days | minor | Inconsistent. Expected: just "snow" like the rest, with the soil and growth note in a hover tooltip, if anywhere. |
 | 2026-11-28 | Forecast strip: aurora night has no weather sprite of its own and falls back to the sun icon | minor | Missing art. Expected: an aurora SVG in the same style as Lumen's other weather SVGs (we keep using her SVGs for weather art). |
+| 2026-11-28 | The "N energy tomorrow" preview (end-turn tooltip and status line) leaves out the homesickness penalty that will apply, e.g. "100 energy tomorrow" in the sleeping bag on a night away | minor | Misleading number. Expected: include homesickness (and note when sharing a tile or floor cancels it), so the preview matches what you actually wake with. |
 
 ## Fixed
 | Found | Bug | Fixed in |
