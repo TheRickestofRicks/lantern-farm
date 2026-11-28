@@ -224,3 +224,9 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - With 3 or 4 players, mechanics written for "both" or "the other player" (homesickness waiver, sleeping close, hanami, flowers, healing) need a rule. Partly answered by partner rings (see Rings section); still decide flowers and healing.
 - Food storage: decide what the pantry, root bins and preserves shelf each hold before building any of them.
 
+## Waking order and passing out (agreed with Rick, 2026-11-27)
+- Whoever passes out sleeps in: the other player takes the first turn of the morning, so they can come find them.
+- While the passed-out player is still sleeping it off (no action yet that day), `carry <name> to bed` is offered automatically. Their first action means they are up and on their own.
+- If both pass out, normal turn order applies.
+- New game setting, turn order: rotate (default: whoever went second goes first next day), fixed (same player always starts), or whoever is awake first. Passing out still bumps you to second in every mode.
+- Replaces the BUGS row about carry not being offered after the day turns (it was a design gap, not a bug).
