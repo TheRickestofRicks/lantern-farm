@@ -25,7 +25,7 @@ High means it goes in next; medium means it's wanted soon but waits on something
 | High | Re-tilling after uprooting | Small, and gives the hoe a job after the first till. |
 | High | Clearer hints (sleeping-close warning in the end-turn preview, "inedible until cooked" labels, recipe lookup anywhere) | We've both lost energy or bonuses to rules we couldn't see. Cheap fixes that prevent repeat mistakes. |
 | High | Winter season and overwintering crops | The game's goal is all four seasons in Year 1, and at our pace we reach winter in a few weeks of play. |
-| Medium | Waking order and passing out (plus turn-order setting) | Agreed design, but passing out is rare now that we plan around energy. |
+| High | Waking order and passing out (plus turn-order setting) | Rick's call (2026-11-28): makes taking turns feel real and fair. Who goes first should follow what happened the night before, not a fixed order. |
 | Medium | Action-time day-to-night cycle | Foundation for day length, naps and tool-tier speed, but big. Do it before sleep debt. |
 | Medium | Day length, sleep debt and naps | Depends on the action-time cycle. |
 | Medium | Recipe gaps (garden soup and salad safety net first, then rhubarb jams, pumpkin soup, onion pooling) | No crop should be an orphan, and the safety net is small. Special recipes can come later. |
