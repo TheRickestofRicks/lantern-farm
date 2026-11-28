@@ -266,4 +266,6 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - **Uses:** eat raw for a tiny energy bonus, brew dandelion root tea at the kitchen (a cheaper cousin of herbal tea), or add to salad recipes.
 - **Sprite reuse.** The old weed sprite retires from the farm and becomes wildflowers in the hills, which are purely decorative.
 - **Hills dandelions.** Dandelions also grow in the hills with no ill effect and can be foraged there.
-- On farm plots, dandelions still compete with crops the way weeds do. Open question: whether that's slower or gentler than a plain weed.
+- On farm plots, dandelions still slow crops the way weeds do (decided 2026-11-28).
+- **Tougher weeds, two stages.** Weeds and dandelions grow in two stages: at 1/2 one action clears them, at 2/2 it takes two actions.
+- **Seasonal growth.** New weeds only sprout in the warm months (spring through fall). They're winter hardy, so any weed already on the farm survives winter instead of dying off.
