@@ -233,7 +233,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 ## Clearer hints (agreed with Rick, 2026-11-27)
 
-- Legal actions: label foods that can't be eaten yet, e.g. "oyster mushroom (inedible until cooked)", so nobody tries eating them raw. Note (Day 20): oyster mushrooms currently have no recipe, eat value or sell price at all, so they need a kitchen recipe (or a price) before the label means anything.
+- Legal actions: label foods that can't be eaten yet, e.g. "oyster mushroom (inedible until cooked)", so nobody tries eating them raw. Note (Day 20): oyster mushrooms currently have no recipe, eat value or sell price at all, so they need a kitchen recipe (or a price) before the label means anything. Idea (Rick): a creamy mushroom soup, oyster mushrooms plus milk, cooked at the kitchen. Milk doesn't exist in the game yet, so it needs a source first (the honour store, or animals later).
+- Recipe lookup from anywhere: a `recipe_lookup` MCP command (and a matching CLI and web action) that lists every recipe, its ingredients, and what you're missing, so you can plan without standing at the kitchen. Today `recipes` only shows up usefully at the kitchen tile.
 - End-turn preview: warn when sleeping close will be missed, e.g. "you're at 10 energy, you need more than 10 to sleep close (+5)". Also state the rule in the help text. Why the rule exists: if you're too tired you can't even cuddle; you just need rest, so there's no bonus.
 
 ## Design principle: no mandatory nutrition (Rick, 2026-11-27)
