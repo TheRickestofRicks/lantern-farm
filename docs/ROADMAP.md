@@ -195,6 +195,14 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Gentle spoilage: depending on the item, after a while it sells for less, and after longer it decays entirely. Root bins and the cellar slow it down; dried, pickled and cask goods keep much longer.
 - A preserves shelf in the dark that pickles (and jam/honey jars) actually require, tying into the cooking revamp and the pantry.
 
+## Rings, jewellery and the moon (agreed with Rick, 2026-11-27)
+- New jewellery slots: two ring slots (two ring fingers) and one necklace slot. The second ring and the necklace hold magic bonuses, to be decided together later (keep them small and cozy, e.g. a lantern pendant that lights the mine).
+- Partner rings: a matching pair carved from runestone at the Creation Table, only on an aurora night, and only when both players are in the cabin. Each player has to accept their ring, so a partnership is always mutual. Either can take theirs off any time and the bonus simply stops.
+- Wearing a partner ring gives the partner bonuses (sleeping close, homesickness waiver, hanami, etc.), but only when the partners share a tile or floor, so it rewards being together.
+- This answers the 3-4 player "both" question: partner mechanics apply to whoever wears the matching ring. In a 3-player game any two can pair up.
+- Ring of self-reliance: for solo games and players without a partner. A flat passive +20 energy cap. Carved alone at the Creation Table on a new moon night. It can't be worn alongside a partner ring; take it off to accept one later.
+- Moon cycle: 5 days per cycle, one phase per day (new moon, waxing, full moon, waning, dark crescent), so 3 full cycles per 15-day season. New and full moons can gate rare crafts and events (night foraging, mushroom flushes on the full moon).
+
 ## Recipe gaps (audit 2026-11-27, design only; pick recipes together next week)
 - 15 of 20 crops have no recipe: radish, lettuce, spinach, pea, beet, potato, bush bean, cucumber, zucchini, tomato, pumpkin, corn, onion, rhubarb, asparagus. Everbearing berries make jam but not strawberry milk (it asks for `strawberry` exactly).
 - Rhubarb's description says to cook the stalks or make jam, but neither exists. First fixes: rhubarb jam and strawberry-rhubarb jam.
@@ -207,6 +215,6 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 ## Open design questions (2026-11-27)
 - How homesickness and sleep debt interact: does a sleeping-bag night count as real sleep, does sleeping together on a mine floor waive sleep debt too, and does a cabin nap clear homesickness?
-- With 3 or 4 players, mechanics written for "both" or "the other player" (homesickness waiver, sleeping close, hanami, flowers, healing) need a rule: all players, any two, or whoever shares the tile.
+- With 3 or 4 players, mechanics written for "both" or "the other player" (homesickness waiver, sleeping close, hanami, flowers, healing) need a rule. Partly answered by partner rings (see Rings section); still decide flowers and healing.
 - Food storage: decide what the pantry, root bins and preserves shelf each hold before building any of them.
 
