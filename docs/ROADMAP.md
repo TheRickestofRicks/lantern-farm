@@ -234,4 +234,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Clearer hints (agreed with Rick, 2026-11-27)
 
 - Legal actions: label foods that can't be eaten yet, e.g. "oyster mushroom (inedible until cooked)", so nobody tries eating them raw.
-- End-turn preview: warn when sleeping close will be missed, e.g. "you're at 10 energy, you need more than 10 to sleep close (+5)". Also state the rule in the help text.
+- End-turn preview: warn when sleeping close will be missed, e.g. "you're at 10 energy, you need more than 10 to sleep close (+5)". Also state the rule in the help text. Why the rule exists: if you're too tired you can't even cuddle; you just need rest, so there's no bonus.
+
+## Design principle: no mandatory nutrition (Rick, 2026-11-27)
+
+The game is already a brutal survival game. Food stays a bonus (fed +10) and an energy source, never a requirement: no hunger meter, no starving, no penalties for skipping meals.
