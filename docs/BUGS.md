@@ -7,6 +7,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Open
 | Found | Bug | Severity | Notes |
 |---|---|---|---|
+| 2026-11-28 | Pickaxe already at copper, but the forge only offers "forge to copper"; iron pickaxe cannot be made | critical | Blocks tool progression. Expected: a copper pickaxe offers the iron upgrade (and gold after). Likely the pickaxe tier is not read or not saved after the first upgrade. |
 | 2026-11-27 | Several sprites show red fringes where they were cut out for transparency | minor | Visual only. Rick will fix the sprites himself later. |
 | 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 | 2026-11-28 | In the mine, trying to mine with too little energy says "There's nothing to mine here in the mine." | minor | Misleading message. Expected: say you're too tired (not enough energy) to mine that. |
