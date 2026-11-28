@@ -391,3 +391,8 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 - The hiking boots bonus does not apply in snow.
 - Snowshoes (future item): cancel the snow penalty but give no bonus of their own.
 - Applies outdoors only, not in the mine or cabin (Rick confirmed).
+
+## Idea: pottery and painting skills (Rick, 2026-11-28)
+
+- Winter activities beyond mining and fishing, so energy and time have cozy uses in the cold months.
+- Pottery and painting as new skills, done at the cabin. Lumen is especially keen on painting.
