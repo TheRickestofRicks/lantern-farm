@@ -267,7 +267,8 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - **Sprite reuse.** The old weed sprite retires from the farm and becomes wildflowers in the hills.
 - **Wildflowers are rare (2026-11-28).** Each wildflower blooms once, in one specific season, and only in a few spots, so finding one feels special.
 - **Prairie crocus is the first wildflower.** Soft lavender, it blooms in early spring, sometimes through the last snow. It needs working mechanics: it can be found and picked as a wildflower, and it can be given as a gift.
-- **Weeds retired for now.** Weeds are switched off entirely until the prairie crocus mechanics work. The weed and dandelion rules below come back after that.
+- **Wildflower weeds wait for the crocus.** The retired weed sprite does not appear as hills wildflowers until the prairie crocus mechanics work; the crocus comes first.
+- **Dandelions replace the old weeds (next week, same pass).** Farm weeds become dandelions with the two-stage and seasonal rules below, shipped in the same pass as the crocus work.
 - **Hills dandelions.** Dandelions also grow in the hills with no ill effect and can be foraged there.
 - On farm plots, dandelions still slow crops the way weeds do (decided 2026-11-28).
 - **Tougher weeds, two stages.** Weeds and dandelions grow in two stages: at 1/2 one action clears them, at 2/2 it takes two actions.
