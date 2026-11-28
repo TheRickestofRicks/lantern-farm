@@ -15,7 +15,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-28 | Forecast strip: aurora night has no weather sprite of its own and falls back to the sun icon | minor | Missing art. Expected: an aurora SVG in the same style as Lumen's other weather SVGs (we keep using her SVGs for weather art). |
 | 2026-11-28 | The "N energy tomorrow" preview (end-turn tooltip and status line) leaves out the homesickness penalty that will apply, e.g. "100 energy tomorrow" in the sleeping bag on a night away | minor | Misleading number. Expected: include homesickness (and note when sharing a tile or floor cancels it), so the preview matches what you actually wake with. |
 | 2026-11-28 | The forge can upgrade any tool without the player carrying it (it can sit in the cabin chest) | major | Rule bypass: skips the trip of bringing the tool to town. Expected: only tools in the backpack can be forged. We play honestly until it is fixed. |
-| 2026-11-28 | After upgrading the pickaxe to copper, its visible item name stays "pickaxe" | minor | Inconsistent with the copper watering can. Expected: "copper pickaxe" in the chest, backpack and tooltips. |
+| 2026-11-28 | After upgrading the pickaxe to copper, the side panel still calls it "pickaxe" | minor | The inventory already says "copper pickaxe", but the side panel builds item names through a different path. Look into it later: make every view use one naming path. |
 
 ## Fixed
 | Found | Bug | Fixed in |
