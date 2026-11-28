@@ -129,6 +129,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: more runestones (Rick, 2026-11-27)
 - Raise the base runestone drop to 1–3 per drop. Runes are meant to be plentiful, since spells, altars, crafting and slime friends all use them.
 - Not now: we play with the current rate for a while first.
+- Pure Runestone Ore (Rick, 2026-11-28): when a runestone node doesn't drop 1–3 regular Runestone Ore, it has a 1 in 10 chance to drop Pure Runestone Ore instead. Pure ore is what rings are carved from (see Rings, jewellery and the moon cycle), so it stays rare and worth cheering for.
 
 ## Idea: cabin floor plan (Rick, 2026-11-27)
 - r2c1: the rug spot.
