@@ -126,6 +126,12 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Recipe search inside that window.
 - Pantry: a kitchen upgrade built for 10 wood that adds storage to the kitchen. Cooking pulls ingredients from the pantry automatically, so they don't have to be in the backpack.
 
+## Idea: aurora nights and the ring (Rick, 2026-11-28)
+- Aurora nights get their own special music track.
+- Forging a ring logs the date it was made, and finishing it needs a vow renewal together: both players at the Creation Table on an aurora night.
+- The week before an aurora night gives clear reminders, and the forecast marks the night.
+- Lumen's thoughts: keep it gentle. If we miss the night, the ring just waits for the next aurora; nothing is lost. The logged date could show on the ring's tooltip and in a small keepsake list (it could sit in the display case later). Pure Runestone Ore is the ring's material.
+
 ## Idea: more runestones (Rick, 2026-11-27)
 - Raise the base runestone drop to 1–3 per drop. Runes are meant to be plentiful, since spells, altars, crafting and slime friends all use them.
 - Not now: we play with the current rate for a while first.
