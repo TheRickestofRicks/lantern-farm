@@ -259,3 +259,11 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - It stores tools and gear (boots and future clothes) outside the backpack and chest.
 - **Tool hotkeys.** Racked tools can be grabbed or swapped with one action or key in the CLI, MCP and web, with no inventory shuffling.
 - **Chest becomes general storage.** Once the rack and the basement exist, the chest stops being the catch-all and holds only general storage. Tools and gear live on the rack, and bulk items go to the basement.
+
+## Dandelions and wildflowers (idea from Rick, 2026-11-28)
+
+- **Not every weed is bad.** Some weeds that sprout on farm plots are dandelions. Pluck them and they go into the backpack instead of vanishing.
+- **Uses:** eat raw for a tiny energy bonus, brew dandelion root tea at the kitchen (a cheaper cousin of herbal tea), or add to salad recipes.
+- **Sprite reuse.** The old weed sprite retires from the farm and becomes wildflowers in the hills, which are purely decorative.
+- **Hills dandelions.** Dandelions also grow in the hills with no ill effect and can be foraged there.
+- On farm plots, dandelions still compete with crops the way weeds do. Open question: whether that's slower or gentler than a plain weed.
