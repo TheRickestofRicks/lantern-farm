@@ -215,7 +215,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Winter: only carrot grows, so root bins and the overwintering crops need winter dishes (e.g. creamed spinach, onion soup).
 
 ## Small quality-of-life ideas (2026-11-27)
-- Keybind: E opens the chest when standing at it (Rick).
+- Done: E already opens the chest (interact key); no work needed (confirmed by Rick 2026-11-27).
 - A way to trash unused items (e.g. spare leather boots after buying hiking boots), so the chest and backpack do not clutter up late game (Rick). Maybe a scrap bin or selling junk at the forge for a coin or two.
 - Emoji shortcodes in notes and letters: `:green_heart:` becomes 💚 automatically, just for fun (Rick).
 
