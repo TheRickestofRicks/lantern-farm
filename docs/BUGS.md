@@ -10,6 +10,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-27 | Several sprites show red fringes where they were cut out for transparency | minor | Visual only. Rick will fix the sprites himself later. |
 | 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 | 2026-11-27 | Sleeping-close bonus (+5) missing on Day 14 even though both players ended in the cabin on the double bed (r1c1); end-turn preview said 100 instead of 105 | major | Lumen ended with 8 energy after 2 snacks. rules.json has `together_energy: 10`, possibly a minimum-energy check, but Rick got the bonus on 2-6 energy on earlier days (e.g. Days 12-13). Investigate the condition. |
+| 2026-11-27 | Can't carry a partner who passed out in the field once the new day starts (Day 19: Lumen at farm r1c1, Rick on the same tile, no `carry Lumen to bed` offered) | major | `player_requested_carry` needs `carry_home` or `ended_turn`, and both reset at day turn, so a passed-out partner stops counting as waiting. Workaround: pass the turn and the partner walks home. Idea: also offer carry when the partner woke away from the cabin with low energy, or keep a `passed_out` flag until they reach the cabin. |
 
 ## Fixed
 | Found | Bug | Fixed in |
