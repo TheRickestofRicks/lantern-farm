@@ -247,7 +247,7 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 
 ## Cabin cats and the fire tile (idea from Rick, 2026-11-28)
 
-- **Fire tile upgrade.** Cabin tile r2c1 becomes a fire/hearth upgrade instead of the rug. Cats can sleep on it.
+- **Hearth rug upgrade.** The fireplace is at r3c2, and its visual offset leaves room for a rug in front of it. That rug is the upgrade, and cats sleep on it by the fire. r2c1 is then free for something else.
 - **Cats are our first non-hostile NPCs.** While they're fed, they keep mice away from the cabin and farm.
 - **Feeding.** Cats eat kibble or fish (fish ties into the fishing update).
 - **Hungry cats roam.** After a full day without food, a cat goes hunting outside the farm and cabin, out in the hills or town. Open question: how and when it comes home.
