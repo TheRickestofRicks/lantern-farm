@@ -279,3 +279,10 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - When a plant is uprooted (a one-time harvest, `unearth`, or a crop that withers), the plot goes back to plain, untilled soil and needs the hoe again before replanting. Right now the hoe barely gets used after the first till.
 - Perennials that keep fruiting (strawberries) keep their tilled plot.
 - Open question: should a plot that sits empty for a few days also revert to untilled soil, or only after uprooting?
+
+## One watering can, base tools in the shop (idea from Rick, 2026-11-28)
+
+- **Start with one watering can, not two.** Two cans is too forgiving; sharing one makes it a small decision who waters.
+- **Every base tool sold at the honour store for 25G:** hoe, watering can, axe, shovel, and pickaxe. Base (unupgraded) versions only; upgrades still happen at the forge.
+- **The gap today:** the shop only sells the pickaxe (`pickaxe_price` 40 in rules.json). The hoe, axe, shovel, and watering can can't be bought at all. Drop the pickaxe to 25G to match.
+- Existing saves keep whatever cans they already have.
