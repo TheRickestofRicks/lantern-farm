@@ -126,6 +126,11 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Recipe search inside that window.
 - Pantry: a kitchen upgrade built for 10 wood that adds storage to the kitchen. Cooking pulls ingredients from the pantry automatically, so they don't have to be in the backpack.
 
+## Idea: tomatoes as a gamble (Rick, 2026-11-28)
+- Tomatoes are a spring and summer crop. Plants already growing can live on into autumn, but any frost or snow night kills them, so keeping them past summer is a gamble.
+- The shop stops selling tomato seeds once autumn starts.
+- Lumen's thoughts: show a gentle "frost risk" hint on tomato tiles in autumn and a frost marker on the forecast, so the gamble is a choice, not a surprise.
+
 ## Idea: aurora nights and the ring (Rick, 2026-11-28)
 - Aurora nights get their own special music track.
 - Aurora visuals (Rick, 2026-11-28): make the aurora green and animated. Don't show it in the mine; in the cabin, show it only through the window at r3c3. Today's overlay is pretty but looks like a screen glitch at first.

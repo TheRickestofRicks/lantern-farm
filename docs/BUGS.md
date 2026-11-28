@@ -17,7 +17,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-28 | The forge can upgrade any tool without the player carrying it (it can sit in the cabin chest) | major | Rule bypass: skips the trip of bringing the tool to town. Expected: only tools in the backpack can be forged. We play honestly until it is fixed. |
 | 2026-11-28 | After upgrading the pickaxe to copper, the side panel still calls it "pickaxe" | minor | The inventory already says "copper pickaxe", but the side panel builds item names through a different path. Look into it later: make every view use one naming path. |
 | 2026-11-28 | The aurora weather tooltip reads "an aurora night (clear, rare)" | minor | Wording. Rarity does not need to be mentioned. Expected: "an aurora night (clear)" or just "an aurora night". |
-| 2026-11-28 | The honour store sells tomato seeds in autumn, but a tomato planted on autumn day 1 was killed by frost on the first snow (Day 33) | major | Shop and frost rules disagree. Expected: do not sell seeds that frost will kill, or make tomatoes survive until a real frost window. |
+| 2026-11-28 | The honour store sells tomato seeds in autumn, but a tomato planted on autumn day 1 was killed by frost on the first snow (Day 33) | major | Shop and frost rules disagree. Rick (2026-11-28): frost does kill tomatoes in real life, so rethink them rather than make them frost-proof (see Roadmap, Tomatoes as a gamble). Fix: stop selling tomato seeds in autumn. |
 | 2026-11-28 | The Day 32 forecast said Day 33 would be rain, but it snowed (the Day 31 forecast had said snow) | minor | Forecast changed and then the actual weather did not match. Expected: the forecast for tomorrow matches what happens. |
 
 ## Fixed
