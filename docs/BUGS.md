@@ -10,6 +10,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-27 | Several sprites show red fringes where they were cut out for transparency | minor | Visual only. Rick will fix the sprites himself later. |
 | 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 | 2026-11-28 | In the mine, trying to mine with too little energy says "There's nothing to mine here in the mine." | minor | Misleading message. Expected: say you're too tired (not enough energy) to mine that. |
+| 2026-11-28 | Forging at the town forge logs "forges the watering can to copper at the cabin" | minor | Wrong place name in the log line. Expected: "at the forge". |
 
 ## Fixed
 | Found | Bug | Fixed in |
