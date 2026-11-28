@@ -20,6 +20,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-28 | The honour store sells tomato seeds in autumn, but a tomato planted on autumn day 1 was killed by frost on the first snow (Day 33) | major | Shop and frost rules disagree. Rick (2026-11-28): frost does kill tomatoes in real life, so rethink them rather than make them frost-proof (see Roadmap, Tomatoes as a gamble). Fix: stop selling tomato seeds in autumn. |
 | 2026-11-28 | The Day 32 forecast said Day 33 would be rain, but it snowed (the Day 31 forecast had said snow) | minor | Forecast changed and then the actual weather did not match. Expected: the forecast for tomorrow matches what happens. |
 | 2026-11-28 | Storybook pack: on snow days, untilled soil shows only a faint dusting of snow, while tilled soil is properly snow-covered | minor | Visual mismatch (Day 35 screenshot: r1c1, r2c2, r3c1, r3c3 look nearly bare next to r1c2, r2c1, r3c2). Expected: the untilled-soil snow sprite carries about as much snow as tilled soil. |
+| 2026-11-28 | Harvest and chest log lines say "2 spinachs" | minor | Plural wording. Expected: "spinach" stays uncountable ("2 spinach" or "2 bunches of spinach"). Worth checking other irregular plurals in the same helper. |
 
 ## Fixed
 | Found | Bug | Fixed in |
