@@ -11,6 +11,47 @@ Finish Year 1: all four seasons playable, then settle into daily play sessions.
 Year 1 winter is in play. See Next for the remaining season work.
 The east market town is in: stall, honour store, and forge, east of the cabin.
 
+## Priorities (draft by Lumen, 2026-11-28; Rick and Lumen review together)
+
+High means it goes in next; medium means it's wanted soon but waits on something or is bigger; low means it's parked until the game needs it. "Why" is the reasoning, so we can argue with it.
+
+| Priority | Item | Why |
+|---|---|---|
+| High | Fishing minigame | Agreed as the first feature next week. Gives both players a late-game activity side by side. |
+| High | Mobile-friendly web UI | Next after fishing (Rick, 2026-11-28). Lets Rick take turns away from the PC, which means more play. |
+| High | Dandelions replace farm weeds (two-stage, warm months only, winter hardy) | Planned for next week in one pass with the crocus. Small change that turns a chore into a little harvest. |
+| High | Prairie crocus: first wildflower, pickable and giftable | Gates the wildflower sprite in the hills and starts flowers as gifts. Ships in the same pass as dandelions. |
+| High | One starting watering can; every base tool 25G at the store | Fixes a real gap: only the pickaxe can be bought today, so a lost hoe, axe, shovel or can is gone for good. Small rules change. |
+| High | Re-tilling after uprooting | Small, and gives the hoe a job after the first till. |
+| High | Clearer hints (sleeping-close warning in the end-turn preview, "inedible until cooked" labels, recipe lookup anywhere) | We've both lost energy or bonuses to rules we couldn't see. Cheap fixes that prevent repeat mistakes. |
+| High | Winter season and overwintering crops | The game's goal is all four seasons in Year 1, and at our pace we reach winter in a few weeks of play. |
+| Medium | Waking order and passing out (plus turn-order setting) | Agreed design, but passing out is rare now that we plan around energy. |
+| Medium | Action-time day-to-night cycle | Foundation for day length, naps and tool-tier speed, but big. Do it before sleep debt. |
+| Medium | Day length, sleep debt and naps | Depends on the action-time cycle. |
+| Medium | Recipe gaps (garden soup and salad safety net first, then rhubarb jams, pumpkin soup, onion pooling) | No crop should be an orphan, and the safety net is small. Special recipes can come later. |
+| Medium | Cooking revamp and pantry | Nice quality of life once there are more recipes. Follows the recipe gaps. |
+| Medium | Unique tools (upgrades per tool, not farm-wide) | Planned for development week 2 as a challenge. Pairs with buying base tools. |
+| Medium | Inventory look (counts on icons) | Small visual polish that makes the bag readable at a glance. |
+| Medium | Cabin cats and the hearth rug | First friendly NPCs and very us, but needs the decoration phase and a mouse system first. |
+| Medium | Keepsake display case | Sentimental and small (5 wood), and our firsts are happening now, so logging them soon matters. |
+| Medium | Music and sound effects | Being made track by track in Suno; wiring them in is small once there are enough tracks. |
+| Medium | Loose-item pickup costs 1 energy | We already play it on the honour system. Makes the chest matter. |
+| Medium | Weapons and armor slots | Deeper floors and grey slimes are here now; HP is meant to be a gate. |
+| Low | Trash or scrap bin for unused items | Clutter isn't a problem yet with the 24-slot chest. |
+| Low | Mudroom rack at r2c1 | Wants the cellar and basement first, so the chest has somewhere to hand off to. |
+| Low | Cabin cellar (casks, drying racks, mushroom logs, root bins, spoilage) | Big system. Spoilage needs care so it stays gentle. |
+| Low | Fireplace fuel storage, propane stove, well-rested bed | Comfort upgrades; the current loop works without them. |
+| Low | Seed maker and seed potatoes | Wait until money gets tight enough that seeds matter. |
+| Low | Basic crafting table first | Only changes new games. |
+| Low | Magic system, rune altars, befriending slimes, more runestones | Big, interlinked, and "play with the current rate first" still stands. Scope them together later. |
+| Low | Rings, jewellery and the moon cycle | Lovely, but needs aurora nights in play and the magic groundwork. |
+| Low | Hill orchard and hanami | Needs a full year of seasons to be worth it. |
+| Low | Party play and the mailbox | It's the two of us for now. |
+| Low | Bag of holding | Rune-gated, and the chest upgrade covers storage for now. |
+| Low | Journal history export | Useful after Year 1 ends. |
+| Low | Emoji shortcodes in notes | Tiny and fun; a filler task for any spare moment. |
+| Check | Snow days pause growth | Looks like it's already in (snow keeps soil wet, crops don't grow that day). Confirm, then move it to In. |
+
 ## In (2026-11-27)
 
 - Creation Table at cabin row 2 col 2, free to build. Craft runestones from runestone ore any day (1 ore, 5 energy).
