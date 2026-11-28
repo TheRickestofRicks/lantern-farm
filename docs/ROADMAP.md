@@ -230,3 +230,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - If both pass out, normal turn order applies.
 - New game setting, turn order: rotate (default: whoever went second goes first next day), fixed (same player always starts), or whoever is awake first. Passing out still bumps you to second in every mode.
 - Replaces the BUGS row about carry not being offered after the day turns (it was a design gap, not a bug).
+
+## Clearer hints (agreed with Rick, 2026-11-27)
+
+- Legal actions: label foods that can't be eaten yet, e.g. "oyster mushroom (inedible until cooked)", so nobody tries eating them raw.
+- End-turn preview: warn when sleeping close will be missed, e.g. "you're at 10 energy, you need more than 10 to sleep close (+5)". Also state the rule in the help text.
