@@ -240,3 +240,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Design principle: no mandatory nutrition (Rick, 2026-11-27)
 
 The game is already a brutal survival game. Food stays a bonus (fed +10) and an energy source, never a requirement: no hunger meter, no starving, no penalties for skipping meals.
+
+## Inventory look (Rick, 2026-11-27)
+
+- Show each slot's item count as a small number in the top-right corner of the icon (like classic farming games), instead of "9 copper ore" under it. Keep the name as a tooltip or a smaller label.
