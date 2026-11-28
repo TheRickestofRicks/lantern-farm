@@ -213,6 +213,10 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Staples to add, in order: flour (pies, crumble, zucchini bread), eggs, cellar vinegar (pickles for cucumber, beet, radish, onion), salt.
 - Winter: only carrot grows, so root bins and the overwintering crops need winter dishes (e.g. creamed spinach, onion soup).
 
+## Small quality-of-life ideas (2026-11-27)
+- Keybind: E opens the chest when standing at it (Rick).
+- Emoji shortcodes in notes and letters: `:green_heart:` becomes 💚 automatically, just for fun (Rick).
+
 ## Open design questions (2026-11-27)
 - How homesickness and sleep debt interact: does a sleeping-bag night count as real sleep, does sleeping together on a mine floor waive sleep debt too, and does a cabin nap clear homesickness?
 - With 3 or 4 players, mechanics written for "both" or "the other player" (homesickness waiver, sleeping close, hanami, flowers, healing) need a rule. Partly answered by partner rings (see Rings section); still decide flowers and healing.
