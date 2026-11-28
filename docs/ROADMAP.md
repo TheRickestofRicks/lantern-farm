@@ -384,3 +384,9 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 - Smelting cost per ingot: 1 copper ore + 1 coal, 1 iron ore + 2 coal, 1 gold ore + 3 coal.
 - Pairs with the "8 ore per upgrade tier" idea: tiers would become 8 ingots each.
 - Open questions: where smelting happens (a furnace at the cabin, or the Creation Table), whether runestones still use raw ore, and whether coal stacks to pack_stack 8 like ore.
+
+## Idea: snow slows walking (Rick, 2026-11-28)
+
+- Walking a tile costs 1 more energy than normal while it is snowing (or on snowy days).
+- The hiking boots bonus does not apply in snow.
+- Open questions: does it apply only outdoors (not the mine or cabin), and could a future snowshoe item restore the bonus?
