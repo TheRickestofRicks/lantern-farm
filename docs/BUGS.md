@@ -11,6 +11,8 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 | 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 | 2026-11-28 | In the mine, trying to mine with too little energy says "There's nothing to mine here in the mine." | minor | Misleading message. Expected: say you're too tired (not enough energy) to mine that. |
 | 2026-11-28 | Forging at the town forge logs "forges the watering can to copper at the cabin" | minor | Wrong place name in the log line. Expected: "at the forge". |
+| 2026-11-28 | Forecast strip: the snow day shows its caption inline ("snow (soil stays wet, but crops don't grow)"), unlike the other days | minor | Inconsistent. Expected: just "snow" like the rest, with the soil and growth note in a hover tooltip, if anywhere. |
+| 2026-11-28 | Forecast strip: aurora night has no weather sprite of its own and falls back to the sun icon | minor | Missing art. Expected: an aurora SVG in the same style as Lumen's other weather SVGs (we keep using her SVGs for weather art). |
 
 ## Fixed
 | Found | Bug | Fixed in |
