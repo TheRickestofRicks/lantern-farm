@@ -40,6 +40,7 @@ High means it goes in next; medium means it's wanted soon but waits on something
 | Medium | Music and sound effects | Being made track by track in Suno; wiring them in is small once there are enough tracks. |
 | Medium | Loose-item pickup costs 1 energy | We already play it on the honour system. Makes the chest matter. |
 | Medium | Weapons and armor slots | Deeper floors and grey slimes are here now; HP is meant to be a gate. |
+| Low | Selectable cabin flooring from a big pool (wood, tile, stone and more) | Rick (2026-11-28): spruce the place up. Part of the decoration phase; mostly sprite work, so it waits until rugs and the display case are in. |
 | Low | Trash or scrap bin for unused items | Clutter isn't a problem yet with the 24-slot chest. |
 | Low | Mudroom rack at r2c1 | Wants the cellar and basement first, so the chest has somewhere to hand off to. |
 | Low | Cabin cellar (casks, drying racks, mushroom logs, root bins, spoilage) | Big system. Spoilage needs care so it stays gentle. |
@@ -364,4 +365,12 @@ For neatness, every chest upgrade and tool upgrade costs 8 of that tier's metal 
 - Change: set all of them to 8. Gold chests get cheaper and tool upgrades get a bit dearer, which is fine because ore drops scale with depth anyway.
 - Nice side effect: "one full stack" becomes something you can read at a glance, so the bag tells you when you can afford the next tier.
 - Lumen's thought: agreed. Update the describe.py and MCP help text that quote the old numbers in the same pass.
+
+## Idea: selectable flooring (Rick, 2026-11-28)
+
+Let us pick the cabin's floor from a large pool of types (wood planks, tile, stone and more) "so we can spruce it up" (the pun was partly intended).
+
+- Fits the decoration phase alongside rugs, lanterns and the keepsake case.
+- Lumen's thoughts: make the floors from things we gather (spruce and birch planks from the hills, flagstone from mine stone, quartz tile, a copper-inlay floor as a late treat), so changing the floor is a small goal rather than a menu pick. A few could be unlocked by seasons (a crocus-patterned tile in spring, a birch floor after the first winter). Floor only changes the look, with no energy effects, so it never feels required.
+- Each floor needs one tile sprite per art pack (default and storybook), so start with 4 to 6 and grow the pool over time.
 
