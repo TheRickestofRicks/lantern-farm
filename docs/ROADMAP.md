@@ -25,7 +25,7 @@ High means it goes in next; medium means it's wanted soon but waits on something
 | High | Re-tilling after uprooting | Small, and gives the hoe a job after the first till. |
 | High | Clearer hints (sleeping-close warning in the end-turn preview, "inedible until cooked" labels, recipe lookup anywhere) | We've both lost energy or bonuses to rules we couldn't see. Cheap fixes that prevent repeat mistakes. |
 | High | Winter season and overwintering crops | The game's goal is all four seasons in Year 1, and at our pace we reach winter in a few weeks of play. |
-| High | Runestone drop rate 1–2 or 1–3 per drop | Playtested: we cannot mine enough runestone for an enchant by the first aurora, so enchanting is out of reach. A small rules.json change. |
+| High | Runestone balance: test by depth, then maybe raise the drop to 1–2 or 1–3 | Shallow floors gave too few for the first aurora, but floor 11 had 3 runestone rocks at once (Rick, 2026-11-28). Tally by depth before changing rules.json. |
 | High | Waking order and passing out (plus turn-order setting) | Rick's call (2026-11-28): makes taking turns feel real and fair. Who goes first should follow what happened the night before, not a fixed order. |
 | Medium | Action-time day-to-night cycle | Foundation for day length, naps and tool-tier speed, but big. Do it before sleep debt. |
 | Medium | Day length, sleep debt and naps | Depends on the action-time cycle. |
@@ -151,6 +151,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: more runestones (Rick, 2026-11-27)
 - Raise the base runestone drop to 1–3 per drop. Runes are meant to be plentiful, since spells, altars, crafting and slime friends all use them.
 - ~~Not now: we play with the current rate for a while first.~~ Updated (Rick, 2026-11-28, after playing it): the current rate makes it impossible to mine enough runestone before the first aurora (enchants need 5–10 runestones). Raise the drop to 1–2 or 1–3 regular Runestone Ore per drop. Moved to High priority.
+- Needs testing first (Rick, 2026-11-28): on mine floor 11 he found 3 runestone rocks on one floor. If runestone is that common deeper down, the drop rate may be fine as is and the real issue is how deep you need to go before the first aurora. Test: tally runestone rocks and ore per floor by depth before changing rules.json. Options if it is depth: more runestone on shallow floors, or a hint that runes live deeper.
 - Pure Runestone Ore (Rick, 2026-11-28): when a runestone node doesn't drop 1–3 regular Runestone Ore, it has a 1 in 10 chance to drop Pure Runestone Ore instead. Pure ore is what rings are carved from (see Rings, jewellery and the moon cycle), so it stays rare and worth cheering for.
 
 ## Idea: cabin floor plan (Rick, 2026-11-27)
