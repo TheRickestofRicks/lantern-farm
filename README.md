@@ -2,6 +2,9 @@
 
 A tiny text-first farming game. Two players share one farm and take turns.
 
+A plain-language rulebook, kept in step with the current numbers, is in
+[`docs/RULES.md`](docs/RULES.md).
+
 The world lives in a named save slot under `saves/` (gitignored). Both
 players share the active slot. The first live farm is copied into a permanent
 slot called **First Farm** and stays there; starting a new farm creates a
@@ -269,6 +272,10 @@ configured.
 
 ## Rules (deterministic)
 
+The full rulebook, with tables for energy, prices, shop windows, and the rest,
+is [`docs/RULES.md`](docs/RULES.md). A short reminder of the core loop:
+
+
 - Seasons last 15 days (one game season is one real season; about 6 real days per game day), in order: spring, summer, autumn, winter, then spring again.
 - Weather is a function of a seed stored in `state.json` and the day number,
   not a roll of the dice. Each load of the same save produces the same weather.
@@ -402,6 +409,7 @@ start as a small plant rather than a seed.
   file. `state.example.json` is a generic starter save (Player 1 / Player 2).
   The current year's journal lives in the save; older years are archived in
   the slot (and, for older layouts, under `local/`, also gitignored).
+- `docs/RULES.md` — plain-language rulebook (numbers from `rules.json` and `crops.json`)
 - `crops.json` — crop data and starting conditions
 - `rules.json` — energy costs, movement, sleep, snacks, max energy, and weed rules
 - `config.example.json` — generic names, theme, and flavor (Player 1 / Player 2, no notify)
