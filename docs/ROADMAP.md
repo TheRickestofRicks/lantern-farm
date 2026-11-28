@@ -273,3 +273,9 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - On farm plots, dandelions still slow crops the way weeds do (decided 2026-11-28).
 - **Tougher weeds, two stages.** Weeds and dandelions grow in two stages: at 1/2 one action clears them, at 2/2 it takes two actions.
 - **Seasonal growth.** New weeds only sprout in the warm months (spring through fall). They're winter hardy, so any weed already on the farm survives winter instead of dying off.
+
+## Re-tilling after uprooting (idea from Rick, 2026-11-28)
+
+- When a plant is uprooted (a one-time harvest, `unearth`, or a crop that withers), the plot goes back to plain, untilled soil and needs the hoe again before replanting. Right now the hoe barely gets used after the first till.
+- Perennials that keep fruiting (strawberries) keep their tilled plot.
+- Open question: should a plot that sits empty for a few days also revert to untilled soil, or only after uprooting?
