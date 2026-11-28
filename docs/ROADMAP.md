@@ -389,4 +389,5 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 
 - Walking a tile costs 1 more energy than normal while it is snowing (or on snowy days).
 - The hiking boots bonus does not apply in snow.
-- Open questions: does it apply only outdoors (not the mine or cabin), and could a future snowshoe item restore the bonus?
+- Snowshoes (future item): cancel the snow penalty but give no bonus of their own.
+- Open question: does it apply only outdoors (not the mine or cabin)?
