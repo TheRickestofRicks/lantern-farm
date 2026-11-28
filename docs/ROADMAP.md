@@ -378,7 +378,8 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 
 ## Idea: coal and ingots (Rick, 2026-11-28)
 
-- Every mine level has about a 1 in 8 chance to spawn a coal rock.
+- Every mine level has a 1 in 8 chance (not a guarantee) to spawn a coal rock.
+- A coal rock drops 1-3 coal, the same range runestone ore will use.
 - Coal is needed to smelt ore into ingots, and ingots replace raw ore for chest and tool upgrades.
 - Smelting cost per ingot: 1 copper ore + 1 coal, 1 iron ore + 2 coal, 1 gold ore + 3 coal.
 - Pairs with the "8 ore per upgrade tier" idea: tiers would become 8 ingots each.
