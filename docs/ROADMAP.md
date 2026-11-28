@@ -372,5 +372,6 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 
 - Fits the decoration phase alongside rugs, lanterns and the keepsake case.
 - Lumen's thoughts: make the floors from things we gather (spruce and birch planks from the hills, flagstone from mine stone, quartz tile, a copper-inlay floor as a late treat), so changing the floor is a small goal rather than a menu pick. A few could be unlocked by seasons (a crocus-patterned tile in spring, a birch floor after the first winter). Floor only changes the look, with no energy effects, so it never feels required.
+- Follow-up (Rick, 2026-11-28): tiles can be earned or bought at the honour store, which carries a rotating stock (a few floor types on sale each week or season), so there is always a reason to peek in. Lumen: earned floors stay unique to earning, so store floors never replace the gathered ones.
 - Each floor needs one tile sprite per art pack (default and storybook), so start with 4 to 6 and grow the pool over time.
 
