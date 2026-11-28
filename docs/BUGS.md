@@ -7,7 +7,7 @@ Severity: **critical** (blocks play or loses saves), **major** (a feature is bro
 ## Open
 | Found | Bug | Severity | Notes |
 |---|---|---|---|
-| 2026-11-28 | Pickaxe already at copper, but the forge only offers "forge to copper"; iron pickaxe cannot be made | critical | Blocks tool progression. Expected: a copper pickaxe offers the iron upgrade (and gold after). Likely the pickaxe tier is not read or not saved after the first upgrade. |
+| 2026-11-28 | Pickaxe already at copper, but the forge only offers "forge to copper"; iron pickaxe cannot be made | critical | Blocks tool progression. Expected: a copper pickaxe offers the iron upgrade (and gold after). Watering can forges to iron fine, so it is pickaxe-specific. Lead (Lumen, read-only look): pickaxe tier lives on the item itself (mine.py tool_tier reads the held/pack slot), while other tools use the farm-wide tool_tiers table. The forge likely reads or writes the farm-wide table for the pickaxe (or calls tool_tier without the player), so it sees basic and offers copper again. Check the forge offer and set_tool_tier paths for the pickaxe. |
 | 2026-11-27 | Several sprites show red fringes where they were cut out for transparency | minor | Visual only. Rick will fix the sprites himself later. |
 | 2026-11-27 | Tile selection cursor stays on your old r/c coordinates after changing area (e.g. cabin to farm) | minor | Visual, slight gameplay effect. Expected: follow your current tile or clear on area change. |
 | 2026-11-28 | In the mine, trying to mine with too little energy says "There's nothing to mine here in the mine." | minor | Misleading message. Expected: say you're too tired (not enough energy) to mine that. |
