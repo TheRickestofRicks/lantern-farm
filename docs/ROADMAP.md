@@ -244,3 +244,11 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 ## Inventory look (Rick, 2026-11-27)
 
 - Show each slot's item count as a small number in the top-right corner of the icon (like classic farming games), instead of "9 copper ore" under it. Keep the name as a tooltip or a smaller label.
+
+## Cabin cats and the fire tile (idea from Rick, 2026-11-28)
+
+- **Fire tile upgrade.** Cabin tile r2c1 becomes a fire/hearth upgrade instead of the rug. Cats can sleep on it.
+- **Cats are our first non-hostile NPCs.** While they're fed, they keep mice away from the cabin and farm.
+- **Feeding.** Cats eat kibble or fish (fish ties into the fishing update).
+- **Hungry cats roam.** After a full day without food, a cat goes hunting outside the farm and cabin, out in the hills or town. Open question: how and when it comes home.
+- Keep it gentle: an unfed cat leaves for a while but never dies. That follows "no mandatory nutrition."
