@@ -258,3 +258,4 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - An upgrade turns the freed cabin tile r2c1 into a shoe rack, tool rack and wardrobe.
 - It stores tools and gear (boots and future clothes) outside the backpack and chest.
 - **Tool hotkeys.** Racked tools can be grabbed or swapped with one action or key in the CLI, MCP and web, with no inventory shuffling.
+- **Chest becomes general storage.** Once the rack and the basement exist, the chest stops being the catch-all and holds only general storage. Tools and gear live on the rack, and bulk items go to the basement.
