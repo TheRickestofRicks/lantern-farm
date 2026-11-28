@@ -375,3 +375,11 @@ Let us pick the cabin's floor from a large pool of types (wood planks, tile, sto
 - Follow-up (Rick, 2026-11-28): tiles can be earned or bought at the honour store, which carries a rotating stock (a few floor types on sale each week or season), so there is always a reason to peek in. Lumen: earned floors stay unique to earning, so store floors never replace the gathered ones.
 - Each floor needs one tile sprite per art pack (default and storybook), so start with 4 to 6 and grow the pool over time.
 
+
+## Idea: coal and ingots (Rick, 2026-11-28)
+
+- Every mine level has about a 1 in 8 chance to spawn a coal rock.
+- Coal is needed to smelt ore into ingots, and ingots replace raw ore for chest and tool upgrades.
+- Smelting cost per ingot: 1 copper ore + 1 coal, 1 iron ore + 2 coal, 1 gold ore + 3 coal.
+- Pairs with the "8 ore per upgrade tier" idea: tiers would become 8 ingots each.
+- Open questions: where smelting happens (a furnace at the cabin, or the Creation Table), whether runestones still use raw ore, and whether coal stacks to pack_stack 8 like ore.
