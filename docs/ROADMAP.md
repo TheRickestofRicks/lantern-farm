@@ -195,6 +195,8 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 ## Idea: befriending slimes (Rick, 2026-11-27)
 - Slimes become capturable later through a "Speak with Creature" spell that costs runestones (possibly a specific imbued kind).
 - Lumen's suggestion: befriended slimes live in a small pen in the hills, and each colour gives something (for example green goo as fertilizer, grey for ore luck).
+- Moving slimes (Rick, 2026-11-28): wild slimes in the mine move, maybe one tile at the end of each turn, so floors feel alive and you plan around them.
+- Lumen's thoughts: yes. Keep it slow and readable: one step per turn, toward or away from the player depending on colour, never through rock, and show where each one will go next as a small hint so it never feels unfair in a turn-based game. Could also let a slime wander onto an ore tile and "guard" it.
 
 ## Idea: flowers as gifts (Rick, 2026-11-27)
 - A "give item" action specific to flowers: giving a flower to the other player gives them 5 comfort, at most once per day.
