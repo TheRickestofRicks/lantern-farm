@@ -128,6 +128,7 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 
 ## Idea: aurora nights and the ring (Rick, 2026-11-28)
 - Aurora nights get their own special music track.
+- Aurora visuals (Rick, 2026-11-28): make the aurora green and animated. Don't show it in the mine; in the cabin, show it only through the window at r3c3. Today's overlay is pretty but looks like a screen glitch at first.
 - Forging a ring logs the date it was made, and finishing it needs a vow renewal together: both players at the Creation Table on an aurora night.
 - The week before an aurora night gives clear reminders, and the forecast marks the night.
 - Ringbearer's call (Rick, 2026-11-28): renewing the vows on an aurora night grants each ringbearer one teleport to the other ringbearer, usable once per year. If you save it, it gives you a reason not to miss the next renewal. Lumen's thoughts: perfect for a mine rescue or ending homesickness; the charge refreshes at the renewal and doesn't stack, and if you miss a renewal you simply get it back at the next aurora.
