@@ -264,7 +264,10 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 
 - **Not every weed is bad.** Some weeds that sprout on farm plots are dandelions. Pluck them and they go into the backpack instead of vanishing.
 - **Uses:** eat raw for a tiny energy bonus, brew dandelion root tea at the kitchen (a cheaper cousin of herbal tea), or add to salad recipes.
-- **Sprite reuse.** The old weed sprite retires from the farm and becomes wildflowers in the hills, which are purely decorative.
+- **Sprite reuse.** The old weed sprite retires from the farm and becomes wildflowers in the hills.
+- **Wildflowers are rare (2026-11-28).** Each wildflower blooms once, in one specific season, and only in a few spots, so finding one feels special.
+- **Prairie crocus is the first wildflower.** Soft lavender, it blooms in early spring, sometimes through the last snow. It needs working mechanics: it can be found and picked as a wildflower, and it can be given as a gift.
+- **Weeds retired for now.** Weeds are switched off entirely until the prairie crocus mechanics work. The weed and dandelion rules below come back after that.
 - **Hills dandelions.** Dandelions also grow in the hills with no ill effect and can be foraged there.
 - On farm plots, dandelions still slow crops the way weeds do (decided 2026-11-28).
 - **Tougher weeds, two stages.** Weeds and dandelions grow in two stages: at 1/2 one action clears them, at 2/2 it takes two actions.
