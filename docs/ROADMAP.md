@@ -31,6 +31,7 @@ High means it goes in next; medium means it's wanted soon but waits on something
 | Medium | Day length, sleep debt and naps | Depends on the action-time cycle. |
 | Medium | Recipe gaps (garden soup and salad safety net first, then rhubarb jams, pumpkin soup, onion pooling) | No crop should be an orphan, and the safety net is small. Special recipes can come later. |
 | Medium | Cooking revamp and pantry | Nice quality of life once there are more recipes. Follows the recipe gaps. |
+| Medium | Every chest and tool upgrade costs 8 ore per tier (one backpack stack) | Rick (2026-11-28): neater. Today chests cost 8 copper / 10 iron / 12 gold and tools cost 5 ore. 8 matches the pack stack, so one full stack is one upgrade. A one-line rules change; pairs with unique tools. |
 | Medium | Unique tools (upgrades per tool, not farm-wide) | Planned for development week 2 as a challenge. Pairs with buying base tools. |
 | Medium | Inventory look (counts on icons) | Small visual polish that makes the bag readable at a glance. |
 | Medium | Cabin cats and the hearth rug | First friendly NPCs and very us, but needs the decoration phase and a mouse system first. |
@@ -354,3 +355,13 @@ The game is already a brutal survival game. Food stays a bonus (fed +10) and an 
 - **Every base tool sold at the honour store for 25G:** hoe, watering can, axe, shovel, and pickaxe. Base (unupgraded) versions only; upgrades still happen at the forge.
 - **The gap today:** the shop only sells the pickaxe (`pickaxe_price` 40 in rules.json). The hoe, axe, shovel, and watering can can't be bought at all. Drop the pickaxe to 25G to match.
 - Existing saves keep whatever cans they already have.
+
+## Idea: 8 ore per upgrade tier (Rick, 2026-11-28)
+
+For neatness, every chest upgrade and tool upgrade costs 8 of that tier's metal (8 copper, then 8 iron, then 8 gold), which is exactly one backpack stack (`pack_stack` is 8).
+
+- Today: chest upgrades cost 8 copper, 10 iron and 12 gold (`rules.json`), and tool upgrades cost a flat 5 ore (`upgrade_ore`).
+- Change: set all of them to 8. Gold chests get cheaper and tool upgrades get a bit dearer, which is fine because ore drops scale with depth anyway.
+- Nice side effect: "one full stack" becomes something you can read at a glance, so the bag tells you when you can afford the next tier.
+- Lumen's thought: agreed. Update the describe.py and MCP help text that quote the old numbers in the same pass.
+
