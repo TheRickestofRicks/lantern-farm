@@ -34,6 +34,7 @@ High means it goes in next; medium means it's wanted soon but waits on something
 | Medium | Unique tools (upgrades per tool, not farm-wide) | Planned for development week 2 as a challenge. Pairs with buying base tools. |
 | Medium | Inventory look (counts on icons) | Small visual polish that makes the bag readable at a glance. |
 | Medium | Cabin cats and the hearth rug | First friendly NPCs and very us, but needs the decoration phase and a mouse system first. |
+| Medium | Wood and stone at the honour store (expensive, maybe a daily limit) | Rick (2026-11-28): firewood is really rare, and wood gates the fireplace and most builds. A small shop change. |
 | Medium | Keepsake display case | Sentimental and small (5 wood), and our firsts are happening now, so logging them soon matters. |
 | Medium | Music and sound effects | Being made track by track in Suno; wiring them in is small once there are enough tracks. |
 | Medium | Loose-item pickup costs 1 energy | We already play it on the honour system. Makes the chest matter. |
@@ -126,6 +127,11 @@ Parked items and leftovers from the design docs (`docs/plan-hills-and-mine.md`, 
 - Cooking moves into its own window instead of the sidebar.
 - Recipe search inside that window.
 - Pantry: a kitchen upgrade built for 10 wood that adds storage to the kitchen. Cooking pulls ingredients from the pantry automatically, so they don't have to be in the backpack.
+
+## Idea: wood and stone at the honour store (Rick, 2026-11-28)
+- Firewood is really rare: the hills have one young tree, so wood gates the fireplace, the chest, the keepsake case, the pantry and the seed maker.
+- Make wood and stone purchasable at the honour store, but expensive, so chopping and mining stay the main way to get them and buying is the safety valve.
+- Lumen's thoughts: agreed. Price each one well above what it sells for (a buy-only premium, so you can't loop buy and sell), maybe a daily stock limit (for example 5 wood a day) so gold can't fully replace the axe. Wood is the real pinch; stone is less urgent since the mine gives plenty, but it fits on the same shelf. Pairs well with the hill orchard and replanting trees later.
 
 ## Idea: tomatoes as a gamble (Rick, 2026-11-28)
 - Tomatoes are a spring and summer crop. Plants already growing can live on into autumn, but any frost or snow night kills them, so keeping them past summer is a gamble.
